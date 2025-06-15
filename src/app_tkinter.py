@@ -1,7 +1,7 @@
 # app_tkinter.py
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
-import database_manager as db
+import database_manager as db  # Import your database manager
 import export_manager
 import json
 import datetime
@@ -25,16 +25,16 @@ def get_kpi_display_name(kpi_data):
     # sqlite3.Row allows access by column name like a dictionary
     # Default to 'N/G', 'N/S', 'N/I' if the actual name is None or an empty string.
     try:
-        g_name = kpi_data["group_name"] if kpi_data["group_name"] else "N/G"
-        sg_name = kpi_data["subgroup_name"] if kpi_data["subgroup_name"] else "N/S"
-        i_name = kpi_data["indicator_name"] if kpi_data["indicator_name"] else "N/I"
+        # Use .get(key, default_if_key_missing_or_None) for robustness with sqlite3.Row
+        # Although sqlite3.Row usually has the key if selected, value can be None.
+        g_name = kpi_data["group_name"] if kpi_data["group_name"] else "N/G (Gruppo non specificato)"
+        sg_name = kpi_data["subgroup_name"] if kpi_data["subgroup_name"] else "N/S (Sottogruppo non specificato)"
+        i_name = kpi_data["indicator_name"] if kpi_data["indicator_name"] else "N/I (Indicatore non specificato)"
         return f"{g_name} > {sg_name} > {i_name}"
     except KeyError as e:
         # This means the SQL query in db.get_kpis() didn't return the expected column.
         # This should ideally not happen if the SQL is correct.
-        print(
-            f"KeyError in get_kpi_display_name: La colonna '{e}' è mancante nei dati KPI."
-        )
+        print(f"KeyError in get_kpi_display_name: La colonna '{e}' è mancante nei dati KPI.")
         return "N/D (Struttura Dati KPI Incompleta)"
     except Exception as ex:
         # Catch any other unexpected error during name construction.
@@ -88,7 +88,22 @@ class KpiApp(tk.Tk):
         self.refresh_all_relevant_data()
 
     def refresh_all_relevant_data(self):
-        self.refresh_kpi_hierarchy_displays()
+        current_group_sel_hier = None
+        if hasattr(self, "groups_listbox") and self.groups_listbox.curselection():
+            current_group_sel_hier = self.groups_listbox.get(
+                self.groups_listbox.curselection()[0]
+            )
+
+        current_subgroup_sel_hier = None
+        if hasattr(self, "subgroups_listbox") and self.subgroups_listbox.curselection():
+            current_subgroup_sel_hier = self.subgroups_listbox.get(
+                self.subgroups_listbox.curselection()[0]
+            )
+
+        self.refresh_kpi_hierarchy_displays(
+            pre_selected_group_name=current_group_sel_hier,
+            pre_selected_subgroup_name=current_subgroup_sel_hier,
+        )
         self.refresh_kpi_specs_tree()
         self.refresh_stabilimenti_tree()
         self.populate_target_comboboxes()
@@ -100,116 +115,178 @@ class KpiApp(tk.Tk):
         main_frame.pack(fill="both", expand=True)
 
         group_frame = ttk.LabelFrame(main_frame, text="Gruppi KPI", padding=10)
-        group_frame.pack(side="left", fill="both", expand=True, padx=5)
+        group_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
         self.groups_listbox = tk.Listbox(group_frame, exportselection=False, height=15)
-        self.groups_listbox.pack(fill="both", expand=True)
+        self.groups_listbox.pack(fill="both", expand=True, pady=(0, 5))
         self.groups_listbox.bind("<<ListboxSelect>>", self.on_group_select)
 
         group_btn_frame = ttk.Frame(group_frame)
-        group_btn_frame.pack(fill="x", pady=5)
+        group_btn_frame.pack(fill="x")
         ttk.Button(
-            group_btn_frame, text="Nuovo Gruppo", command=self.add_new_group
-        ).pack(side="left")
+            group_btn_frame, text="Nuovo", command=self.add_new_group, width=8
+        ).pack(side="left", padx=2)
+        self.edit_group_btn = ttk.Button(
+            group_btn_frame,
+            text="Modifica",
+            command=self.edit_selected_group,
+            state="disabled",
+            width=8,
+        )
+        self.edit_group_btn.pack(side="left", padx=2)
+        self.delete_group_btn = ttk.Button(
+            group_btn_frame,
+            text="Elimina",
+            command=self.delete_selected_group,
+            state="disabled",
+            width=8,
+        )
+        self.delete_group_btn.pack(side="left", padx=2)
 
         subgroup_frame = ttk.LabelFrame(
             main_frame, text="Sottogruppi (del gruppo selezionato)", padding=10
         )
-        subgroup_frame.pack(side="left", fill="both", expand=True, padx=5)
+        subgroup_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
         self.subgroups_listbox = tk.Listbox(
             subgroup_frame, exportselection=False, height=15
         )
-        self.subgroups_listbox.pack(fill="both", expand=True)
+        self.subgroups_listbox.pack(fill="both", expand=True, pady=(0, 5))
         self.subgroups_listbox.bind("<<ListboxSelect>>", self.on_subgroup_select)
 
         subgroup_btn_frame = ttk.Frame(subgroup_frame)
-        subgroup_btn_frame.pack(fill="x", pady=5)
+        subgroup_btn_frame.pack(fill="x")
         self.add_subgroup_btn = ttk.Button(
             subgroup_btn_frame,
-            text="Nuovo Sottogruppo",
+            text="Nuovo",
             command=self.add_new_subgroup,
             state="disabled",
+            width=8,
         )
-        self.add_subgroup_btn.pack(side="left")
+        self.add_subgroup_btn.pack(side="left", padx=2)
+        self.edit_subgroup_btn = ttk.Button(
+            subgroup_btn_frame,
+            text="Modifica",
+            command=self.edit_selected_subgroup,
+            state="disabled",
+            width=8,
+        )
+        self.edit_subgroup_btn.pack(side="left", padx=2)
+        self.delete_subgroup_btn = ttk.Button(
+            subgroup_btn_frame,
+            text="Elimina",
+            command=self.delete_selected_subgroup,
+            state="disabled",
+            width=8,
+        )
+        self.delete_subgroup_btn.pack(side="left", padx=2)
 
         indicator_frame = ttk.LabelFrame(
             main_frame, text="Indicatori (del sottogruppo selezionato)", padding=10
         )
-        indicator_frame.pack(side="left", fill="both", expand=True, padx=5)
+        indicator_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
         self.indicators_listbox = tk.Listbox(
             indicator_frame, exportselection=False, height=15
         )
-        self.indicators_listbox.pack(fill="both", expand=True)
+        self.indicators_listbox.pack(fill="both", expand=True, pady=(0, 5))
+        self.indicators_listbox.bind("<<ListboxSelect>>", self.on_indicator_select)
 
         indicator_btn_frame = ttk.Frame(indicator_frame)
-        indicator_btn_frame.pack(fill="x", pady=5)
+        indicator_btn_frame.pack(fill="x")
         self.add_indicator_btn = ttk.Button(
             indicator_btn_frame,
-            text="Nuovo Indicatore",
+            text="Nuovo",
             command=self.add_new_indicator,
             state="disabled",
+            width=8,
         )
-        self.add_indicator_btn.pack(side="left")
+        self.add_indicator_btn.pack(side="left", padx=2)
+        self.edit_indicator_btn = ttk.Button(
+            indicator_btn_frame,
+            text="Modifica",
+            command=self.edit_selected_indicator,
+            state="disabled",
+            width=8,
+        )
+        self.edit_indicator_btn.pack(side="left", padx=2)
+        self.delete_indicator_btn = ttk.Button(
+            indicator_btn_frame,
+            text="Elimina",
+            command=self.delete_selected_indicator,
+            state="disabled",
+            width=8,
+        )
+        self.delete_indicator_btn.pack(side="left", padx=2)
 
-    def refresh_kpi_hierarchy_displays(self):
-        selected_group_name = None
-        if self.groups_listbox.curselection():
-            selected_group_name = self.groups_listbox.get(
+    def refresh_kpi_hierarchy_displays(
+        self, pre_selected_group_name=None, pre_selected_subgroup_name=None
+    ):
+        if (
+            pre_selected_group_name is None
+            and hasattr(self, "groups_listbox")
+            and self.groups_listbox.curselection()
+        ):
+            pre_selected_group_name = self.groups_listbox.get(
                 self.groups_listbox.curselection()[0]
             )
 
-        selected_subgroup_name = None
-        if self.subgroups_listbox.curselection():
-            selected_subgroup_name = self.subgroups_listbox.get(
+        if (
+            pre_selected_subgroup_name is None
+            and hasattr(self, "subgroups_listbox")
+            and self.subgroups_listbox.curselection()
+        ):
+            pre_selected_subgroup_name = self.subgroups_listbox.get(
                 self.subgroups_listbox.curselection()[0]
             )
 
         self.groups_listbox.delete(0, tk.END)
         self.current_groups_map = {}
         groups_data = db.get_kpi_groups()
+        group_selected_idx = -1
         for i, group in enumerate(groups_data):
             self.groups_listbox.insert(tk.END, group["name"])
             self.current_groups_map[group["name"]] = group["id"]
-            if group["name"] == selected_group_name:
-                self.groups_listbox.selection_set(i)
-                self.groups_listbox.activate(i)
-                self.groups_listbox.see(i)
+            if group["name"] == pre_selected_group_name:
+                group_selected_idx = i
 
-        self.subgroups_listbox.delete(0, tk.END)
-        self.indicators_listbox.delete(0, tk.END)
-        self.add_subgroup_btn.config(state="disabled")
-        self.add_indicator_btn.config(state="disabled")
-
-        if selected_group_name:
-            self.on_group_select(
-                event=None, pre_selected_subgroup_name=selected_subgroup_name
-            )
+        if group_selected_idx != -1:
+            self.groups_listbox.selection_set(group_selected_idx)
+            self.groups_listbox.activate(group_selected_idx)
+            self.groups_listbox.see(group_selected_idx)
+            self.on_group_select(pre_selected_subgroup_name=pre_selected_subgroup_name)
         else:
-            self.add_subgroup_btn.config(state="disabled")
-            self.add_indicator_btn.config(state="disabled")
+            self.on_group_select()
 
     def on_group_select(self, event=None, pre_selected_subgroup_name=None):
-        selection = self.groups_listbox.curselection()
-        if not selection:
-            self.subgroups_listbox.delete(0, tk.END)
-            self.indicators_listbox.delete(0, tk.END)
-            self.add_subgroup_btn.config(state="disabled")
-            self.add_indicator_btn.config(state="disabled")
-            self.current_subgroups_map = {}
-            return
-
-        group_name = self.groups_listbox.get(selection[0])
-        group_id = self.current_groups_map.get(group_name)
-
         self.subgroups_listbox.delete(0, tk.END)
         self.indicators_listbox.delete(0, tk.END)
         self.current_subgroups_map = {}
+        self.current_indicators_map = {}
+
+        self.add_subgroup_btn.config(state="disabled")
+        self.edit_subgroup_btn.config(state="disabled")
+        self.delete_subgroup_btn.config(state="disabled")
+        self.add_indicator_btn.config(state="disabled")
+        self.edit_indicator_btn.config(state="disabled")
+        self.delete_indicator_btn.config(state="disabled")
+
+        selection = self.groups_listbox.curselection()
+        if not selection:
+            self.edit_group_btn.config(state="disabled")
+            self.delete_group_btn.config(state="disabled")
+            return
+
+        self.edit_group_btn.config(state="normal")
+        self.delete_group_btn.config(state="normal")
+        group_name = self.groups_listbox.get(selection[0])
+        group_id = self.current_groups_map.get(group_name)
+
         if group_id:
             self.selected_group_id_for_new_subgroup = group_id
             self.add_subgroup_btn.config(state="normal")
             subgroups_data = db.get_kpi_subgroups_by_group(group_id)
+            subgroup_selected_idx = -1
             for i, sg in enumerate(subgroups_data):
                 self.subgroups_listbox.insert(tk.END, sg["name"])
                 self.current_subgroups_map[sg["name"]] = sg["id"]
@@ -217,38 +294,52 @@ class KpiApp(tk.Tk):
                     pre_selected_subgroup_name
                     and sg["name"] == pre_selected_subgroup_name
                 ):
-                    self.subgroups_listbox.selection_set(i)
-                    self.subgroups_listbox.activate(i)
-                    self.subgroups_listbox.see(i)
-            if pre_selected_subgroup_name and self.subgroups_listbox.curselection():
+                    subgroup_selected_idx = i
+
+            if subgroup_selected_idx != -1:
+                self.subgroups_listbox.selection_set(subgroup_selected_idx)
+                self.subgroups_listbox.activate(subgroup_selected_idx)
+                self.subgroups_listbox.see(subgroup_selected_idx)
                 self.on_subgroup_select()
-            elif not self.subgroups_listbox.curselection():
-                self.add_indicator_btn.config(state="disabled")
+            else:
+                self.on_subgroup_select()
         else:
             self.add_subgroup_btn.config(state="disabled")
-            self.add_indicator_btn.config(state="disabled")
 
     def on_subgroup_select(self, event=None):
+        self.indicators_listbox.delete(0, tk.END)
+        self.current_indicators_map = {}
+
+        self.add_indicator_btn.config(state="disabled")
+        self.edit_indicator_btn.config(state="disabled")
+        self.delete_indicator_btn.config(state="disabled")
+
         selection = self.subgroups_listbox.curselection()
         if not selection:
-            self.indicators_listbox.delete(0, tk.END)
-            self.add_indicator_btn.config(state="disabled")
-            self.current_indicators_map = {}
+            self.edit_subgroup_btn.config(state="disabled")
+            self.delete_subgroup_btn.config(state="disabled")
             return
 
+        self.edit_subgroup_btn.config(state="normal")
+        self.delete_subgroup_btn.config(state="normal")
         subgroup_name = self.subgroups_listbox.get(selection[0])
         subgroup_id = self.current_subgroups_map.get(subgroup_name)
 
-        self.indicators_listbox.delete(0, tk.END)
-        self.current_indicators_map = {}
         if subgroup_id:
             self.selected_subgroup_id_for_new_indicator = subgroup_id
             self.add_indicator_btn.config(state="normal")
             for ind in db.get_kpi_indicators_by_subgroup(subgroup_id):
                 self.indicators_listbox.insert(tk.END, ind["name"])
                 self.current_indicators_map[ind["name"]] = ind["id"]
+        self.on_indicator_select()
+
+    def on_indicator_select(self, event=None):
+        if self.indicators_listbox.curselection():
+            self.edit_indicator_btn.config(state="normal")
+            self.delete_indicator_btn.config(state="normal")
         else:
-            self.add_indicator_btn.config(state="disabled")
+            self.edit_indicator_btn.config(state="disabled")
+            self.delete_indicator_btn.config(state="disabled")
 
     def add_new_group(self):
         name = simpledialog.askstring(
@@ -258,115 +349,244 @@ class KpiApp(tk.Tk):
             try:
                 db.add_kpi_group(name)
                 self.refresh_all_relevant_data()
+                for i in range(self.groups_listbox.size()):
+                    if self.groups_listbox.get(i) == name:
+                        self.groups_listbox.selection_set(i)
+                        self.groups_listbox.event_generate("<<ListboxSelect>>")
+                        break
             except Exception as e:
                 messagebox.showerror("Errore", f"Impossibile aggiungere gruppo: {e}")
 
-    def add_new_subgroup(self):
-        if (
-            not hasattr(self, "selected_group_id_for_new_subgroup")
-            or not self.selected_group_id_for_new_subgroup
+    def edit_selected_group(self):
+        selection = self.groups_listbox.curselection()
+        if not selection:
+            return
+        old_name = self.groups_listbox.get(selection[0])
+        group_id = self.current_groups_map.get(old_name)
+        new_name = simpledialog.askstring(
+            "Modifica Gruppo",
+            "Nuovo nome per il Gruppo:",
+            initialvalue=old_name,
+            parent=self,
+        )
+        if new_name and new_name != old_name:
+            try:
+                db.update_kpi_group(group_id, new_name)
+                self.refresh_kpi_hierarchy_displays(pre_selected_group_name=new_name)
+                self.refresh_all_relevant_data()
+            except Exception as e:
+                messagebox.showerror("Errore", f"Impossibile modificare gruppo: {e}")
+
+    def delete_selected_group(self):
+        selection = self.groups_listbox.curselection()
+        if not selection:
+            return
+        name_to_delete = self.groups_listbox.get(selection[0])
+        group_id = self.current_groups_map.get(name_to_delete)
+        if messagebox.askyesno(
+            "Conferma Eliminazione",
+            f"Sei sicuro di voler eliminare il gruppo '{name_to_delete}'?\nATTENZIONE: Questo eliminerà anche tutti i sottogruppi, indicatori, specifiche KPI e target associati a questo gruppo.",
+            parent=self,
         ):
+            try:
+                db.delete_kpi_group(group_id)
+                self.refresh_all_relevant_data()
+            except Exception as e:
+                messagebox.showerror("Errore", f"Impossibile eliminare gruppo: {e}")
+
+    def add_new_subgroup(self):
+        group_selection = self.groups_listbox.curselection()
+        if not group_selection:
             messagebox.showwarning("Attenzione", "Seleziona prima un gruppo.")
             return
+        group_name = self.groups_listbox.get(group_selection[0])
+        group_id = self.current_groups_map.get(group_name)
+        if not group_id:
+            return
+
         name = simpledialog.askstring(
             "Nuovo Sottogruppo", "Nome del nuovo Sottogruppo KPI:", parent=self
         )
         if name:
             try:
-                db.add_kpi_subgroup(name, self.selected_group_id_for_new_subgroup)
-                selected_group_name = None
-                if self.groups_listbox.curselection():
-                    selected_group_name = self.groups_listbox.get(
-                        self.groups_listbox.curselection()[0]
-                    )
+                db.add_kpi_subgroup(name, group_id)
+                self.refresh_kpi_hierarchy_displays(
+                    pre_selected_group_name=group_name, pre_selected_subgroup_name=name
+                )
                 self.refresh_all_relevant_data()
-
-                if selected_group_name:
-                    for i in range(self.groups_listbox.size()):
-                        if self.groups_listbox.get(i) == selected_group_name:
-                            self.groups_listbox.selection_set(i)
-                            self.groups_listbox.event_generate("<<ListboxSelect>>")
-                            self.after(
-                                50,
-                                lambda n=name: self._select_new_item_in_listbox(
-                                    self.subgroups_listbox, n
-                                ),
-                            )
-                            break
             except Exception as e:
                 messagebox.showerror(
                     "Errore", f"Impossibile aggiungere sottogruppo: {e}"
                 )
 
-    def _select_new_item_in_listbox(self, listbox, item_name):
-        for i in range(listbox.size()):
-            if listbox.get(i) == item_name:
-                listbox.selection_set(i)
-                listbox.activate(i)
-                listbox.see(i)
-                listbox.event_generate("<<ListboxSelect>>")
-                break
+    def edit_selected_subgroup(self):
+        group_selection = self.groups_listbox.curselection()
+        subgroup_selection = self.subgroups_listbox.curselection()
+        if not group_selection or not subgroup_selection:
+            return
+
+        old_name = self.subgroups_listbox.get(subgroup_selection[0])
+        subgroup_id = self.current_subgroups_map.get(old_name)
+        group_name = self.groups_listbox.get(group_selection[0])
+        group_id = self.current_groups_map.get(group_name)
+
+        new_name = simpledialog.askstring(
+            "Modifica Sottogruppo",
+            "Nuovo nome per il Sottogruppo:",
+            initialvalue=old_name,
+            parent=self,
+        )
+        if new_name and new_name != old_name:
+            try:
+                db.update_kpi_subgroup(subgroup_id, new_name, group_id)
+                self.refresh_kpi_hierarchy_displays(
+                    pre_selected_group_name=group_name,
+                    pre_selected_subgroup_name=new_name,
+                )
+                self.refresh_all_relevant_data()
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore", f"Impossibile modificare sottogruppo: {e}"
+                )
+
+    def delete_selected_subgroup(self):
+        group_selection = self.groups_listbox.curselection()
+        subgroup_selection = self.subgroups_listbox.curselection()
+        if not subgroup_selection:
+            return
+
+        name_to_delete = self.subgroups_listbox.get(subgroup_selection[0])
+        subgroup_id = self.current_subgroups_map.get(name_to_delete)
+        group_name_for_refresh = (
+            self.groups_listbox.get(group_selection[0]) if group_selection else None
+        )
+
+        if messagebox.askyesno(
+            "Conferma Eliminazione",
+            f"Sei sicuro di voler eliminare il sottogruppo '{name_to_delete}'?\nATTENZIONE: Questo eliminerà anche tutti gli indicatori, specifiche KPI e target associati.",
+            parent=self,
+        ):
+            try:
+                db.delete_kpi_subgroup(subgroup_id)
+                self.refresh_kpi_hierarchy_displays(
+                    pre_selected_group_name=group_name_for_refresh
+                )
+                self.refresh_all_relevant_data()
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore", f"Impossibile eliminare sottogruppo: {e}"
+                )
 
     def add_new_indicator(self):
-        if (
-            not hasattr(self, "selected_subgroup_id_for_new_indicator")
-            or not self.selected_subgroup_id_for_new_indicator
-        ):
-            messagebox.showwarning(
-                "Attenzione", "Seleziona prima un gruppo e un sottogruppo."
-            )
+        subgroup_selection = self.subgroups_listbox.curselection()
+        if not subgroup_selection:
+            messagebox.showwarning("Attenzione", "Seleziona prima un sottogruppo.")
             return
+
+        group_name_for_refresh = None
+        if self.groups_listbox.curselection():
+            group_name_for_refresh = self.groups_listbox.get(
+                self.groups_listbox.curselection()[0]
+            )
+        subgroup_name_for_refresh = self.subgroups_listbox.get(subgroup_selection[0])
+        subgroup_id = self.current_subgroups_map.get(subgroup_name_for_refresh)
+        if not subgroup_id:
+            return
+
         name = simpledialog.askstring(
             "Nuovo Indicatore", "Nome del nuovo Indicatore KPI:", parent=self
         )
         if name:
             try:
-                db.add_kpi_indicator(name, self.selected_subgroup_id_for_new_indicator)
-                selected_group_name = None
-                selected_subgroup_name = None
-                if self.groups_listbox.curselection():
-                    selected_group_name = self.groups_listbox.get(
-                        self.groups_listbox.curselection()[0]
-                    )
-                if self.subgroups_listbox.curselection():
-                    selected_subgroup_name = self.subgroups_listbox.get(
-                        self.subgroups_listbox.curselection()[0]
-                    )
-
+                db.add_kpi_indicator(name, subgroup_id)
+                self.refresh_kpi_hierarchy_displays(
+                    pre_selected_group_name=group_name_for_refresh,
+                    pre_selected_subgroup_name=subgroup_name_for_refresh,
+                )
+                self.after(
+                    100,
+                    lambda n=name: self._select_new_item_in_listbox(
+                        self.indicators_listbox, n
+                    ),
+                )
                 self.refresh_all_relevant_data()
-
-                if selected_group_name:
-                    for i in range(self.groups_listbox.size()):
-                        if self.groups_listbox.get(i) == selected_group_name:
-                            self.groups_listbox.selection_set(i)
-                            self.groups_listbox.event_generate("<<ListboxSelect>>")
-                            if selected_subgroup_name:
-                                self.after(
-                                    50,
-                                    lambda sn=selected_subgroup_name, new_ind_name=name: self._select_sub_and_new_indicator(
-                                        sn, new_ind_name
-                                    ),
-                                )
-                            break
             except Exception as e:
                 messagebox.showerror(
                     "Errore", f"Impossibile aggiungere indicatore: {e}"
                 )
 
-    def _select_sub_and_new_indicator(self, subgroup_name, indicator_name):
-        for i in range(self.subgroups_listbox.size()):
-            if self.subgroups_listbox.get(i) == subgroup_name:
-                self.subgroups_listbox.selection_set(i)
-                self.subgroups_listbox.activate(i)
-                self.subgroups_listbox.see(i)
-                self.subgroups_listbox.event_generate("<<ListboxSelect>>")
+    def edit_selected_indicator(self):
+        group_selection = self.groups_listbox.curselection()
+        subgroup_selection = self.subgroups_listbox.curselection()
+        indicator_selection = self.indicators_listbox.curselection()
+        if not subgroup_selection or not indicator_selection:
+            return
+
+        old_name = self.indicators_listbox.get(indicator_selection[0])
+        indicator_id = self.current_indicators_map.get(old_name)
+        subgroup_name = self.subgroups_listbox.get(subgroup_selection[0])
+        subgroup_id = self.current_subgroups_map.get(subgroup_name)
+        group_name_for_refresh = (
+            self.groups_listbox.get(group_selection[0]) if group_selection else None
+        )
+
+        new_name = simpledialog.askstring(
+            "Modifica Indicatore",
+            "Nuovo nome per l'Indicatore:",
+            initialvalue=old_name,
+            parent=self,
+        )
+        if new_name and new_name != old_name:
+            try:
+                db.update_kpi_indicator(indicator_id, new_name, subgroup_id)
+                self.refresh_kpi_hierarchy_displays(
+                    pre_selected_group_name=group_name_for_refresh,
+                    pre_selected_subgroup_name=subgroup_name,
+                )
                 self.after(
-                    50,
-                    lambda n=indicator_name: self._select_new_item_in_listbox(
+                    100,
+                    lambda n=new_name: self._select_new_item_in_listbox(
                         self.indicators_listbox, n
                     ),
                 )
-                break
+                self.refresh_all_relevant_data()
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore", f"Impossibile modificare indicatore: {e}"
+                )
+
+    def delete_selected_indicator(self):
+        indicator_selection = self.indicators_listbox.curselection()
+        if not indicator_selection:
+            return
+
+        name_to_delete = self.indicators_listbox.get(indicator_selection[0])
+        indicator_id = self.current_indicators_map.get(name_to_delete)
+
+        group_name_for_refresh, subgroup_name_for_refresh = None, None
+        if self.groups_listbox.curselection():
+            group_name_for_refresh = self.groups_listbox.get(
+                self.groups_listbox.curselection()[0]
+            )
+        if self.subgroups_listbox.curselection():
+            subgroup_name_for_refresh = self.subgroups_listbox.get(
+                self.subgroups_listbox.curselection()[0]
+            )
+
+        if messagebox.askyesno(
+            "Conferma Eliminazione",
+            f"Sei sicuro di voler eliminare l'indicatore '{name_to_delete}'?\nATTENZIONE: Questo eliminerà anche la specifica KPI e tutti i target associati.",
+            parent=self,
+        ):
+            try:
+                db.delete_kpi_indicator(indicator_id)
+                self.refresh_kpi_hierarchy_displays(
+                    pre_selected_group_name=group_name_for_refresh,
+                    pre_selected_subgroup_name=subgroup_name_for_refresh,
+                )
+                self.refresh_all_relevant_data()
+            except Exception as e:
+                messagebox.showerror("Errore", f"Impossibile eliminare indicatore: {e}")
 
     # --- Scheda Gestione Specifiche KPI ---
     def create_kpi_spec_widgets(self):
@@ -701,22 +921,18 @@ class KpiApp(tk.Tk):
             subgroup_to_select=kpi_data["subgroup_name"],
             indicator_to_select=kpi_data["indicator_name"],
         )
-        # The call to populate_kpi_spec_hier_combos above will correctly set the combobox values
-        # and trigger the chain that calls _load_or_prepare_kpi_spec_fields,
-        # which then calls _set_kpi_spec_fields_from_data to fill the description, type, unit, etc.
-        # It also sets the save button text.
 
         self._populating_kpi_spec_combos = False
 
     def clear_kpi_spec_fields_button_action(self):
         self._populating_kpi_spec_combos = True
         self.clear_kpi_spec_fields(keep_hierarchy=False)
-        self.kpi_spec_group_var.set("")  # Explicitly clear vars tied to comboboxes
+        self.kpi_spec_group_var.set("")
         self.kpi_spec_subgroup_var.set("")
         self.kpi_spec_indicator_var.set("")
-        self.kpi_spec_subgroup_cb["values"] = []  # Clear lists
+        self.kpi_spec_subgroup_cb["values"] = []
         self.kpi_spec_indicator_cb["values"] = []
-        self.populate_kpi_spec_hier_combos()  # This will repopulate groups, and others will be cleared
+        self.populate_kpi_spec_hier_combos()
         self._populating_kpi_spec_combos = False
 
     def clear_kpi_spec_fields(
@@ -726,29 +942,27 @@ class KpiApp(tk.Tk):
         keep_subgroup=False,
         keep_indicator=False,
     ):
-        # This method is primarily for clearing the data entry fields (description, type, etc.)
-        # and managing the state (current_editing_kpi_id, selected_indicator_id_for_spec).
-        # The StringVars for comboboxes are reset here IF their 'keep_X' flag is false.
-        # The actual 'values' list of comboboxes should be managed by _populate methods.
-
-        if not keep_hierarchy:  # Clears all three hierarchy StringVars
-            self.kpi_spec_group_var.set("")
-            self.kpi_spec_subgroup_var.set("")
-            self.kpi_spec_indicator_var.set("")
+        if not keep_hierarchy:
+            if not self._populating_kpi_spec_combos:
+                self.kpi_spec_group_var.set("")
+                self.kpi_spec_subgroup_var.set("")
+                self.kpi_spec_indicator_var.set("")
             self.selected_indicator_id_for_spec = None
-        elif not keep_group:  # Clears group and its dependents
-            self.kpi_spec_group_var.set("")
-            self.kpi_spec_subgroup_var.set("")
-            self.kpi_spec_indicator_var.set("")
+        elif not keep_group:
+            if not self._populating_kpi_spec_combos:
+                self.kpi_spec_group_var.set("")
+                self.kpi_spec_subgroup_var.set("")
+                self.kpi_spec_indicator_var.set("")
             self.selected_indicator_id_for_spec = None
-        elif not keep_subgroup:  # Clears subgroup and its dependent
-            self.kpi_spec_subgroup_var.set("")
-            self.kpi_spec_indicator_var.set("")
+        elif not keep_subgroup:
+            if not self._populating_kpi_spec_combos:
+                self.kpi_spec_subgroup_var.set("")
+                self.kpi_spec_indicator_var.set("")
             self.selected_indicator_id_for_spec = None
-        elif not keep_indicator:  # Clears only indicator
-            self.kpi_spec_indicator_var.set("")
+        elif not keep_indicator:
+            if not self._populating_kpi_spec_combos:
+                self.kpi_spec_indicator_var.set("")
             self.selected_indicator_id_for_spec = None
-        # If all keep_X are True, none of the StringVars for comboboxes are changed here.
 
         self.kpi_spec_desc_var.set("")
         self.kpi_spec_type_var.set("Incrementale")
@@ -1253,6 +1467,7 @@ class KpiApp(tk.Tk):
             widget.destroy()
         self.kpi_target_entry_widgets.clear()
         self.canvas_target.yview_moveto(0)
+
         if not self.stabilimento_var_target.get() or not self.year_var_target.get():
             ttk.Label(
                 self.scrollable_frame_target, text="Seleziona anno e stabilimento."
@@ -1265,85 +1480,89 @@ class KpiApp(tk.Tk):
             )
             if stabilimento_id is None:
                 ttk.Label(
-                    self.scrollable_frame_target,
-                    text="Stabilimento selezionato non valido.",
+                    self.scrollable_frame_target, text="Stabilimento selezionato non valido."
                 ).pack(pady=10)
                 return
         except ValueError:
-            ttk.Label(self.scrollable_frame_target, text="Anno non valido.").pack(
-                pady=10
-            )
-            return
-        kpis_for_target_entry = db.get_kpis(only_visible=True)
-        if not kpis_for_target_entry:
             ttk.Label(
-                self.scrollable_frame_target,
-                text="Nessun KPI (visibile per target) definito nel sistema.",
+                self.scrollable_frame_target, text="Anno non valido."
             ).pack(pady=10)
             return
+
+        kpis_for_target_entry = db.get_kpis(only_visible=True) # This is already ordered
+        if not kpis_for_target_entry:
+            ttk.Label(
+                self.scrollable_frame_target, text="Nessun KPI (visibile per target) definito nel sistema."
+            ).pack(pady=10)
+            return
+
         for kpi_row_data in kpis_for_target_entry:
-            if not isinstance(kpi_row_data, (sqlite3.Row, dict)):
-                continue
-            kpi_id = kpi_row_data["id"]
-            if kpi_id is None:
-                continue
+            if not isinstance(kpi_row_data, (sqlite3.Row, dict)): continue # Safety check
+
+            kpi_id = kpi_row_data["id"] # Assuming 'id' is the kpi_spec_id
+            if kpi_id is None: continue # Should not happen if data is clean
+
+            # Use the improved helper function for the display name
             kpi_display_name_str = get_kpi_display_name(kpi_row_data)
-            kpi_unit = kpi_row_data["unit_of_measure"] or ""
+            
+            kpi_unit = kpi_row_data["unit_of_measure"] or "" # Default to empty string if None
             calc_type = kpi_row_data["calculation_type"]
-            frame_label_text = (
-                f"{kpi_display_name_str}{f' (Unità: {kpi_unit})' if kpi_unit else ''}"
-            )
+
+            # Construct the label for the LabelFrame, ensuring it's clear
+            frame_label_text = kpi_display_name_str
+            if kpi_unit:
+                frame_label_text += f" (Unità: {kpi_unit})"
+            else:
+                frame_label_text += " (Unità: N/D)"
+
+
             kpi_entry_frame = ttk.LabelFrame(
                 self.scrollable_frame_target, text=frame_label_text, padding=10
             )
-            kpi_entry_frame.pack(fill="x", expand=True, padx=5, pady=(0, 7))
+            kpi_entry_frame.pack(fill="x", expand=True, padx=5, pady=(0,7))
+
             existing_target_db = db.get_annual_target(year, stabilimento_id, kpi_id)
-            (
-                def_target1_val,
-                def_target2_val,
-                def_logic_val,
-                def_profile_val,
-                def_repart_map_val,
-            ) = (0.0, 0.0, "Mese", "annual_progressive", {})
-            if existing_target_db and isinstance(
-                existing_target_db, (sqlite3.Row, dict)
-            ):
+            def_target1_val, def_target2_val, def_logic_val, def_profile_val, def_repart_map_val = 0.0, 0.0, "Mese", "annual_progressive", {}
+            
+            if existing_target_db and isinstance(existing_target_db, (sqlite3.Row, dict)):
                 def_target1_val = float(existing_target_db["annual_target1"] or 0.0)
                 def_target2_val = float(existing_target_db["annual_target2"] or 0.0)
                 def_logic_val = existing_target_db["repartition_logic"] or "Mese"
                 db_profile = existing_target_db["distribution_profile"]
                 if db_profile and db_profile in self.distribution_profile_options_tk:
                     def_profile_val = db_profile
-                elif not db_profile:
+                elif not db_profile: # if None or empty string from DB
                     def_profile_val = "annual_progressive"
+                
                 repart_values_str = existing_target_db["repartition_values"]
                 if repart_values_str:
                     try:
                         loaded_map = json.loads(repart_values_str)
-                        if isinstance(loaded_map, dict):
-                            def_repart_map_val = loaded_map
+                        if isinstance(loaded_map, dict): def_repart_map_val = loaded_map
                     except json.JSONDecodeError:
-                        pass
-            target1_var, target2_var = tk.DoubleVar(
-                value=def_target1_val
-            ), tk.DoubleVar(value=def_target2_val)
-            profile_var_entry, logic_var_entry = tk.StringVar(
-                value=def_profile_val
-            ), tk.StringVar(value=def_logic_val)
+                        def_repart_map_val = {} # Fallback if JSON is malformed
+
+            target1_var = tk.DoubleVar(value=def_target1_val)
+            target2_var = tk.DoubleVar(value=def_target2_val)
+            profile_var_entry = tk.StringVar(value=def_profile_val)
+            logic_var_entry = tk.StringVar(value=def_logic_val)
             repartition_input_vars_entry = {}
+
             top_row_frame_entry = ttk.Frame(kpi_entry_frame)
             top_row_frame_entry.pack(fill="x", pady=(0, 5))
             ttk.Label(top_row_frame_entry, text="Target 1:", width=8).pack(side="left")
             ttk.Entry(top_row_frame_entry, textvariable=target1_var, width=10).pack(
-                side="left", padx=(2, 8)
+                side="left", padx=(2,8)
             )
-            ttk.Label(top_row_frame_entry, text="Target 2:", width=8).pack(side="left")
+            ttk.Label(top_row_frame_entry, text="Target 2:", width=8).pack(
+                side="left"
+            )
             ttk.Entry(top_row_frame_entry, textvariable=target2_var, width=10).pack(
-                side="left", padx=(2, 8)
+                side="left", padx=(2,8)
             )
-            ttk.Label(
-                top_row_frame_entry, text="Profilo Distribuzione:", width=18
-            ).pack(side="left")
+            ttk.Label(top_row_frame_entry, text="Profilo Distribuzione:", width=18).pack(
+                side="left"
+            )
             profile_cb_entry = ttk.Combobox(
                 top_row_frame_entry,
                 textvariable=profile_var_entry,
@@ -1351,13 +1570,17 @@ class KpiApp(tk.Tk):
                 state="readonly",
                 width=26,
             )
-            profile_cb_entry.pack(side="left", padx=(2, 0), fill="x", expand=True)
+            profile_cb_entry.pack(side="left", padx=(2,0), fill="x", expand=True)
+
             repartition_controls_container_entry = ttk.Frame(kpi_entry_frame)
-            repartition_controls_container_entry.pack(fill="x", pady=(2, 0))
-            cmd_profile_change = lambda e, p=profile_var_entry, l=logic_var_entry, r=repartition_input_vars_entry, cont=repartition_controls_container_entry, dmap=def_repart_map_val, kid=kpi_id, ctype=calc_type: self._update_repartition_input_area_tk(
-                cont, p, l, r, dmap, kid, ctype
-            )
+            repartition_controls_container_entry.pack(fill="x", pady=(2,0))
+
+            cmd_profile_change = lambda e, p=profile_var_entry, l=logic_var_entry, r=repartition_input_vars_entry, \
+                               container=repartition_controls_container_entry, def_map=def_repart_map_val, \
+                               k_id=kpi_id, c_type=calc_type: \
+                               self._update_repartition_input_area_tk(container, p, l, r, def_map, k_id, c_type)
             profile_cb_entry.bind("<<ComboboxSelected>>", cmd_profile_change)
+
             self.kpi_target_entry_widgets[kpi_id] = {
                 "target1_var": target1_var,
                 "target2_var": target2_var,
@@ -1366,7 +1589,7 @@ class KpiApp(tk.Tk):
                 "repartition_vars": repartition_input_vars_entry,
                 "calc_type": calc_type,
                 "repartition_controls_container": repartition_controls_container_entry,
-                "kpi_display_name": kpi_display_name_str,
+                "kpi_display_name": kpi_display_name_str # Store the potentially "N/G > N/S > N/I" name for error messages
             }
             self._update_repartition_input_area_tk(
                 repartition_controls_container_entry,
@@ -1379,6 +1602,7 @@ class KpiApp(tk.Tk):
             )
         self.scrollable_frame_target.update_idletasks()
         self.canvas_target.config(scrollregion=self.canvas_target.bbox("all"))
+
 
     def save_all_targets_entry(self):
         try:
@@ -1616,7 +1840,6 @@ class KpiApp(tk.Tk):
             )
         else:
             self.res_stabilimento_var_vis.set("")
-
         current_group, current_subgroup, current_indicator = (
             self.res_group_var.get(),
             self.res_subgroup_var.get(),
@@ -1624,7 +1847,6 @@ class KpiApp(tk.Tk):
         )
         self.res_groups_list = db.get_kpi_groups()
         self.res_group_cb["values"] = [g["name"] for g in self.res_groups_list]
-
         if current_group and current_group in [g["name"] for g in self.res_groups_list]:
             self.res_group_var.set(current_group)
             self.on_res_group_selected(
@@ -1635,7 +1857,6 @@ class KpiApp(tk.Tk):
             self.res_group_var.set("")
             self.res_subgroup_var.set("")
             self.res_indicator_var.set("")
-            # Corrected individual assignments here
             self.res_subgroup_cb["values"] = []
             self.res_indicator_cb["values"] = []
             self.current_kpi_id_for_results = None
@@ -1944,5 +2165,7 @@ class KpiApp(tk.Tk):
 
 
 if __name__ == "__main__":
+    # Ensure databases are set up before the app starts
+    db.setup_databases()  # Explicit call to setup databases
     app = KpiApp()
     app.mainloop()
