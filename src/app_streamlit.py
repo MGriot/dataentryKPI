@@ -1,584 +1,1496 @@
+# app_streamlit.py
 import streamlit as st
 import pandas as pd
-import database_manager as db
-import export_manager  # Importa il nuovo modulo
+import database_manager as db  # Your database manager
+import export_manager  # Your export manager
 import json
 import datetime
 import calendar
-from pathlib import Path  # Per st.download_button
+from pathlib import Path
+import sqlite3  # For type hinting and error catching if needed
+
+# --- Database Setup ---
+try:
+    db.setup_databases()
+except Exception as e:
+    st.error(f"Failed to setup databases: {e}")
+    st.stop()
 
 # --- Page Configuration ---
 st.set_page_config(layout="wide", page_title="Gestione Target KPI")
-st.title("📊 Applicazione Gestione Target KPI")
-st.markdown("Utilizza la barra laterale per navigare tra le diverse sezioni.")
-
-# --- Sidebar Navigation (Updated) ---
-page = st.sidebar.radio(
-    "Seleziona una pagina",
-    (
-        "Inserimento Target",
-        "Gestione KPI e Gerarchia",  # Pages combined and renamed
-        "Gestione Stabilimenti",
-        "Visualizzazione Risultati",
-        "Esportazione Dati",
-    ),
-)
+st.title("Gestione Target KPI - Web")
 
 
-# --- Utility Functions for KPI Hierarchy ---
-# These functions are local to this Streamlit script.
-# They act as a bridge between the Streamlit UI and the database manager.
-def get_group_options():
-    """Fetches KPI groups from the DB and formats them for a Streamlit selectbox."""
+# --- Helper Function (from Tkinter, slightly adapted if needed) ---
+def get_kpi_display_name(kpi_data):
+    if not kpi_data:
+        return "N/D (KPI Data Mancante)"
+    try:
+        # kpi_data will now be a dict, so .get() is appropriate
+        g_name = kpi_data.get("group_name") or "N/G (Gruppo non specificato)"
+        sg_name = kpi_data.get("subgroup_name") or "N/S (Sottogruppo non specificato)"
+        i_name = kpi_data.get("indicator_name") or "N/I (Indicatore non specificato)"
+        return f"{g_name} > {sg_name} > {i_name}"
+    except KeyError as e:  # Should be less likely with dicts if keys are consistent
+        st.error(
+            f"KeyError in get_kpi_display_name: La colonna '{e}' è mancante nei dati KPI."
+        )
+        return "N/D (Struttura Dati KPI Incompleta)"
+    except Exception as ex:
+        st.error(f"Errore imprevisto in get_kpi_display_name: {ex}")
+        return "N/D (Errore Display Nome)"
+
+
+# --- Cached Data Fetching Functions (MODIFIED FOR PICKLING) ---
+@st.cache_data
+def load_kpi_groups():
     groups = db.get_kpi_groups()
-    return {g["name"]: g["id"] for g in groups}
-
-
-def get_subgroup_options(group_id):
-    """Fetches KPI subgroups for a given group ID and formats them."""
-    if not group_id:
-        return {}
-    subgroups = db.get_kpi_subgroups_by_group(group_id)
-    return {sg["name"]: sg["id"] for sg in subgroups}
-
-
-def get_indicator_options(subgroup_id):
-    """Fetches KPI indicators for a given subgroup ID and formats them."""
-    if not subgroup_id:
-        return {}
-    indicators = db.get_kpi_indicators_by_subgroup(subgroup_id)
-    return {i["name"]: i["id"] for i in indicators}
-
-
-def get_kpi_display_name(kpi_row):
-    """Creates a full hierarchical name for a KPI for display purposes."""
-    return f"{kpi_row['group_name']} > {kpi_row['subgroup_name']} > {kpi_row['indicator_name']}"
-
-
-# --- Cached Data Loading Functions ---
-@st.cache_data  # Cache for KPI data which now includes the hierarchy
-def get_kpi_df_with_hierarchy():
-    """Fetches all KPI specifications with their full hierarchy names."""
-    kpis = (
-        db.get_kpis()
-    )  # This function now returns group_name, subgroup_name, indicator_name
-    if not kpis:
-        return pd.DataFrame(
-            columns=[
-                "ID",
-                "Gruppo",
-                "Sottogruppo",
-                "Indicatore",
-                "Descrizione",
-                "Tipo Calcolo",
-                "Unità Misura",
-                "Visibile",
-            ]
-        )
-
-    df_data = []
-    for kpi_row in kpis:
-        df_data.append(
-            {
-                "ID": kpi_row["id"],
-                "Gruppo": kpi_row["group_name"],
-                "Sottogruppo": kpi_row["subgroup_name"],
-                "Indicatore": kpi_row["indicator_name"],
-                "Descrizione": kpi_row["description"],
-                "Tipo Calcolo": kpi_row["calculation_type"],
-                "Unità Misura": (
-                    kpi_row["unit_of_measure"] if kpi_row["unit_of_measure"] else ""
-                ),
-                "Visibile": True if kpi_row["visible"] == 1 else False,
-            }
-        )
-    return pd.DataFrame(df_data)
+    if not groups:
+        return []
+    return [dict(g) for g in groups]  # Convert sqlite3.Row to dict
 
 
 @st.cache_data
-def get_stabilimenti_df():
-    """Fetches all stabilimenti (locations/plants) from the database."""
-    stabilimenti = db.get_stabilimenti()
+def load_kpi_subgroups_by_group(group_id):
+    if not group_id:
+        return []
+    subgroups = db.get_kpi_subgroups_by_group(group_id)
+    if not subgroups:
+        return []
+    return [dict(sg) for sg in subgroups]  # Convert sqlite3.Row to dict
+
+
+@st.cache_data
+def load_kpi_indicators_by_subgroup(subgroup_id):
+    if not subgroup_id:
+        return []
+    indicators = db.get_kpi_indicators_by_subgroup(subgroup_id)
+    if not indicators:
+        return []
+    return [dict(ind) for ind in indicators]  # Convert sqlite3.Row to dict
+
+
+@st.cache_data
+def load_all_kpis_with_hierarchy():
+    kpis = db.get_kpis()
+    if not kpis:
+        return []
+    return [dict(kpi) for kpi in kpis]  # Convert sqlite3.Row to dict
+
+
+@st.cache_data
+def load_kpi_by_id(kpi_id):
+    kpi = db.get_kpi_by_id(kpi_id)
+    if not kpi:
+        return None
+    return dict(kpi)  # Convert single sqlite3.Row to dict
+
+
+@st.cache_data
+def load_stabilimenti(only_visible=False):
+    stabilimenti = db.get_stabilimenti(only_visible=only_visible)
     if not stabilimenti:
-        return pd.DataFrame(columns=["ID", "Nome", "Visibile"])
-    df = pd.DataFrame(stabilimenti, columns=["id", "name", "visible"])
-    df.rename(columns={"id": "ID", "name": "Nome", "visible": "Visibile"}, inplace=True)
-    df["Visibile"] = df["Visibile"].apply(lambda x: True if x == 1 else False)
-    return df
+        return []
+    return [dict(s) for s in stabilimenti]  # Convert sqlite3.Row to dict
 
 
-# --- COMBINED PAGE: KPI AND HIERARCHY MANAGEMENT ---
-if page == "Gestione KPI e Gerarchia":
-    st.header("⚙️ Gestione KPI e Gerarchia")
+@st.cache_data
+def load_annual_target(year, stabilimento_id, kpi_id):
+    target = db.get_annual_target(year, stabilimento_id, kpi_id)
+    if not target:
+        return None
+    return dict(target)  # Convert single sqlite3.Row to dict
 
-    # --- Initialize session state for cascading dropdowns in the 'Add Spec' form ---
-    if 'add_spec_group_name' not in st.session_state:
-        st.session_state.add_spec_group_name = None
-    if 'add_spec_subgroup_name' not in st.session_state:
-        st.session_state.add_spec_subgroup_name = None
 
-    # --- Callback to reset child dropdowns when a parent changes ---
-    def reset_subgroup_selection():
-        st.session_state.add_spec_subgroup_name = None
+@st.cache_data
+def load_ripartiti_data(year, stabilimento_id, kpi_id, period_type, target_num):
+    data = db.get_ripartiti_data(year, stabilimento_id, kpi_id, period_type, target_num)
+    if not data:
+        return []
+    # If db.get_ripartiti_data itself constructs dicts, this might not be needed
+    # But to be safe, convert if it could return sqlite3.Row objects
+    return [dict(row) for row in data]
 
-    col_hierarchy, col_specs = st.columns([1, 2], gap="large")
 
-    with col_hierarchy:
-        st.subheader("Crea Nuova Gerarchia")
+# --- Distribution Profile Options ---
+DISTRIBUTION_PROFILE_OPTIONS = [
+    "annual_progressive",
+    "monthly_sinusoidal",
+    "legacy_intra_period_progressive",
+]
 
-        # Form to add a new group
-        with st.form("new_group_form", clear_on_submit=True):
-            st.markdown("**1. Aggiungi Gruppo**")
-            new_group_name = st.text_input("Nome Nuovo Gruppo")
-            if st.form_submit_button("Crea Gruppo", use_container_width=True):
-                if new_group_name:
-                    try:
-                        db.add_kpi_group(new_group_name)
-                        st.success(f"Gruppo '{new_group_name}' aggiunto.")
-                    except Exception as e:
-                        st.error(f"Errore: Il gruppo potrebbe già esistere. ({e})")
-                else:
-                    st.warning("Inserisci un nome per il gruppo.")
-        st.markdown("---")
+# --- Initialize Session State ---
+# For KPI Hierarchy tab
+if "hr_selected_group_id" not in st.session_state:
+    st.session_state.hr_selected_group_id = None
+if "hr_selected_subgroup_id" not in st.session_state:
+    st.session_state.hr_selected_subgroup_id = None
+if "hr_selected_indicator_id" not in st.session_state:
+    st.session_state.hr_selected_indicator_id = None
+if "hr_editing_item_type" not in st.session_state:
+    st.session_state.hr_editing_item_type = None
+if "hr_editing_item_id" not in st.session_state:
+    st.session_state.hr_editing_item_id = None
+if "hr_editing_item_name" not in st.session_state:
+    st.session_state.hr_editing_item_name = ""
 
-        # Form to add a new subgroup
-        with st.form("new_subgroup_form", clear_on_submit=True):
-            st.markdown("**2. Aggiungi Sottogruppo**")
-            group_options_sg = db.get_group_options()
-            parent_group_name_sg = st.selectbox(
-                "Scegli Gruppo di appartenenza", list(group_options_sg.keys()), index=None
-            )
-            new_subgroup_name = st.text_input("Nome Nuovo Sottogruppo")
-            if st.form_submit_button("Crea Sottogruppo", use_container_width=True):
-                if new_subgroup_name and parent_group_name_sg:
-                    parent_group_id_sg = group_options_sg.get(parent_group_name_sg)
-                    try:
-                        db.add_kpi_subgroup(new_subgroup_name, parent_group_id_sg)
-                        st.success(f"Sottogruppo '{new_subgroup_name}' aggiunto.")
-                    except Exception as e:
-                        st.error(f"Errore: Il sottogruppo potrebbe già esistere in questo gruppo. ({e})")
-                else:
-                    st.warning("Scegli un gruppo e inserisci un nome.")
-        st.markdown("---")
-        
-        # Form to add a new indicator
-        with st.form("new_indicator_form", clear_on_submit=True):
-            st.markdown("**3. Aggiungi Indicatore**")
-            group_options_ind = db.get_group_options()
-            parent_group_name_ind = st.selectbox(
-                "Scegli Gruppo", list(group_options_ind.keys()), index=None, key="ind_group_sel"
-            )
-            parent_group_id_ind = group_options_ind.get(parent_group_name_ind)
-            
-            subgroup_options_ind = db.get_subgroup_options(parent_group_id_ind)
-            parent_subgroup_name_ind = st.selectbox(
-                "Scegli Sottogruppo", list(subgroup_options_ind.keys()), index=None, disabled=not parent_group_id_ind
-            )
-            new_indicator_name = st.text_input("Nome Nuovo Indicatore")
-            
-            if st.form_submit_button("Crea Indicatore", use_container_width=True):
-                if new_indicator_name and parent_subgroup_name_ind:
-                    parent_subgroup_id_ind = subgroup_options_ind.get(parent_subgroup_name_ind)
-                    try:
-                        db.add_kpi_indicator(new_indicator_name, parent_subgroup_id_ind)
-                        st.success(f"Indicatore '{new_indicator_name}' aggiunto.")
-                    except Exception as e:
-                        st.error(f"Errore: L'indicatore potrebbe già esistere in questo sottogruppo. ({e})")
-                else:
-                    st.warning("Scegli gruppo, sottogruppo e inserisci un nome.")
+# For KPI Spec tab
+if "spec_selected_group_id" not in st.session_state:
+    st.session_state.spec_selected_group_id = None
+if "spec_selected_subgroup_id" not in st.session_state:
+    st.session_state.spec_selected_subgroup_id = None
+if "spec_selected_indicator_id" not in st.session_state:
+    st.session_state.spec_selected_indicator_id = None
+if "spec_editing_kpi_id" not in st.session_state:
+    st.session_state.spec_editing_kpi_id = None
+if "spec_form_data" not in st.session_state:
+    st.session_state.spec_form_data = {
+        "description": "",
+        "calculation_type": "Incrementale",
+        "unit_of_measure": "",
+        "visible": True,
+    }
+if "spec_group_sel" not in st.session_state:
+    st.session_state.spec_group_sel = ""  # For selectbox persistence
+if "spec_subgroup_sel" not in st.session_state:
+    st.session_state.spec_subgroup_sel = ""
+if "spec_indicator_sel" not in st.session_state:
+    st.session_state.spec_indicator_sel = ""
 
-    with col_specs:
-        st.subheader("Aggiungi e Modifica Specifiche KPI")
 
-        with st.expander("Aggiungi una nuova Specifica KPI", expanded=True):
-            with st.form("new_kpi_spec_form", clear_on_submit=True):
-                st.write("**Seleziona la gerarchia per il nuovo KPI:**")
+# For Stabilimenti tab
+if "stbl_editing_stabilimento_id" not in st.session_state:
+    st.session_state.stbl_editing_stabilimento_id = None
+if "stbl_form_data" not in st.session_state:
+    st.session_state.stbl_form_data = {"name": "", "visible": True}
 
-                # --- Cascading Dropdowns (FIXED) ---
-                groups_dict = db.get_group_options()
-                
-                selected_group_name = st.selectbox(
-                    "Gruppo", list(groups_dict.keys()), index=None,
-                    key='add_spec_group_name', on_change=reset_subgroup_selection
+
+# --- UI Tabs ---
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    [
+        "🎯 Inserimento Target",
+        "🗂️ Gestione Gerarchia KPI",
+        "⚙️ Gestione Specifiche KPI",
+        "🏭 Gestione Stabilimenti",
+        "📈 Visualizzazione Risultati",
+        "📦 Esportazione Dati",
+    ]
+)
+
+
+# --- Functions to clear relevant caches ---
+def clear_hierarchy_caches():
+    load_kpi_groups.clear()
+    load_kpi_subgroups_by_group.clear()
+    load_kpi_indicators_by_subgroup.clear()
+    load_all_kpis_with_hierarchy.clear()
+    load_kpi_by_id.clear()
+
+
+def clear_spec_caches():
+    load_all_kpis_with_hierarchy.clear()
+    load_kpi_by_id.clear()
+
+
+def clear_stabilimenti_caches():
+    load_stabilimenti.clear()
+
+
+def clear_target_caches():
+    load_annual_target.clear()
+    load_ripartiti_data.clear()
+
+
+with tab2:  # Gestione Gerarchia KPI
+    st.header("🗂️ Gestione Gerarchia KPI")
+
+    def reset_hr_edit_state():
+        st.session_state.hr_editing_item_type = None
+        st.session_state.hr_editing_item_id = None
+        st.session_state.hr_editing_item_name = ""
+
+    with st.container(border=True):
+        st.subheader("Gruppi KPI")
+        groups = load_kpi_groups()
+        groups_map = {g["name"]: g["id"] for g in groups}
+
+        selected_group_name_hr = st.selectbox(
+            "Seleziona Gruppo",
+            options=[""] + list(groups_map.keys()),
+            key="hr_group_selector_sb",  # Changed key to avoid conflict if 'hr_group_selector' is used elsewhere
+            index=0,
+            on_change=lambda: setattr(st.session_state, "hr_selected_subgroup_id", None)
+            or setattr(st.session_state, "hr_selected_indicator_id", None)
+            or setattr(st.session_state, "hr_subgroup_selector_sb", "")
+            or setattr(st.session_state, "hr_indicator_selector_sb", ""),
+        )
+        st.session_state.hr_selected_group_id = groups_map.get(selected_group_name_hr)
+
+        col_g1, col_g2, col_g3 = st.columns(3)
+        if col_g1.button("Nuovo Gruppo", key="hr_new_group_btn"):
+            reset_hr_edit_state()
+            st.session_state.hr_editing_item_type = "group_new"
+
+        if st.session_state.hr_selected_group_id:
+            if col_g2.button("Modifica Gruppo Selezionato", key="hr_edit_group_btn"):
+                reset_hr_edit_state()
+                st.session_state.hr_editing_item_type = "group_edit"
+                st.session_state.hr_editing_item_id = (
+                    st.session_state.hr_selected_group_id
                 )
-                selected_group_id = groups_dict.get(st.session_state.add_spec_group_name)
+                st.session_state.hr_editing_item_name = selected_group_name_hr
+            if col_g3.button("🗑️ Elimina Gruppo Selezionato", key="hr_delete_group_btn"):
+                try:
+                    if st.session_state.hr_selected_group_id:
+                        group_to_delete_name = selected_group_name_hr
+                        db.delete_kpi_group(st.session_state.hr_selected_group_id)
+                        st.success(f"Gruppo '{group_to_delete_name}' eliminato.")
+                        clear_hierarchy_caches()
+                        clear_spec_caches()
+                        st.session_state.hr_selected_group_id = None
+                        st.session_state.hr_group_selector_sb = ""  # Reset selectbox
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Errore eliminazione gruppo: {e}")
 
-                subgroups_dict = db.get_subgroup_options(selected_group_id)
-                selected_subgroup_name = st.selectbox(
-                    "Sottogruppo", list(subgroups_dict.keys()), index=None,
-                    key='add_spec_subgroup_name', disabled=not selected_group_id
+        if st.session_state.hr_editing_item_type in ["group_new", "group_edit"]:
+            form_title = (
+                "Nuovo Gruppo"
+                if st.session_state.hr_editing_item_type == "group_new"
+                else f"Modifica Gruppo: {st.session_state.hr_editing_item_name}"
+            )
+            with st.form(key="hr_group_form"):
+                st.markdown(f"**{form_title}**")
+                new_group_name_input = st.text_input(
+                    "Nome Gruppo",
+                    value=(
+                        st.session_state.hr_editing_item_name
+                        if st.session_state.hr_editing_item_type == "group_edit"
+                        else ""
+                    ),
                 )
-                selected_subgroup_id = subgroups_dict.get(st.session_state.add_spec_subgroup_name)
-
-                indicators_dict = db.get_indicator_options(selected_subgroup_id)
-                # Filter out indicators that already have a KPI spec
-                kpis_with_specs = [k['indicator_id'] for k in db.get_kpis()]
-                available_indicators = {
-                    name: ind_id for name, ind_id in indicators_dict.items() if ind_id not in kpis_with_specs
-                }
-                selected_indicator_name = st.selectbox(
-                    "Indicatore (solo quelli senza specifica)", list(available_indicators.keys()), index=None,
-                    disabled=not selected_subgroup_id
-                )
-                selected_indicator_id = available_indicators.get(selected_indicator_name)
-
-                st.markdown("---")
-                st.write("**Dettagli della Specifica:**")
-                new_desc = st.text_area("Descrizione")
-                new_type = st.selectbox("Tipologia di Calcolo *", ("Incrementale", "Media"), index=None)
-                new_unit = st.text_input("Unità di Misura (es. %, €, Unità)")
-                new_visible = st.checkbox("Visibile nel data entry", value=True)
-
-                if st.form_submit_button("Aggiungi Specifica KPI", use_container_width=True):
-                    if not selected_indicator_id or not new_type:
-                        st.error("Seleziona una gerarchia completa e una tipologia di calcolo.")
+                submitted = st.form_submit_button("Salva")
+                if submitted:
+                    if not new_group_name_input.strip():
+                        st.error("Il nome del gruppo non può essere vuoto.")
                     else:
                         try:
-                            db.add_kpi(selected_indicator_id, new_desc, new_type, new_unit, new_visible)
-                            st.success(f"Specifica KPI per '{selected_indicator_name}' aggiunta!")
-                            get_kpi_df_with_hierarchy.clear()
+                            if st.session_state.hr_editing_item_type == "group_new":
+                                db.add_kpi_group(new_group_name_input)
+                                st.success(f"Gruppo '{new_group_name_input}' aggiunto.")
+                            else:
+                                db.update_kpi_group(
+                                    st.session_state.hr_editing_item_id,
+                                    new_group_name_input,
+                                )
+                                st.success(
+                                    f"Gruppo aggiornato a '{new_group_name_input}'."
+                                )
+                            clear_hierarchy_caches()
+                            reset_hr_edit_state()
+                            st.session_state.hr_group_selector_sb = new_group_name_input
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Errore: Esiste già una specifica per questo indicatore. ({e})")
+                            st.error(f"Errore salvataggio gruppo: {e}")
 
-        st.markdown("---")
-        st.subheader("Elenco Specifiche KPI Esistenti")
-        if st.button("Ricarica elenco KPI"):
-            get_kpi_df_with_hierarchy.clear()
-            st.rerun()
-        
-        try:
-            kpi_df = get_kpi_df_with_hierarchy()
-            st.data_editor(
-                kpi_df, key="kpi_spec_editor",
-                column_config={
-                    "ID": None, # Hide ID column
-                    "Descrizione": st.column_config.TextColumn(width="large"),
-                    "Tipo Calcolo": st.column_config.SelectboxColumn(options=["Incrementale", "Media"]),
-                    "Visibile": st.column_config.CheckboxColumn(),
-                },
-                disabled=["ID", "Gruppo", "Sottogruppo", "Indicatore"], hide_index=True, use_container_width=True
+    with st.container(border=True):
+        st.subheader("Sottogruppi KPI (del gruppo selezionato)")
+        if st.session_state.hr_selected_group_id:
+            subgroups = load_kpi_subgroups_by_group(
+                st.session_state.hr_selected_group_id
             )
-            st.caption("Le modifiche a Descrizione, Tipo Calcolo, ecc. non sono ancora salvate. La modifica diretta verrà implementata a breve.")
-        except Exception as e:
-            st.error(f"Impossibile caricare le specifiche KPI: {e}")
+            subgroups_map = {sg["name"]: sg["id"] for sg in subgroups}
 
+            selected_subgroup_name_hr = st.selectbox(
+                "Seleziona Sottogruppo",
+                options=[""] + list(subgroups_map.keys()),
+                key="hr_subgroup_selector_sb",  # Changed key
+                index=0,
+                on_change=lambda: setattr(
+                    st.session_state, "hr_selected_indicator_id", None
+                )
+                or setattr(st.session_state, "hr_indicator_selector_sb", ""),
+            )
+            st.session_state.hr_selected_subgroup_id = subgroups_map.get(
+                selected_subgroup_name_hr
+            )
 
-# --- PAGE: STABILIMENTI MANAGEMENT (Locations/Plants) ---
-elif page == "Gestione Stabilimenti":
-    st.header("🏭 Gestione Stabilimenti")
+            col_sg1, col_sg2, col_sg3 = st.columns(3)
+            if col_sg1.button("Nuovo Sottogruppo", key="hr_new_subgroup_btn"):
+                reset_hr_edit_state()
+                st.session_state.hr_editing_item_type = "subgroup_new"
 
-    with st.expander("Aggiungi nuovo stabilimento", expanded=False):
-        with st.form("new_stabilimento_form", clear_on_submit=True):
-            new_name = st.text_input("Nome Stabilimento *")
-            new_visible = st.checkbox("Visibile", value=True)
-            if st.form_submit_button("Aggiungi Stabilimento"):
-                if not new_name:
-                    st.error("Nome obbligatorio.")
-                else:
+            if st.session_state.hr_selected_subgroup_id:
+                if col_sg2.button(
+                    "Modifica Sottogruppo Selezionato", key="hr_edit_subgroup_btn"
+                ):
+                    reset_hr_edit_state()
+                    st.session_state.hr_editing_item_type = "subgroup_edit"
+                    st.session_state.hr_editing_item_id = (
+                        st.session_state.hr_selected_subgroup_id
+                    )
+                    st.session_state.hr_editing_item_name = selected_subgroup_name_hr
+                if col_sg3.button(
+                    "🗑️ Elimina Sottogruppo Selezionato", key="hr_delete_subgroup_btn"
+                ):
                     try:
-                        db.add_stabilimento(new_name, new_visible)
-                        st.success(f"Stabilimento '{new_name}' aggiunto!")
-                        get_stabilimenti_df.clear()
+                        db.delete_kpi_subgroup(st.session_state.hr_selected_subgroup_id)
+                        st.success(
+                            f"Sottogruppo '{selected_subgroup_name_hr}' eliminato."
+                        )
+                        clear_hierarchy_caches()
+                        clear_spec_caches()
+                        st.session_state.hr_selected_subgroup_id = None
+                        st.session_state.hr_subgroup_selector_sb = ""
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Errore: {e}")
+                        st.error(f"Errore eliminazione sottogruppo: {e}")
 
-    st.subheader("Elenco Stabilimenti Esistenti")
-    if st.button("Ricarica elenco Stabilimenti"):
-        get_stabilimenti_df.clear()
-        st.rerun()
+            if st.session_state.hr_editing_item_type in [
+                "subgroup_new",
+                "subgroup_edit",
+            ]:
+                form_title_sg = (
+                    "Nuovo Sottogruppo"
+                    if st.session_state.hr_editing_item_type == "subgroup_new"
+                    else f"Modifica Sottogruppo: {st.session_state.hr_editing_item_name}"
+                )
+                with st.form(key="hr_subgroup_form"):
+                    st.markdown(
+                        f"**{form_title_sg}** (per Gruppo: {selected_group_name_hr})"
+                    )
+                    new_subgroup_name_input = st.text_input(
+                        "Nome Sottogruppo",
+                        value=(
+                            st.session_state.hr_editing_item_name
+                            if st.session_state.hr_editing_item_type == "subgroup_edit"
+                            else ""
+                        ),
+                    )
+                    submitted_sg = st.form_submit_button("Salva")
+                    if submitted_sg:
+                        if not new_subgroup_name_input.strip():
+                            st.error("Nome sottogruppo non può essere vuoto.")
+                        else:
+                            try:
+                                if (
+                                    st.session_state.hr_editing_item_type
+                                    == "subgroup_new"
+                                ):
+                                    db.add_kpi_subgroup(
+                                        new_subgroup_name_input,
+                                        st.session_state.hr_selected_group_id,
+                                    )
+                                    st.success(
+                                        f"Sottogruppo '{new_subgroup_name_input}' aggiunto."
+                                    )
+                                else:
+                                    db.update_kpi_subgroup(
+                                        st.session_state.hr_editing_item_id,
+                                        new_subgroup_name_input,
+                                        st.session_state.hr_selected_group_id,
+                                    )
+                                    st.success(
+                                        f"Sottogruppo aggiornato a '{new_subgroup_name_input}'."
+                                    )
+                                clear_hierarchy_caches()
+                                reset_hr_edit_state()
+                                st.session_state.hr_subgroup_selector_sb = (
+                                    new_subgroup_name_input
+                                )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Errore salvataggio sottogruppo: {e}")
+        else:
+            st.info("Seleziona un Gruppo KPI.")
 
-    try:
-        edited_df = st.data_editor(
-            get_stabilimenti_df(),
-            key="stabilimento_editor",
-            column_config={
-                "ID": st.column_config.NumberColumn(disabled=True),
-                "Nome": st.column_config.TextColumn(),
-                "Visibile": st.column_config.CheckboxColumn("Visibile", default=True),
-            },
-            hide_index=True,
-            use_container_width=True,
-        )
-        # Logic to handle edits could be added here
-    except Exception as e:
-        st.error(f"Impossibile caricare stabilimenti: {e}")
-
-
-# --- PAGE: TARGET ENTRY ---
-elif page == "Inserimento Target":
-    st.header("🎯 Inserimento Target Annuali")
-
-    col1, col2 = st.columns(2)
-    current_year = datetime.datetime.now().year
-    with col1:
-        selected_year = st.number_input(
-            "Anno", min_value=2020, max_value=2050, value=current_year
-        )
-    with col2:
-        stabilimenti_visibili = db.get_stabilimenti(only_visible=True)
-        if not stabilimenti_visibili:
-            st.warning(
-                "Nessuno stabilimento visibile. Aggiungine uno in 'Gestione Stabilimenti'."
+    with st.container(border=True):
+        st.subheader("Indicatori KPI (del sottogruppo selezionato)")
+        if st.session_state.hr_selected_subgroup_id:
+            indicators = load_kpi_indicators_by_subgroup(
+                st.session_state.hr_selected_subgroup_id
             )
-            st.stop()
+            indicators_map = {ind["name"]: ind["id"] for ind in indicators}
 
-        stabilimenti_dict = {s["name"]: s["id"] for s in stabilimenti_visibili}
-        selected_stabilimento_name = st.selectbox(
-            "Stabilimento",
-            options=list(stabilimenti_dict.keys()),
-            index=None,
-            placeholder="Scegli stabilimento...",
-        )
-
-        if not selected_stabilimento_name:
-            st.info("Seleziona uno stabilimento per procedere.")
-            st.stop()
-
-        selected_stabilimento_id = stabilimenti_dict[selected_stabilimento_name]
-
-    st.markdown("---")
-    kpis_list_for_target = db.get_kpis(only_visible=True)
-
-    if not kpis_list_for_target:
-        st.warning("Nessun KPI visibile definito. Aggiungine uno in 'Gestione KPI'.")
-        st.stop()
-
-    targets_to_save = {}
-    all_valid = True
-    distribution_profile_options = [
-        "annual_progressive",
-        "monthly_sinusoidal",
-        "legacy_intra_period_progressive",
-    ]
-
-    with st.form("targets_form_entry"):
-        for kpi_row in kpis_list_for_target:
-            kpi_id = kpi_row["id"]
-            kpi_display_name = get_kpi_display_name(kpi_row)
-            kpi_unit = kpi_row["unit_of_measure"]
-            kpi_calc_type = kpi_row["calculation_type"]
-
-            exp_label = f"🎯 Target per: {kpi_display_name}" + (
-                f" ({kpi_unit})" if kpi_unit else ""
+            selected_indicator_name_hr = st.selectbox(
+                "Seleziona Indicatore",
+                options=[""] + list(indicators_map.keys()),
+                key="hr_indicator_selector_sb",  # Changed key
+                index=0,
             )
-            with st.expander(exp_label, expanded=True):
-                existing_target = db.get_annual_target(
-                    selected_year, selected_stabilimento_id, kpi_id
-                )
+            st.session_state.hr_selected_indicator_id = indicators_map.get(
+                selected_indicator_name_hr
+            )
 
-                def_target1 = (
-                    float(existing_target["annual_target1"]) if existing_target else 0.0
-                )
-                def_target2 = (
-                    float(existing_target["annual_target2"]) if existing_target else 0.0
-                )
-                def_logic = (
-                    existing_target["repartition_logic"] if existing_target else "Mese"
-                )
-                def_profile = existing_target.get(
-                    "distribution_profile", "annual_progressive"
-                )
-                def_repart_map = (
-                    json.loads(existing_target["repartition_values"])
-                    if existing_target and existing_target["repartition_values"]
-                    else {}
-                )
+            col_i1, col_i2, col_i3 = st.columns(3)
+            if col_i1.button("Nuovo Indicatore", key="hr_new_indicator_btn"):
+                reset_hr_edit_state()
+                st.session_state.hr_editing_item_type = "indicator_new"
 
-                t_col1, t_col2, prof_col = st.columns(3)
-                with t_col1:
-                    annual_target1_val = st.number_input(
-                        f"Target 1 ({kpi_unit or 'Valore'})",
-                        value=def_target1,
-                        key=f"target1_{kpi_id}",
-                        min_value=0.0,
-                        format="%.2f",
+            if st.session_state.hr_selected_indicator_id:
+                if col_i2.button(
+                    "Modifica Indicatore Selezionato", key="hr_edit_indicator_btn"
+                ):
+                    reset_hr_edit_state()
+                    st.session_state.hr_editing_item_type = "indicator_edit"
+                    st.session_state.hr_editing_item_id = (
+                        st.session_state.hr_selected_indicator_id
                     )
-                with t_col2:
-                    annual_target2_val = st.number_input(
-                        f"Target 2 ({kpi_unit or 'Valore'})",
-                        value=def_target2,
-                        key=f"target2_{kpi_id}",
-                        min_value=0.0,
-                        format="%.2f",
-                    )
-                with prof_col:
-                    sel_profile = st.selectbox(
-                        "Profilo Distribuzione",
-                        options=distribution_profile_options,
-                        index=distribution_profile_options.index(def_profile),
-                        key=f"profile_target_{kpi_id}",
-                    )
-
-                repart_logic_val = st.radio(
-                    "Logica Ripartizione",
-                    ["Mese", "Trimestre"],
-                    index=["Mese", "Trimestre"].index(def_logic),
-                    key=f"logic_target_disp_{kpi_id}",
-                    horizontal=True,
-                )
-                st.markdown(f"**Percentuali di ripartizione per {repart_logic_val}**")
-
-                if repart_logic_val == "Mese":
-                    items = [calendar.month_name[i] for i in range(1, 13)]
-                    cols_rep = st.columns(6)
-                    default_p_float = round(100.0 / 12.0, 2)
-                else:  # Trimestre
-                    items = ["Q1", "Q2", "Q3", "Q4"]
-                    cols_rep = st.columns(4)
-                    default_p_float = 25.0
-
-                repart_values_in = {}
-                for i, item_name in enumerate(items):
-                    with cols_rep[i % len(cols_rep)]:
-                        repart_values_in[item_name] = st.number_input(
-                            f"% {item_name}",
-                            value=float(def_repart_map.get(item_name, default_p_float)),
-                            key=f"rep_target_{kpi_id}_{item_name}",
-                            min_value=0.0,
-                            max_value=100.0,
-                            step=0.01,
-                            format="%.2f",
+                    st.session_state.hr_editing_item_name = selected_indicator_name_hr
+                if col_i3.button(
+                    "🗑️ Elimina Indicatore Selezionato", key="hr_delete_indicator_btn"
+                ):
+                    try:
+                        db.delete_kpi_indicator(
+                            st.session_state.hr_selected_indicator_id
                         )
-
-                if annual_target1_val > 0.0 or annual_target2_val > 0.0:
-                    total_perc = sum(repart_values_in.values())
-                    if not (99.9 <= total_perc <= 100.1):
-                        st.error(
-                            f"Per '{kpi_display_name}', la somma delle % ({repart_logic_val}) è {total_perc:.2f}%. Deve essere ~100%."
+                        st.success(
+                            f"Indicatore '{selected_indicator_name_hr}' eliminato."
                         )
-                        all_valid = False
+                        clear_hierarchy_caches()
+                        clear_spec_caches()
+                        st.session_state.hr_selected_indicator_id = None
+                        st.session_state.hr_indicator_selector_sb = ""
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Errore eliminazione indicatore: {e}")
 
-                targets_to_save[kpi_id] = {
-                    "annual_target1": annual_target1_val,
-                    "annual_target2": annual_target2_val,
-                    "repartition_logic": repart_logic_val,
-                    "repartition_values": repart_values_in,
-                    "distribution_profile": sel_profile,
+            if st.session_state.hr_editing_item_type in [
+                "indicator_new",
+                "indicator_edit",
+            ]:
+                form_title_ind = (
+                    "Nuovo Indicatore"
+                    if st.session_state.hr_editing_item_type == "indicator_new"
+                    else f"Modifica Indicatore: {st.session_state.hr_editing_item_name}"
+                )
+                with st.form(key="hr_indicator_form"):
+                    st.markdown(
+                        f"**{form_title_ind}** (per Sottogruppo: {selected_subgroup_name_hr})"
+                    )
+                    new_indicator_name_input = st.text_input(
+                        "Nome Indicatore",
+                        value=(
+                            st.session_state.hr_editing_item_name
+                            if st.session_state.hr_editing_item_type == "indicator_edit"
+                            else ""
+                        ),
+                    )
+                    submitted_ind = st.form_submit_button("Salva")
+                    if submitted_ind:
+                        if not new_indicator_name_input.strip():
+                            st.error("Nome indicatore non può essere vuoto.")
+                        else:
+                            try:
+                                if (
+                                    st.session_state.hr_editing_item_type
+                                    == "indicator_new"
+                                ):
+                                    db.add_kpi_indicator(
+                                        new_indicator_name_input,
+                                        st.session_state.hr_selected_subgroup_id,
+                                    )
+                                    st.success(
+                                        f"Indicatore '{new_indicator_name_input}' aggiunto."
+                                    )
+                                else:
+                                    db.update_kpi_indicator(
+                                        st.session_state.hr_editing_item_id,
+                                        new_indicator_name_input,
+                                        st.session_state.hr_selected_subgroup_id,
+                                    )
+                                    st.success(
+                                        f"Indicatore aggiornato a '{new_indicator_name_input}'."
+                                    )
+                                clear_hierarchy_caches()
+                                reset_hr_edit_state()
+                                st.session_state.hr_indicator_selector_sb = (
+                                    new_indicator_name_input
+                                )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Errore salvataggio indicatore: {e}")
+        else:
+            st.info("Seleziona un Sottogruppo KPI.")
+
+
+with tab3:  # Gestione Specifiche KPI
+    st.header("⚙️ Gestione Specifiche KPI")
+
+    with st.expander("Aggiungi/Modifica Specifica KPI", expanded=True):
+
+        def spec_group_changed():
+            st.session_state.spec_subgroup_sel = ""  # Reset subgroup selection for UI
+            st.session_state.spec_indicator_sel = ""  # Reset indicator selection for UI
+            st.session_state.spec_selected_subgroup_id = None
+            st.session_state.spec_selected_indicator_id = None
+            st.session_state.spec_editing_kpi_id = None
+            if (
+                "spec_manual_selection" in st.session_state
+                and st.session_state.spec_manual_selection
+            ):
+                st.session_state.spec_form_data = {
+                    "description": "",
+                    "calculation_type": "Incrementale",
+                    "unit_of_measure": "",
+                    "visible": True,
                 }
 
-        if st.form_submit_button("Salva Tutti i Target", type="primary"):
-            if not all_valid:
-                st.error(
-                    "Correggi gli errori di validazione (somma percentuali) prima di salvare."
+        def spec_subgroup_changed():
+            st.session_state.spec_indicator_sel = ""  # Reset indicator selection for UI
+            st.session_state.spec_selected_indicator_id = None
+            st.session_state.spec_editing_kpi_id = None
+            if (
+                "spec_manual_selection" in st.session_state
+                and st.session_state.spec_manual_selection
+            ):
+                st.session_state.spec_form_data = {
+                    "description": "",
+                    "calculation_type": "Incrementale",
+                    "unit_of_measure": "",
+                    "visible": True,
+                }
+
+        def spec_indicator_changed():
+            st.session_state.spec_editing_kpi_id = None
+            st.session_state.spec_form_data = {
+                "description": "",
+                "calculation_type": "Incrementale",
+                "unit_of_measure": "",
+                "visible": True,
+            }
+
+            # Find the actual indicator ID from the selected name in st.session_state.spec_indicator_sel
+            # This requires the map to be accessible or re-created here.
+            # For simplicity, we assume st.session_state.spec_selected_indicator_id is correctly set by the selectbox logic below.
+
+            if st.session_state.spec_selected_indicator_id:
+                all_kpis = load_all_kpis_with_hierarchy()
+                existing_kpi_spec = next(
+                    (
+                        kpi
+                        for kpi in all_kpis
+                        if kpi["indicator_id"]
+                        == st.session_state.spec_selected_indicator_id
+                    ),
+                    None,
                 )
+                if existing_kpi_spec:
+                    st.session_state.spec_editing_kpi_id = existing_kpi_spec["id"]
+                    st.session_state.spec_form_data = {
+                        "description": existing_kpi_spec["description"] or "",
+                        "calculation_type": existing_kpi_spec["calculation_type"]
+                        or "Incrementale",
+                        "unit_of_measure": existing_kpi_spec["unit_of_measure"] or "",
+                        "visible": bool(existing_kpi_spec["visible"]),
+                    }
+            st.session_state.spec_manual_selection = True
+
+        s_col1, s_col2, s_col3 = st.columns(3)
+        groups_spec = load_kpi_groups()
+        groups_spec_map = {g["name"]: g["id"] for g in groups_spec}
+
+        with s_col1:
+            st.session_state.spec_group_sel = (
+                st.selectbox(  # Bind to session state for persistence
+                    "Gruppo",
+                    [""] + list(groups_spec_map.keys()),
+                    key="spec_group_sel_key",  # Unique key for widget
+                    index=(
+                        ([""] + list(groups_spec_map.keys())).index(
+                            st.session_state.spec_group_sel
+                        )
+                        if st.session_state.spec_group_sel
+                        in ([""] + list(groups_spec_map.keys()))
+                        else 0
+                    ),
+                    on_change=spec_group_changed,
+                )
+            )
+            st.session_state.spec_selected_group_id = groups_spec_map.get(
+                st.session_state.spec_group_sel
+            )
+
+        with s_col2:
+            subgroups_spec = load_kpi_subgroups_by_group(
+                st.session_state.spec_selected_group_id
+            )
+            subgroups_spec_map = {sg["name"]: sg["id"] for sg in subgroups_spec}
+            st.session_state.spec_subgroup_sel = st.selectbox(
+                "Sottogruppo",
+                [""] + list(subgroups_spec_map.keys()),
+                key="spec_subgroup_sel_key",
+                index=(
+                    ([""] + list(subgroups_spec_map.keys())).index(
+                        st.session_state.spec_subgroup_sel
+                    )
+                    if st.session_state.spec_subgroup_sel
+                    in ([""] + list(subgroups_spec_map.keys()))
+                    else 0
+                ),
+                disabled=not st.session_state.spec_selected_group_id,
+                on_change=spec_subgroup_changed,
+            )
+            st.session_state.spec_selected_subgroup_id = subgroups_spec_map.get(
+                st.session_state.spec_subgroup_sel
+            )
+
+        with s_col3:
+            indicators_spec = load_kpi_indicators_by_subgroup(
+                st.session_state.spec_selected_subgroup_id
+            )
+            all_kpis_for_filter = load_all_kpis_with_hierarchy()
+            indicator_ids_with_spec = {
+                kpi["indicator_id"] for kpi in all_kpis_for_filter
+            }
+
+            available_indicators_spec_map = {}
+            for ind in indicators_spec:
+                is_editing_this_indicator = False
+                if st.session_state.spec_editing_kpi_id:
+                    editing_spec = next(
+                        (
+                            k
+                            for k in all_kpis_for_filter
+                            if k["id"] == st.session_state.spec_editing_kpi_id
+                        ),
+                        None,
+                    )
+                    if editing_spec and editing_spec["indicator_id"] == ind["id"]:
+                        is_editing_this_indicator = True
+                if (
+                    is_editing_this_indicator
+                    or ind["id"] not in indicator_ids_with_spec
+                ):
+                    available_indicators_spec_map[ind["name"]] = ind["id"]
+
+            st.session_state.spec_indicator_sel = st.selectbox(
+                "Indicatore",
+                [""] + list(available_indicators_spec_map.keys()),
+                key="spec_indicator_sel_key",
+                index=(
+                    ([""] + list(available_indicators_spec_map.keys())).index(
+                        st.session_state.spec_indicator_sel
+                    )
+                    if st.session_state.spec_indicator_sel
+                    in ([""] + list(available_indicators_spec_map.keys()))
+                    else 0
+                ),
+                disabled=not st.session_state.spec_selected_subgroup_id,
+                on_change=lambda: setattr(
+                    st.session_state,
+                    "spec_selected_indicator_id",
+                    available_indicators_spec_map.get(
+                        st.session_state.spec_indicator_sel_key
+                    ),
+                )
+                or spec_indicator_changed(),
+            )
+            # Ensure spec_selected_indicator_id is updated when selectbox changes
+            if st.session_state.spec_indicator_sel:  # If a name is selected
+                st.session_state.spec_selected_indicator_id = (
+                    available_indicators_spec_map.get(
+                        st.session_state.spec_indicator_sel
+                    )
+                )
+            else:  # If "" (no selection) is chosen
+                st.session_state.spec_selected_indicator_id = None
+
+        with st.form("kpi_spec_form"):
+            st.session_state.spec_form_data["description"] = st.text_area(
+                "Descrizione", value=st.session_state.spec_form_data["description"]
+            )
+            st.session_state.spec_form_data["calculation_type"] = st.selectbox(
+                "Tipo Calcolo",
+                ["Incrementale", "Media"],
+                index=["Incrementale", "Media"].index(
+                    st.session_state.spec_form_data["calculation_type"]
+                ),
+            )
+            st.session_state.spec_form_data["unit_of_measure"] = st.text_input(
+                "Unità Misura", value=st.session_state.spec_form_data["unit_of_measure"]
+            )
+            st.session_state.spec_form_data["visible"] = st.checkbox(
+                "Visibile per Inserimento Target",
+                value=st.session_state.spec_form_data["visible"],
+            )
+
+            form_action_button_text = (
+                "Modifica Specifica KPI"
+                if st.session_state.spec_editing_kpi_id
+                else "Aggiungi Specifica KPI"
+            )
+            submitted_spec = st.form_submit_button(form_action_button_text)
+
+            if submitted_spec:
+                if not st.session_state.spec_selected_indicator_id:
+                    st.error("Seleziona un Gruppo > Sottogruppo > Indicatore completo.")
+                elif not st.session_state.spec_form_data["description"].strip():
+                    st.error("La descrizione è obbligatoria.")
+                else:
+                    try:
+                        if st.session_state.spec_editing_kpi_id:
+                            db.update_kpi(
+                                st.session_state.spec_editing_kpi_id,
+                                st.session_state.spec_selected_indicator_id,
+                                st.session_state.spec_form_data["description"],
+                                st.session_state.spec_form_data["calculation_type"],
+                                st.session_state.spec_form_data["unit_of_measure"],
+                                st.session_state.spec_form_data["visible"],
+                            )
+                            st.success("Specifica KPI aggiornata!")
+                        else:
+                            db.add_kpi(
+                                st.session_state.spec_selected_indicator_id,
+                                st.session_state.spec_form_data["description"],
+                                st.session_state.spec_form_data["calculation_type"],
+                                st.session_state.spec_form_data["unit_of_measure"],
+                                st.session_state.spec_form_data["visible"],
+                            )
+                            st.success("Nuova specifica KPI aggiunta!")
+                        clear_spec_caches()
+                        st.session_state.spec_editing_kpi_id = None
+                        st.session_state.spec_form_data = {
+                            "description": "",
+                            "calculation_type": "Incrementale",
+                            "unit_of_measure": "",
+                            "visible": True,
+                        }
+                        st.session_state.spec_group_sel = ""
+                        st.session_state.spec_subgroup_sel = ""
+                        st.session_state.spec_indicator_sel = ""
+                        st.rerun()
+                    except sqlite3.IntegrityError as ie:
+                        if (
+                            "UNIQUE constraint failed: kpis.indicator_id" in str(ie)
+                            and not st.session_state.spec_editing_kpi_id
+                        ):
+                            st.error(
+                                f"Una specifica KPI per l'indicatore selezionato esiste già."
+                            )
+                        else:
+                            st.error(f"Errore di integrità del database: {ie}")
+                    except Exception as e:
+                        st.error(f"Salvataggio fallito: {e}")
+
+        if st.button("Pulisci Campi Form Specifica"):
+            st.session_state.spec_selected_group_id = None
+            st.session_state.spec_selected_subgroup_id = None
+            st.session_state.spec_selected_indicator_id = None
+            st.session_state.spec_editing_kpi_id = None
+            st.session_state.spec_form_data = {
+                "description": "",
+                "calculation_type": "Incrementale",
+                "unit_of_measure": "",
+                "visible": True,
+            }
+            st.session_state.spec_group_sel = ""
+            st.session_state.spec_subgroup_sel = ""
+            st.session_state.spec_indicator_sel = ""
+            st.rerun()
+
+    st.subheader("Elenco Specifiche KPI Esistenti")
+    all_kpis = load_all_kpis_with_hierarchy()
+    if all_kpis:
+        df_kpis = pd.DataFrame(all_kpis)
+        df_kpis_display = df_kpis[
+            [
+                "id",
+                "group_name",
+                "subgroup_name",
+                "indicator_name",
+                "description",
+                "calculation_type",
+                "unit_of_measure",
+                "visible",
+            ]
+        ].copy()
+        df_kpis_display.rename(
+            columns={
+                "id": "Spec ID",
+                "group_name": "Gruppo",
+                "subgroup_name": "Sottogruppo",
+                "indicator_name": "Indicatore",
+                "description": "Descrizione",
+                "calculation_type": "Tipo Calcolo",
+                "unit_of_measure": "Unità Misura",
+                "visible": "Visibile",
+            },
+            inplace=True,
+        )
+        df_kpis_display["Visibile"] = df_kpis_display["Visibile"].apply(
+            lambda x: "Sì" if x else "No"
+        )
+
+        st.dataframe(df_kpis_display, use_container_width=True, hide_index=True)
+
+        kpi_spec_ids_for_selection = {
+            f"{get_kpi_display_name(kpi)} (ID: {kpi['id']})": kpi["id"]
+            for kpi in all_kpis
+        }
+        selected_kpi_spec_to_manage_key = st.selectbox(
+            "Seleziona Specifica KPI per Azioni",
+            [""] + list(kpi_spec_ids_for_selection.keys()),
+            index=0,
+            key="spec_manage_select",
+        )
+        selected_kpi_spec_id_to_manage = kpi_spec_ids_for_selection.get(
+            selected_kpi_spec_to_manage_key
+        )
+
+        if selected_kpi_spec_id_to_manage:
+            kpi_data_full = load_kpi_by_id(selected_kpi_spec_id_to_manage)
+
+            col_spec_act1, col_spec_act2 = st.columns([1, 3])
+            with col_spec_act1:
+                if st.button("Carica per Modifica", key="load_spec_for_edit"):
+                    if kpi_data_full:
+                        st.session_state.spec_editing_kpi_id = kpi_data_full["id"]
+                        st.session_state.spec_selected_indicator_id = kpi_data_full[
+                            "indicator_id"
+                        ]
+                        st.session_state.spec_group_sel = kpi_data_full["group_name"]
+                        st.session_state.spec_subgroup_sel = kpi_data_full[
+                            "subgroup_name"
+                        ]
+                        st.session_state.spec_indicator_sel = kpi_data_full[
+                            "indicator_name"
+                        ]
+                        st.session_state.spec_form_data = {
+                            "description": kpi_data_full["description"] or "",
+                            "calculation_type": kpi_data_full["calculation_type"]
+                            or "Incrementale",
+                            "unit_of_measure": kpi_data_full["unit_of_measure"] or "",
+                            "visible": bool(kpi_data_full["visible"]),
+                        }
+                        st.session_state.spec_manual_selection = False
+                        st.rerun()
+
+            with col_spec_act2:
+                if st.button(
+                    f"🗑️ Elimina Specifica: {selected_kpi_spec_to_manage_key.split(' (ID:')[0]}",
+                    type="primary",
+                    key="delete_spec_btn_confirm_init",
+                ):
+                    if (
+                        "confirm_delete_spec_id" not in st.session_state
+                        or st.session_state.confirm_delete_spec_id
+                        != selected_kpi_spec_id_to_manage
+                    ):
+                        st.session_state.confirm_delete_spec_id = (
+                            selected_kpi_spec_id_to_manage
+                        )
+                        st.session_state.confirm_delete_spec_name = (
+                            selected_kpi_spec_to_manage_key
+                        )
+                        st.rerun()
+
+            if (
+                "confirm_delete_spec_id" in st.session_state
+                and st.session_state.confirm_delete_spec_id
+                == selected_kpi_spec_id_to_manage
+            ):
+                st.error(
+                    f"Sicuro di eliminare: {st.session_state.confirm_delete_spec_name} e tutti i target associati?"
+                )
+                c_del_spec1, c_del_spec2, _ = st.columns([1, 1, 5])
+                if c_del_spec1.button(
+                    "Sì, Elimina", type="primary", key="confirm_del_spec_yes_final"
+                ):
+                    try:
+                        kpi_id_to_delete = st.session_state.confirm_delete_spec_id
+                        # Assuming db.DB_TARGETS etc. are accessible paths
+                        with sqlite3.connect(db.DB_TARGETS) as conn_targets:
+                            conn_targets.execute(
+                                "DELETE FROM annual_targets WHERE kpi_id = ?",
+                                (kpi_id_to_delete,),
+                            )
+                        periodic_dbs_info = [
+                            (db.DB_KPI_DAYS, "daily_targets"),
+                            (db.DB_KPI_WEEKS, "weekly_targets"),
+                            (db.DB_KPI_MONTHS, "monthly_targets"),
+                            (db.DB_KPI_QUARTERS, "quarterly_targets"),
+                        ]
+                        for db_path, table_name in periodic_dbs_info:
+                            with sqlite3.connect(db_path) as conn_periodic:
+                                conn_periodic.execute(
+                                    f"DELETE FROM {table_name} WHERE kpi_id = ?",
+                                    (kpi_id_to_delete,),
+                                )
+                        with sqlite3.connect(
+                            db.DB_KPIS
+                        ) as conn_kpis:  # Assuming DB_KPIS path
+                            conn_kpis.execute(
+                                "DELETE FROM kpis WHERE id = ?", (kpi_id_to_delete,)
+                            )
+
+                        st.success("Specifica KPI e target associati eliminati.")
+                        clear_spec_caches()
+                        clear_target_caches()
+                        del (
+                            st.session_state.confirm_delete_spec_id
+                        )  # Clear confirmation state
+                        st.session_state.spec_manage_select = ""  # Reset selectbox
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Errore eliminazione: {e}")
+                if c_del_spec2.button("No, Annulla", key="confirm_del_spec_no_final"):
+                    del st.session_state.confirm_delete_spec_id
+                    st.rerun()
+    else:
+        st.info("Nessuna specifica KPI definita.")
+
+
+with tab4:  # Gestione Stabilimenti
+    st.header("🏭 Gestione Stabilimenti")
+
+    mode = (
+        "Aggiungi"
+        if st.session_state.stbl_editing_stabilimento_id is None
+        else "Modifica"
+    )
+    with st.expander(
+        f"{mode} Stabilimento",
+        expanded=st.session_state.stbl_editing_stabilimento_id is not None
+        or "stbl_show_add_form" in st.session_state,
+    ):
+        if "stbl_show_add_form" in st.session_state:
+            del st.session_state.stbl_show_add_form
+
+        with st.form("stabilimento_form"):
+            st.session_state.stbl_form_data["name"] = st.text_input(
+                "Nome Stabilimento", value=st.session_state.stbl_form_data["name"]
+            )
+            st.session_state.stbl_form_data["visible"] = st.checkbox(
+                "Visibile per Inserimento Target",
+                value=st.session_state.stbl_form_data["visible"],
+            )
+            submitted_stbl = st.form_submit_button("Salva Stabilimento")
+
+            if submitted_stbl:
+                name_val = st.session_state.stbl_form_data["name"].strip()
+                visible_val = st.session_state.stbl_form_data["visible"]
+                if not name_val:
+                    st.error("Nome stabilimento obbligatorio.")
+                else:
+                    try:
+                        if st.session_state.stbl_editing_stabilimento_id is not None:
+                            db.update_stabilimento(
+                                st.session_state.stbl_editing_stabilimento_id,
+                                name_val,
+                                visible_val,
+                            )
+                            st.success(f"Stabilimento '{name_val}' aggiornato.")
+                        else:
+                            db.add_stabilimento(name_val, visible_val)
+                            st.success(f"Stabilimento '{name_val}' aggiunto.")
+                        clear_stabilimenti_caches()
+                        st.session_state.stbl_editing_stabilimento_id = None
+                        st.session_state.stbl_form_data = {"name": "", "visible": True}
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error(f"Uno stabilimento con nome '{name_val}' esiste già.")
+                    except Exception as e:
+                        st.error(f"Salvataggio fallito: {e}")
+        if st.session_state.stbl_editing_stabilimento_id is not None and st.button(
+            "Annulla Modifica"
+        ):
+            st.session_state.stbl_editing_stabilimento_id = None
+            st.session_state.stbl_form_data = {"name": "", "visible": True}
+            st.rerun()
+
+    st.subheader("Elenco Stabilimenti Esistenti")
+    if st.button("Aggiungi Nuovo Stabilimento"):
+        st.session_state.stbl_editing_stabilimento_id = None
+        st.session_state.stbl_form_data = {"name": "", "visible": True}
+        st.session_state.stbl_show_add_form = True
+        st.rerun()
+
+    stabilimenti = load_stabilimenti()
+    if stabilimenti:
+        df_stabilimenti = pd.DataFrame(stabilimenti)
+        df_stabilimenti_display = df_stabilimenti[["id", "name", "visible"]].copy()
+        df_stabilimenti_display.rename(
+            columns={"id": "ID", "name": "Nome", "visible": "Visibile"}, inplace=True
+        )
+        df_stabilimenti_display["Visibile"] = df_stabilimenti_display["Visibile"].apply(
+            lambda x: "Sì" if x else "No"
+        )
+
+        st.dataframe(df_stabilimenti_display, use_container_width=True, hide_index=True)
+
+        stbl_names_for_selection = {s["name"]: s["id"] for s in stabilimenti}
+        selected_stbl_name_to_edit = st.selectbox(
+            "Seleziona Stabilimento da Modificare",
+            [""] + list(stbl_names_for_selection.keys()),
+            key="stbl_edit_sel",
+        )
+        if selected_stbl_name_to_edit and st.button(
+            "Carica Stabilimento per Modifica", key="stbl_load_edit_btn"
+        ):  # Added button
+            stbl_id_to_edit = stbl_names_for_selection[selected_stbl_name_to_edit]
+            selected_stbl_data = next(
+                (s for s in stabilimenti if s["id"] == stbl_id_to_edit), None
+            )
+            if selected_stbl_data:
+                st.session_state.stbl_editing_stabilimento_id = stbl_id_to_edit
+                st.session_state.stbl_form_data = {
+                    "name": selected_stbl_data["name"],
+                    "visible": bool(selected_stbl_data["visible"]),
+                }
+                st.rerun()
+    else:
+        st.info("Nessuno stabilimento definito.")
+
+
+with tab1:  # Inserimento Target
+    st.header("🎯 Inserimento Target Annuali")
+
+    filt_col1, filt_col2 = st.columns(2)
+    with filt_col1:
+        current_year_dt = datetime.datetime.now().year
+        selected_year_target = st.number_input(
+            "Anno",
+            min_value=2020,
+            max_value=2050,
+            value=current_year_dt,
+            key="target_year_sel",
+        )
+    with filt_col2:
+        stabilimenti_vis_target = load_stabilimenti(only_visible=True)
+        if not stabilimenti_vis_target:
+            st.warning("Nessuno stabilimento (visibile) definito.")
+            st.stop()
+        stabilimenti_map_target = {s["name"]: s["id"] for s in stabilimenti_vis_target}
+        selected_stabilimento_name_target = st.selectbox(
+            "Stabilimento",
+            options=[""] + list(stabilimenti_map_target.keys()),
+            key="target_stabilimento_sel",
+        )
+        selected_stabilimento_id_target = stabilimenti_map_target.get(
+            selected_stabilimento_name_target
+        )
+
+    if not selected_stabilimento_id_target:
+        st.info("Seleziona Anno e Stabilimento.")
+        st.stop()
+
+    st.markdown("---")
+
+    kpis_for_target_entry = [
+        kpi for kpi in load_all_kpis_with_hierarchy() if kpi.get("visible", False)
+    ]  # Ensure 'visible' key exists
+
+    if not kpis_for_target_entry:
+        st.warning("Nessun KPI (visibile) definito.")
+        st.stop()
+
+    kpis_for_target_entry.sort(
+        key=lambda k: (
+            k.get("group_name", ""),
+            k.get("subgroup_name", ""),
+            k.get("indicator_name", ""),
+        )
+    )
+
+    targets_data_to_save = {}
+    all_inputs_valid = True
+
+    with st.form("all_targets_form"):
+        for kpi_row_data in kpis_for_target_entry:
+            kpi_id = kpi_row_data["id"]
+            kpi_display_name_str = get_kpi_display_name(kpi_row_data)
+            kpi_unit = kpi_row_data.get("unit_of_measure") or ""
+            frame_label_text = kpi_display_name_str + (
+                f" (Unità: {kpi_unit})" if kpi_unit else " (Unità: N/D)"
+            )
+
+            with st.expander(frame_label_text, expanded=True):
+                existing_target_db = load_annual_target(
+                    selected_year_target, selected_stabilimento_id_target, kpi_id
+                )
+                def_t1, def_t2 = 0.0, 0.0
+                def_logic, def_profile = "Mese", "annual_progressive"
+                def_repart_map = {}
+
+                if existing_target_db:  # existing_target_db is now a dict
+                    def_t1 = float(existing_target_db.get("annual_target1", 0.0) or 0.0)
+                    def_t2 = float(existing_target_db.get("annual_target2", 0.0) or 0.0)
+                    def_logic = existing_target_db.get("repartition_logic") or "Mese"
+                    db_profile = existing_target_db.get("distribution_profile")
+                    def_profile = (
+                        db_profile
+                        if db_profile in DISTRIBUTION_PROFILE_OPTIONS
+                        else "annual_progressive"
+                    )
+                    repart_values_str = existing_target_db.get("repartition_values")
+                    if repart_values_str:
+                        try:
+                            loaded_map = json.loads(repart_values_str)
+                            if isinstance(loaded_map, dict):
+                                def_repart_map = loaded_map
+                        except json.JSONDecodeError:
+                            pass
+
+                in_col1, in_col2, in_col3 = st.columns(3)
+                with in_col1:
+                    annual_target1 = st.number_input(
+                        f"Target 1",
+                        value=def_t1,
+                        key=f"t1_{kpi_id}_{selected_year_target}_{selected_stabilimento_id_target}",
+                        format="%.2f",
+                        step=0.01,
+                    )
+                with in_col2:
+                    annual_target2 = st.number_input(
+                        f"Target 2",
+                        value=def_t2,
+                        key=f"t2_{kpi_id}_{selected_year_target}_{selected_stabilimento_id_target}",
+                        format="%.2f",
+                        step=0.01,
+                    )
+                with in_col3:
+                    profile_val = st.selectbox(
+                        "Profilo Distribuzione",
+                        DISTRIBUTION_PROFILE_OPTIONS,
+                        index=DISTRIBUTION_PROFILE_OPTIONS.index(def_profile),
+                        key=f"prof_{kpi_id}_{selected_year_target}_{selected_stabilimento_id_target}",
+                    )
+
+                current_kpi_target_data = {
+                    "annual_target1": annual_target1,
+                    "annual_target2": annual_target2,
+                    "distribution_profile": profile_val,
+                    "repartition_values": {},
+                }
+
+                if profile_val in [
+                    "monthly_sinusoidal",
+                    "legacy_intra_period_progressive",
+                ]:
+                    repart_logic = st.radio(
+                        "Logica Ripartizione % Annuale",
+                        ["Mese", "Trimestre"],
+                        index=["Mese", "Trimestre"].index(def_logic),
+                        horizontal=True,
+                        key=f"logic_{kpi_id}_{selected_year_target}_{selected_stabilimento_id_target}",
+                    )
+                    current_kpi_target_data["repartition_logic"] = repart_logic
+                    periods = (
+                        [calendar.month_name[i] for i in range(1, 13)]
+                        if repart_logic == "Mese"
+                        else ["Q1", "Q2", "Q3", "Q4"]
+                    )
+                    num_cols_repart = 4
+                    st.markdown(
+                        f"**Percentuali di Ripartizione per {repart_logic} (%):**"
+                    )
+                    period_cols = st.columns(num_cols_repart)
+                    total_perc = 0.0
+
+                    for i, period_name in enumerate(periods):
+                        with period_cols[i % num_cols_repart]:
+                            default_perc = def_repart_map.get(
+                                period_name, (100.0 / len(periods))
+                            )
+                            perc_val = st.number_input(
+                                period_name,
+                                value=round(float(default_perc), 2),
+                                min_value=0.0,
+                                max_value=100.0,
+                                format="%.2f",
+                                step=0.01,
+                                key=f"repart_{period_name}_{kpi_id}_{selected_year_target}_{selected_stabilimento_id_target}",
+                            )
+                            current_kpi_target_data["repartition_values"][
+                                period_name
+                            ] = perc_val
+                            total_perc += perc_val
+
+                    if (annual_target1 > 1e-9 or annual_target2 > 1e-9) and not (
+                        99.9 <= total_perc <= 100.1
+                    ):
+                        st.error(
+                            f"KPI '{kpi_display_name_str}': Somma % ({repart_logic}) = {total_perc:.2f}%. Deve essere ~100%."
+                        )
+                        all_inputs_valid = False
+                else:
+                    current_kpi_target_data["repartition_logic"] = "Mese"
+                    current_kpi_target_data["repartition_values"] = {
+                        calendar.month_name[i]: round(100.0 / 12.0, 5)
+                        for i in range(1, 13)
+                    }
+                targets_data_to_save[kpi_id] = current_kpi_target_data
+
+        st.markdown("---")
+        if st.form_submit_button(
+            "SALVA TUTTI I TARGET", type="primary", use_container_width=True
+        ):
+            if not all_inputs_valid:
+                st.error("Correggi errori validazione.")
+            elif not targets_data_to_save:
+                st.warning("Nessun target definito.")
             else:
                 try:
                     db.save_annual_targets(
-                        selected_year, selected_stabilimento_id, targets_to_save
+                        selected_year_target,
+                        selected_stabilimento_id_target,
+                        targets_data_to_save,
                     )
-                    st.success("Target salvati con successo!")
+                    st.success("Target salvati e ripartizioni ricalcolate!")
+                    clear_target_caches()
                     st.balloons()
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Errore durante il salvataggio dei target: {e}")
-                    st.exception(e)
+                    st.error(f"Errore salvataggio: {e}")
 
+with tab5:  # Visualizzazione Risultati
+    st.header("📈 Visualizzazione Risultati Ripartiti")
 
-# --- PAGE: RESULTS VISUALIZATION ---
-elif page == "Visualizzazione Risultati":
-    st.header("📈 Visualizzazione Dati Ripartiti")
-
-    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
-
-    with fc1:
-        sel_y_vis = st.number_input(
+    vis_filt_cols = st.columns([1, 2, 2, 1, 1])
+    with vis_filt_cols[0]:
+        res_year = st.number_input(
             "Anno",
             min_value=2020,
             max_value=2050,
             value=datetime.datetime.now().year,
-            key="vis_y_res",
+            key="res_year_s",
         )
-
-    with fc2:
-        stabilimenti_vis = db.get_stabilimenti()
-        s_map_vis = {s["name"]: s["id"] for s in stabilimenti_vis}
-        sel_s_name_vis = st.selectbox(
+    with vis_filt_cols[1]:
+        stabilimenti_res = load_stabilimenti()
+        stabilimenti_map_res = {s["name"]: s["id"] for s in stabilimenti_res}
+        res_stabilimento_name = st.selectbox(
             "Stabilimento",
-            options=list(s_map_vis.keys()),
-            key="vis_s_name_res_sb",
-            index=None,
-            placeholder="Scegli stabilimento...",
+            [""] + list(stabilimenti_map_res.keys()),
+            key="res_stabilimento_s",
         )
-        sel_s_id = s_map_vis.get(sel_s_name_vis)
+        res_stabilimento_id = stabilimenti_map_res.get(res_stabilimento_name)
 
-    with fc3:
-        groups_dict_vis = get_group_options()
-        sel_group_name_vis = st.selectbox(
-            "Gruppo KPI",
-            list(groups_dict_vis.keys()),
-            index=None,
-            key="vis_group_kpi",
-            placeholder="Scegli Gruppo...",
+    with vis_filt_cols[2]:
+        groups_res = load_kpi_groups()
+        groups_map_res = {g["name"]: g["id"] for g in groups_res}
+        res_group_name = st.selectbox(
+            "Gruppo KPI", [""] + list(groups_map_res.keys()), key="res_group_s"
         )
-        sel_group_id_vis = groups_dict_vis.get(sel_group_name_vis)
-
-        subgroups_dict_vis = get_subgroup_options(sel_group_id_vis)
-        sel_subgroup_name_vis = st.selectbox(
+        res_group_id = groups_map_res.get(res_group_name)
+        subgroups_res = load_kpi_subgroups_by_group(res_group_id)
+        subgroups_map_res = {sg["name"]: sg["id"] for sg in subgroups_res}
+        res_subgroup_name = st.selectbox(
             "Sottogruppo KPI",
-            list(subgroups_dict_vis.keys()),
-            index=None,
-            key="vis_subgroup_kpi",
-            disabled=not sel_group_id_vis,
-            placeholder="Scegli Sottogruppo...",
+            [""] + list(subgroups_map_res.keys()),
+            disabled=not res_group_id,
+            key="res_subgroup_s",
         )
-        sel_subgroup_id_vis = subgroups_dict_vis.get(sel_subgroup_name_vis)
+        res_subgroup_id = subgroups_map_res.get(res_subgroup_name)
 
-        indicators_dict_vis = get_indicator_options(sel_subgroup_id_vis)
-        sel_indicator_name_vis = st.selectbox(
+        indicators_all_res = load_kpi_indicators_by_subgroup(res_subgroup_id)
+        kpis_with_specs_res = load_all_kpis_with_hierarchy()
+        indicator_ids_with_spec_res = {k["indicator_id"] for k in kpis_with_specs_res}
+        indicators_map_res = {
+            ind["name"]: ind["id"]
+            for ind in indicators_all_res
+            if ind["id"] in indicator_ids_with_spec_res
+        }
+        res_indicator_name = st.selectbox(
             "Indicatore KPI",
-            list(indicators_dict_vis.keys()),
-            index=None,
-            key="vis_indicator_kpi",
-            disabled=not sel_subgroup_id_vis,
-            placeholder="Scegli Indicatore...",
+            [""] + list(indicators_map_res.keys()),
+            disabled=not res_subgroup_id,
+            key="res_indicator_s",
         )
-        sel_indicator_id_vis = indicators_dict_vis.get(sel_indicator_name_vis)
+        res_indicator_id = indicators_map_res.get(res_indicator_name)
 
-    with fc4:
-        period_sel_vis = st.selectbox(
-            "Periodicità",
+        res_kpi_id = None
+        res_kpi_data_obj = None
+        if res_indicator_id:
+            res_kpi_data_obj = next(
+                (
+                    kpi
+                    for kpi in kpis_with_specs_res
+                    if kpi["indicator_id"] == res_indicator_id
+                ),
+                None,
+            )
+            if res_kpi_data_obj:
+                res_kpi_id = res_kpi_data_obj["id"]
+
+    with vis_filt_cols[3]:
+        res_period_type = st.selectbox(
+            "Periodo",
             ["Giorno", "Settimana", "Mese", "Trimestre"],
             index=2,
-            key="vis_p_res_sel",
+            key="res_period_s",
+        )
+    with vis_filt_cols[4]:
+        res_target_num = st.radio(
+            "Target", [1, 2], index=0, horizontal=True, key="res_targetnum_s"
         )
 
-    with fc5:
-        target_num_sel = st.radio(
-            "Seleziona Target", (1, 2), key="vis_target_num_sel", horizontal=True
-        )
+    st.markdown("---")
 
-    # Find the KPI ID from the selected indicator
-    sel_k_id_vis = None
-    if sel_indicator_id_vis:
-        found_kpi = db.get_kpi_by_indicator_id(sel_indicator_id_vis)
-        if found_kpi:
-            sel_k_id_vis = found_kpi["id"]
-            sel_k_name_vis = get_kpi_display_name(found_kpi)
-            st.caption(f"Visualizzazione per: {sel_k_name_vis}")
-        else:
-            st.warning("Specifica KPI non trovata per l'indicatore selezionato.")
-
-    if sel_s_id and sel_k_id_vis:
-        try:
-            data_rip_vis = db.get_ripartiti_data(
-                sel_y_vis, sel_s_id, sel_k_id_vis, period_sel_vis, target_num_sel
-            )
-            if data_rip_vis:
-                st.dataframe(data_rip_vis, use_container_width=True)
-            else:
-                st.info(
-                    "Nessun dato ripartito trovato per la selezione corrente. Hai salvato i target per questo anno/stabilimento/KPI?"
-                )
-        except Exception as e:
-            st.error(f"Errore nel recupero dei dati: {e}")
+    if not all([res_stabilimento_id, res_kpi_id, res_period_type]):
+        st.info("Seleziona Anno, Stabilimento, Gerarchia KPI e Periodo.")
     else:
-        st.info(
-            "Seleziona Anno, Stabilimento e una Gerarchia KPI completa per visualizzare i dati."
-        )
+        try:
+            ripartiti_data = load_ripartiti_data(
+                res_year,
+                res_stabilimento_id,
+                res_kpi_id,
+                res_period_type,
+                res_target_num,
+            )
+            if not ripartiti_data:
+                kpi_disp_name = (
+                    get_kpi_display_name(res_kpi_data_obj)
+                    if res_kpi_data_obj
+                    else "N/D"
+                )
+                target_ann_info = load_annual_target(
+                    res_year, res_stabilimento_id, res_kpi_id
+                )
+                prof_disp = (
+                    target_ann_info.get("distribution_profile", "annual_progressive")
+                    if target_ann_info
+                    else "N/D"
+                )
+                st.info(
+                    f"Nessun dato per {kpi_disp_name}, Target {res_target_num} (Profilo: {prof_disp})."
+                )
+            else:
+                df_ripartiti = pd.DataFrame(ripartiti_data)
+                df_ripartiti["Target"] = pd.to_numeric(
+                    df_ripartiti["Target"], errors="coerce"
+                ).round(2)
+                st.dataframe(df_ripartiti, use_container_width=True, hide_index=True)
 
-# --- PAGE: DATA EXPORT ---
-elif page == "Esportazione Dati":
-    st.header("📤 Esportazione Dati")
-    # Placeholder for export functionality
-    st.info("Funzionalità di esportazione in costruzione.")
+                total_sum, count = 0.0, 0
+                calc_type = (
+                    res_kpi_data_obj.get("calculation_type", "Incrementale")
+                    if res_kpi_data_obj
+                    else "Incrementale"
+                )
+                unit = (
+                    res_kpi_data_obj.get("unit_of_measure", "")
+                    if res_kpi_data_obj
+                    else ""
+                )
+                kpi_disp_name_sum = (
+                    get_kpi_display_name(res_kpi_data_obj)
+                    if res_kpi_data_obj
+                    else "N/D"
+                )
+                target_ann_info_sum = load_annual_target(
+                    res_year, res_stabilimento_id, res_kpi_id
+                )
+                prof_disp_sum = (
+                    target_ann_info_sum.get(
+                        "distribution_profile", "annual_progressive"
+                    )
+                    if target_ann_info_sum
+                    else "N/D"
+                )
+
+                for val in df_ripartiti["Target"]:
+                    if pd.notna(val):
+                        total_sum += val
+                        count += 1
+
+                summary = f"KPI: {kpi_disp_name_sum} | Profilo: {prof_disp_sum} | Target: {res_target_num} | "
+                if count > 0:
+                    summary += (
+                        f"Totale ({res_period_type}): {total_sum:,.2f} {unit}"
+                        if calc_type == "Incrementale"
+                        else f"Media ({res_period_type}): {(total_sum/count):,.2f} {unit}"
+                    )
+                else:
+                    summary += "Nessun dato aggregato."
+                st.caption(summary)
+        except Exception as e:
+            st.error(f"Errore visualizzazione: {e}")
+
+with tab6:  # Esportazione Dati
+    st.header("📦 Esportazione Dati")
+    export_base_path_str = "N/D"
+    try:
+        export_base_path_str = str(Path(db.CSV_EXPORT_BASE_PATH).resolve())
+    except AttributeError:
+        st.warning("CSV_EXPORT_BASE_PATH non definito in database_manager.")
+    except Exception as e:
+        st.warning(f"Impossibile risolvere CSV_EXPORT_BASE_PATH: {e}")
+
+    st.markdown(
+        f"CSV generati automaticamente al salvataggio dei target.\nSalvati (sul server) in: `{export_base_path_str}`"
+    )
+
+    if export_base_path_str != "N/D":
+        export_path = Path(db.CSV_EXPORT_BASE_PATH)
+        if not export_path.exists():
+            try:
+                export_path.mkdir(parents=True, exist_ok=True)
+                st.info(f"Cartella esportazioni creata: {export_path}.")
+            except Exception as e:
+                st.error(f"Impossibile creare cartella esportazioni: {e}")
+
+        if st.button("Esporta CSV Globali in ZIP...", type="primary"):
+            if not export_path.exists() or not any(
+                f.name in export_manager.GLOBAL_CSV_FILES.values()
+                for f in export_path.iterdir()
+                if f.is_file()
+            ):
+                st.warning(
+                    f"Nessun CSV globale in {export_path.resolve()}. Salva prima target."
+                )
+            else:
+                default_zip_name = f"kpi_global_data_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+                temp_zip_path = export_path / default_zip_name
+                try:
+                    success, message_or_zip_bytes = (
+                        export_manager.package_all_csvs_as_zip(
+                            str(export_path), str(temp_zip_path)
+                        )
+                    )
+                    if success:
+                        with open(temp_zip_path, "rb") as fp:
+                            st.download_button(
+                                label="Scarica ZIP",
+                                data=fp,
+                                file_name=default_zip_name,
+                                mime="application/zip",
+                            )
+                        st.success(f"Archivio ZIP '{default_zip_name}' pronto.")
+                        # Consider cleaning up temp_zip_path if it's truly temporary
+                    else:
+                        st.error(f"Errore Esportazione ZIP: {message_or_zip_bytes}")
+                except Exception as e:
+                    st.error(f"Errore creazione ZIP: {e}")
+
+        st.markdown("---")
+        st.subheader("File CSV Globali Esistenti:")
+        if export_path.exists() and export_path.is_dir():
+            csv_files_found = [
+                f
+                for f in export_path.iterdir()
+                if f.is_file()
+                and f.suffix.lower() == ".csv"
+                and f.name in export_manager.GLOBAL_CSV_FILES.values()
+            ]
+            if csv_files_found:
+                for csv_file in csv_files_found:
+                    col_file, col_btn = st.columns([3, 1])
+                    with col_file:
+                        st.write(
+                            f"- `{csv_file.name}` (Mod: {datetime.datetime.fromtimestamp(csv_file.stat().st_mtime):%Y-%m-%d %H:%M})"
+                        )
+                    with col_btn, open(csv_file, "rb") as fp_csv:
+                        st.download_button(
+                            label=f"Scarica",
+                            data=fp_csv,
+                            file_name=csv_file.name,
+                            mime="text/csv",
+                            key=f"dl_{csv_file.stem}",
+                        )
+            else:
+                st.info("Nessun file CSV globale. Salva target per generarli.")
+        else:
+            st.warning("Cartella esportazione non esistente/accessibile.")
+    else:
+        st.error("Percorso base esportazioni CSV non configurato.")
