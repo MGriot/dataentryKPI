@@ -60,14 +60,17 @@ class KpiApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Gestione Target KPI - Desktop")
-        self.geometry("1400x850")
+        self.geometry(
+            "1400x850"
+        )  # Consider making this adaptable or larger for new inputs
 
         self._populating_kpi_spec_combos = False
 
         style = ttk.Style(self)
-        style.theme_use("clam")
+        style.theme_use("clam")  # Or "default", "alt", "vista" etc.
         style.configure("Accent.TButton", foreground="white", background="#007bff")
         style.configure("Treeview.Heading", font=("Calibri", 10, "bold"))
+        # You might want to style the Text widget for JSON input later
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
@@ -86,11 +89,19 @@ class KpiApp(tk.Tk):
         self.notebook.add(self.results_frame, text="📈 Visualizzazione Risultati")
         self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
 
+        # Updated distribution profile options
         self.distribution_profile_options_tk = [
+            "even_distribution",
             "annual_progressive",
-            "monthly_sinusoidal",
-            "legacy_intra_period_progressive",
+            "annual_progressive_weekday_bias",
+            "true_annual_sinusoidal",
+            "monthly_sinusoidal",  # Handles Mese/Trimestre repartition logic
+            "legacy_intra_period_progressive",  # Handles Mese/Trimestre repartition logic
+            "quarterly_progressive",  # Primarily for Trimestre repartition logic
+            "quarterly_sinusoidal",  # Primarily for Trimestre repartition logic
         ]
+        # Repartition logic options for the UI
+        self.repartition_logic_options_tk = ["Anno", "Mese", "Trimestre", "Settimana"]
 
         self.create_target_widgets()
         self.create_kpi_hierarchy_widgets()
@@ -1343,6 +1354,8 @@ class KpiApp(tk.Tk):
             text="Carica/Aggiorna KPI",
             command=self.load_kpi_targets_for_entry_target,
         ).pack(side="left", padx=5)
+
+        # Main scrollable area for KPI entries
         canvas_frame_target = ttk.Frame(self.target_frame)
         canvas_frame_target.pack(fill="both", expand=True, pady=(5, 0))
         self.canvas_target = tk.Canvas(canvas_frame_target, highlightthickness=0)
@@ -1362,7 +1375,11 @@ class KpiApp(tk.Tk):
         self.canvas_target.configure(yscrollcommand=scrollbar_target.set)
         self.canvas_target.pack(side="left", fill="both", expand=True)
         scrollbar_target.pack(side="right", fill="y")
-        self.canvas_target.bind_all("<MouseWheel>", self._on_mousewheel_target)
+        self.canvas_target.bind_all(
+            "<MouseWheel>", self._on_mousewheel_target
+        )  # Make sure this binding works for your OS
+
+        # Save button at the bottom
         save_button_frame = ttk.Frame(self.target_frame)
         save_button_frame.pack(fill="x", pady=8)
         ttk.Button(
@@ -1371,7 +1388,10 @@ class KpiApp(tk.Tk):
             command=self.save_all_targets_entry,
             style="Accent.TButton",
         ).pack()
-        self.kpi_target_entry_widgets = {}
+
+        self.kpi_target_entry_widgets = (
+            {}
+        )  # Stores all dynamically created widgets for each KPI
 
     def _on_mousewheel_target(self, event):
         widget = self.winfo_containing(event.x_root, event.y_root)
@@ -1416,128 +1436,253 @@ class KpiApp(tk.Tk):
 
     def _update_repartition_input_area_tk(
         self,
-        container,
-        profile_var,  # StringVar for the profile combobox
-        logic_var,  # StringVar for Mese/Trimestre radio buttons
-        repartition_vars_dict,  # Dict to store period percentage vars OR factor vars
-        default_repartition_map,  # Dict potentially holding default values for periods or factors
-        kpi_id,  # The kpi_id for this entry block
-        calc_type,  # Calculation type
+        container_frame,  # The frame within each KPI entry to populate
+        profile_var,  # StringVar for the selected distribution_profile
+        logic_var,  # StringVar for the selected repartition_logic (Anno, Mese, Trimestre, Settimana)
+        repartition_vars_dict,  # Dict to store the actual tk.Vars for inputs (percentages, factors, or JSON text)
+        default_repartition_map,  # Dict holding loaded values (e.g., {"Gen":10, "Feb":5} or {"start_factor":1.2} or {"weekly_json": "{...}"})
+        # kpi_id, # Not directly used in UI creation here but good for context
+        # calc_type # Not directly used in UI creation here
     ):
-        for widget in container.winfo_children():
+        for widget in container_frame.winfo_children():
             widget.destroy()
-        repartition_vars_dict.clear()  # Clear previous vars
+        repartition_vars_dict.clear()
 
-        profile = profile_var.get()
+        selected_profile = profile_var.get()
+        selected_logic = logic_var.get()  # User's current logic choice
 
-        if profile == "annual_progressive":
-            logic_var.set(
-                ""
-            )  # Annual progressive doesn't use Mese/Trimestre logic directly here
+        # --- Section for Repartition Logic Radio Buttons (conditionally shown) ---
+        # These radio buttons allow users to choose Anno, Mese, Trimestre, Settimana
+        # For some profiles, the logic might be fixed (e.g., annual_progressive is always 'Anno' for its factors)
+        # or strongly suggested (e.g., quarterly_progressive suggests 'Trimestre').
 
-            ap_factors_frame = ttk.Frame(container)
-            ap_factors_frame.pack(fill="x", pady=(5, 2))
+        show_logic_radios = True
+        suggested_logic_for_profile = None
 
-            # Use defaults from default_repartition_map if available, otherwise hardcoded defaults
-            start_factor_val = default_repartition_map.get("start_factor", 1.2)
-            end_factor_val = default_repartition_map.get("end_factor", 0.8)
+        if selected_profile in [
+            "annual_progressive",
+            "annual_progressive_weekday_bias",
+            "true_annual_sinusoidal",
+            "even_distribution",
+        ]:
+            # These profiles primarily operate on an annual basis or have their own internal logic not requiring M/Q/S percentages.
+            # We can hide the logic choice or default it to "Anno".
+            show_logic_radios = False
+            logic_var.set("Anno")  # Force to Anno for these
+            selected_logic = "Anno"
+        elif selected_profile in ["quarterly_progressive", "quarterly_sinusoidal"]:
+            suggested_logic_for_profile = "Trimestre"
+            # We could force it, or let user pick but guide them. Let's allow picking but default/guide.
+            if selected_logic not in [
+                "Mese",
+                "Trimestre",
+                "Settimana",
+            ]:  # if it was Anno or empty
+                logic_var.set("Trimestre")
+                selected_logic = "Trimestre"
 
-            start_factor_var = tk.DoubleVar(value=round(start_factor_val, 2))
-            end_factor_var = tk.DoubleVar(value=round(end_factor_val, 2))
-
-            # Storing these vars for later retrieval during save
-            repartition_vars_dict["start_factor"] = start_factor_var
-            repartition_vars_dict["end_factor"] = end_factor_var
-
-            ttk.Label(ap_factors_frame, text="Fattore Iniziale:", width=15).grid(
-                row=0, column=0, padx=(0, 2), pady=2, sticky="w"
-            )
-            ttk.Entry(ap_factors_frame, textvariable=start_factor_var, width=7).grid(
-                row=0, column=1, padx=(0, 10), pady=2, sticky="ew"
-            )
-
-            ttk.Label(ap_factors_frame, text="Fattore Finale:", width=15).grid(
-                row=0, column=2, padx=(0, 2), pady=2, sticky="w"
-            )
-            ttk.Entry(ap_factors_frame, textvariable=end_factor_var, width=7).grid(
-                row=0, column=3, padx=(0, 5), pady=2, sticky="ew"
-            )
-            # ap_factors_frame.columnconfigure(1, weight=1) # Optional: Allow entry to expand a bit
-            # ap_factors_frame.columnconfigure(3, weight=1)
-
+        if show_logic_radios:
+            logic_selection_frame = ttk.Frame(container_frame)
+            logic_selection_frame.pack(fill="x", pady=(5, 2))
             ttk.Label(
-                ap_factors_frame,
-                text="(Es: 1.2 per iniziare più alto, 0.8 per finire più basso. Ricalcolo normalizza al 100%.)",
-                font=("Calibri", 8, "italic"),
-            ).grid(row=1, column=0, columnspan=4, pady=(0, 5), sticky="w")
-
-        elif profile in ["monthly_sinusoidal", "legacy_intra_period_progressive"]:
-            logic_frame = ttk.Frame(container)
-            logic_frame.pack(fill="x", pady=(5, 2))
-            ttk.Label(
-                logic_frame, text="Logica Ripartizione % Annuale:", width=25
+                logic_selection_frame, text="Logica Ripartizione Valori:", width=25
             ).pack(side="left", padx=(0, 5))
-            # Regenerate command for radio buttons to ensure it uses the current closure context
-            cmd = lambda p=profile_var, l=logic_var, r_vars=repartition_vars_dict, c=container, def_map=default_repartition_map, kid=kpi_id, ct=calc_type: self._update_repartition_input_area_tk(
-                c, p, l, r_vars, def_map, kid, ct
-            )
-            ttk.Radiobutton(
-                logic_frame, text="Mese", variable=logic_var, value="Mese", command=cmd
-            ).pack(side="left")
-            ttk.Radiobutton(
-                logic_frame,
-                text="Trimestre",
-                variable=logic_var,
-                value="Trimestre",
-                command=cmd,
-            ).pack(side="left", padx=5)
-            if not logic_var.get():  # If logic_var was cleared or is empty, default it
-                logic_var.set("Mese")
 
-            input_area = ttk.Frame(container)
-            input_area.pack(fill="x", expand=True)
-            current_logic = logic_var.get()
-            periods = (
-                [calendar.month_name[i] for i in range(1, 13)]
-                if current_logic == "Mese"
-                else ["Q1", "Q2", "Q3", "Q4"] if current_logic == "Trimestre" else []
+            # Command for radio buttons to re-trigger this update function
+            radio_cmd = lambda: self._update_repartition_input_area_tk(
+                container_frame,
+                profile_var,
+                logic_var,
+                repartition_vars_dict,
+                default_repartition_map,
             )
-            num_cols = 4
-            default_perc_val = (100.0 / len(periods)) if periods else 0
+
+            for logic_option in self.repartition_logic_options_tk:
+                rb = ttk.Radiobutton(
+                    logic_selection_frame,
+                    text=logic_option,
+                    variable=logic_var,
+                    value=logic_option,
+                    command=radio_cmd,
+                )
+                rb.pack(side="left", padx=2)
+            if (
+                not selected_logic and suggested_logic_for_profile
+            ):  # if logic was cleared and profile suggests one
+                logic_var.set(suggested_logic_for_profile)
+                selected_logic = suggested_logic_for_profile
+            elif not selected_logic:  # Default if nothing else fits
+                logic_var.set("Anno")
+                selected_logic = "Anno"
+
+        # --- Section for Specific Input Fields based on Profile AND Logic ---
+        input_details_frame = ttk.Frame(container_frame)
+        input_details_frame.pack(fill="x", expand=True, pady=(5, 0))
+
+        if selected_profile in [
+            "annual_progressive",
+            "annual_progressive_weekday_bias",
+        ]:
+            # Factors for annual trends
+            start_factor_val = default_repartition_map.get(
+                "start_factor", 1.2 if selected_profile == "annual_progressive" else 1.1
+            )  # Example defaults
+            end_factor_val = default_repartition_map.get(
+                "end_factor", 0.8 if selected_profile == "annual_progressive" else 0.9
+            )
+
+            start_var = tk.DoubleVar(value=round(start_factor_val, 2))
+            end_var = tk.DoubleVar(value=round(end_factor_val, 2))
+            repartition_vars_dict["start_factor"] = start_var
+            repartition_vars_dict["end_factor"] = end_var
+
+            ttk.Label(input_details_frame, text="Fatt. Iniziale:", width=12).grid(
+                row=0, column=0, padx=2, pady=2, sticky="w"
+            )
+            ttk.Entry(input_details_frame, textvariable=start_var, width=7).grid(
+                row=0, column=1, padx=2, pady=2, sticky="ew"
+            )
+            ttk.Label(input_details_frame, text="Fatt. Finale:", width=12).grid(
+                row=0, column=2, padx=2, pady=2, sticky="w"
+            )
+            ttk.Entry(input_details_frame, textvariable=end_var, width=7).grid(
+                row=0, column=3, padx=2, pady=2, sticky="ew"
+            )
+            input_details_frame.columnconfigure(1, weight=1)
+            input_details_frame.columnconfigure(3, weight=1)
+            ttk.Label(
+                input_details_frame,
+                text="(Modulano il target annuale)",
+                font=("Calibri", 8, "italic"),
+            ).grid(row=1, column=0, columnspan=4, sticky="w", pady=(0, 5))
+
+        elif selected_logic == "Mese" and selected_profile not in [
+            "even_distribution",
+            "true_annual_sinusoidal",
+        ]:
+            # Percentage inputs for each month
+            periods = [calendar.month_name[i] for i in range(1, 13)]
+            num_cols = 4  # Or 3 for wider entries
+            default_val = 100.0 / len(periods)
             for i, period_name in enumerate(periods):
                 row, col = divmod(i, num_cols)
-                period_frame = ttk.Frame(input_area)
+                period_frame = ttk.Frame(input_details_frame)
                 period_frame.grid(row=row, column=col, padx=3, pady=2, sticky="ew")
-                input_area.columnconfigure(
-                    col, weight=1
-                )  # Make columns in grid expand equally
+                input_details_frame.columnconfigure(col, weight=1)
                 ttk.Label(period_frame, text=f"{period_name} (%):", width=12).pack(
                     side="left"
                 )
-                # Use default_repartition_map if available for this period_name
-                val_to_set = default_repartition_map.get(period_name, default_perc_val)
+                val_to_set = default_repartition_map.get(period_name, default_val)
                 var = tk.DoubleVar(value=round(val_to_set, 2))
                 repartition_vars_dict[period_name] = var
                 ttk.Entry(period_frame, textvariable=var, width=7).pack(
                     side="left", fill="x", expand=True
                 )
-            # Ensure start_factor/end_factor are not in repartition_vars_dict from a previous profile selection
-            if "start_factor" in repartition_vars_dict:
+
+        elif selected_logic == "Trimestre" and selected_profile not in [
+            "even_distribution",
+            "true_annual_sinusoidal",
+        ]:
+            # Percentage inputs for each quarter
+            periods = ["Q1", "Q2", "Q3", "Q4"]
+            num_cols = 4
+            default_val = 100.0 / len(periods)
+            for i, period_name in enumerate(periods):
+                row, col = divmod(i, num_cols)
+                period_frame = ttk.Frame(input_details_frame)
+                period_frame.grid(row=row, column=col, padx=3, pady=2, sticky="ew")
+                input_details_frame.columnconfigure(col, weight=1)
+                ttk.Label(period_frame, text=f"{period_name} (%):", width=12).pack(
+                    side="left"
+                )
+                val_to_set = default_repartition_map.get(period_name, default_val)
+                var = tk.DoubleVar(value=round(val_to_set, 2))
+                repartition_vars_dict[period_name] = var
+                ttk.Entry(period_frame, textvariable=var, width=7).pack(
+                    side="left", fill="x", expand=True
+                )
+
+        elif selected_logic == "Settimana":
+            # JSON input for weekly percentages/multipliers
+            ttk.Label(input_details_frame, text="Valori Settimanali (JSON):").pack(
+                side="top", anchor="w", pady=(0, 2)
+            )
+            json_text_widget = tk.Text(
+                input_details_frame, height=4, width=60, relief=tk.SOLID, borderwidth=1
+            )
+            json_text_widget.pack(side="top", fill="x", expand=True, pady=(0, 2))
+            # Populate with default/loaded JSON string
+            default_json_str = default_repartition_map.get(
+                "weekly_json",
+                json.dumps(
+                    {"Info": 'Es: {"2024-W01": 2.5, "2024-W02": 2.3}'}, indent=2
+                ),
+            )
+            try:
+                # Prettify if it's a valid JSON string already
+                parsed_json = json.loads(default_json_str)
+                pretty_json_str = json.dumps(parsed_json, indent=2)
+                json_text_widget.insert("1.0", pretty_json_str)
+            except json.JSONDecodeError:
+                json_text_widget.insert(
+                    "1.0", default_json_str
+                )  # Insert as is if not valid JSON
+
+            repartition_vars_dict["weekly_json_text_widget"] = (
+                json_text_widget  # Store widget to get text later
+            )
+
+            ttk.Label(
+                input_details_frame,
+                text='Formato: {"ANNO-Wsettimana": percentuale/valore, ...}',
+                font=("Calibri", 8, "italic"),
+            ).pack(side="top", anchor="w")
+
+        elif (
+            selected_profile in ["even_distribution", "true_annual_sinusoidal"]
+            or selected_logic == "Anno"
+        ):
+            # No specific inputs needed for these if logic is Anno, or if profile implies annual.
+            # Backend will handle the even/sinusoidal distribution over the year.
+            # Clear any Mese/Trimestre/Fattore vars if they were previously set.
+            keys_to_remove = [
+                k for k in repartition_vars_dict if k not in ["weekly_json_text_widget"]
+            ]  # Keep json widget if it was there
+            for k_rem in keys_to_remove:
+                if k_rem not in [
+                    "start_factor",
+                    "end_factor",
+                    "weekly_json_text_widget",
+                ]:  # don't delete these if they are for other profiles
+                    is_period_name = any(
+                        month_name in k_rem for month_name in calendar.month_name[1:]
+                    ) or k_rem.startswith("Q")
+                    if is_period_name:
+                        del repartition_vars_dict[k_rem]
+            if "start_factor" in repartition_vars_dict and selected_profile not in [
+                "annual_progressive",
+                "annual_progressive_weekday_bias",
+            ]:
                 del repartition_vars_dict["start_factor"]
-            if "end_factor" in repartition_vars_dict:
+            if "end_factor" in repartition_vars_dict and selected_profile not in [
+                "annual_progressive",
+                "annual_progressive_weekday_bias",
+            ]:
                 del repartition_vars_dict["end_factor"]
-        else:
-            logic_var.set("")
-            if "start_factor" in repartition_vars_dict:
-                del repartition_vars_dict["start_factor"]
-            if "end_factor" in repartition_vars_dict:
-                del repartition_vars_dict["end_factor"]
+            if (
+                "weekly_json_text_widget" in repartition_vars_dict
+                and selected_logic != "Settimana"
+            ):
+                del repartition_vars_dict["weekly_json_text_widget"]
+
+            # Optionally, show a label indicating the profile handles distribution.
+            # ttk.Label(input_details_frame, text=f"Il profilo '{selected_profile}' gestirà la distribuzione annuale.").pack(pady=5)
 
     def load_kpi_targets_for_entry_target(self, event=None):
         for widget in self.scrollable_frame_target.winfo_children():
             widget.destroy()
         self.kpi_target_entry_widgets.clear()
-        self.canvas_target.yview_moveto(0)
+        self.canvas_target.yview_moveto(0)  # Reset scroll position
 
         if not self.stabilimento_var_target.get() or not self.year_var_target.get():
             ttk.Label(
@@ -1572,7 +1717,6 @@ class KpiApp(tk.Tk):
         for kpi_row_data in kpis_for_target_entry:
             if not isinstance(kpi_row_data, (sqlite3.Row, dict)):
                 continue
-
             kpi_id = kpi_row_data["id"]
             if kpi_id is None:
                 continue
@@ -1580,11 +1724,9 @@ class KpiApp(tk.Tk):
             kpi_display_name_str = get_kpi_display_name(kpi_row_data)
             kpi_unit = kpi_row_data["unit_of_measure"] or ""
             calc_type = kpi_row_data["calculation_type"]
-            frame_label_text = kpi_display_name_str
-            if kpi_unit:
-                frame_label_text += f" (Unità: {kpi_unit})"
-            else:
-                frame_label_text += " (Unità: N/D)"
+            frame_label_text = (
+                f"{kpi_display_name_str} (Unità: {kpi_unit if kpi_unit else 'N/D'})"
+            )
 
             kpi_entry_frame = ttk.LabelFrame(
                 self.scrollable_frame_target, text=frame_label_text, padding=10
@@ -1592,13 +1734,12 @@ class KpiApp(tk.Tk):
             kpi_entry_frame.pack(fill="x", expand=True, padx=5, pady=(0, 7))
 
             existing_target_db = db.get_annual_target(year, stabilimento_id, kpi_id)
-            (
-                def_target1_val,
-                def_target2_val,
-                def_logic_val,
-                def_profile_val,
-                def_repart_map_val,
-            ) = (0.0, 0.0, "Mese", "annual_progressive", {})
+            def_target1_val, def_target2_val = 0.0, 0.0
+            def_profile_val = "annual_progressive"  # Default profile
+            def_logic_val = "Anno"  # Default logic
+            def_repart_map_val = (
+                {}
+            )  # Holds factors or period percentages or weekly json string
 
             if existing_target_db and isinstance(
                 existing_target_db, (sqlite3.Row, dict)
@@ -1609,39 +1750,52 @@ class KpiApp(tk.Tk):
                 db_profile = existing_target_db["distribution_profile"]
                 if db_profile and db_profile in self.distribution_profile_options_tk:
                     def_profile_val = db_profile
-                elif not db_profile:
-                    def_profile_val = "annual_progressive"
+
+                def_logic_val = (
+                    existing_target_db["repartition_logic"] or "Anno"
+                )  # Load saved logic
 
                 repart_values_str = existing_target_db["repartition_values"]
                 if repart_values_str:
                     try:
                         loaded_map = json.loads(repart_values_str)
                         if isinstance(loaded_map, dict):
-                            def_repart_map_val = loaded_map
+                            if (
+                                def_logic_val == "Settimana"
+                            ):  # If logic is week, store the whole string under a specific key
+                                def_repart_map_val["weekly_json"] = repart_values_str
+                            else:  # For Mese, Trimestre, or factors
+                                def_repart_map_val = loaded_map
                     except json.JSONDecodeError:
-                        def_repart_map_val = {}
+                        if (
+                            def_logic_val == "Settimana"
+                        ):  # If it was supposed to be JSON but failed
+                            def_repart_map_val["weekly_json"] = (
+                                repart_values_str  # store raw string
+                            )
+                        # else, def_repart_map_val remains {}
 
-                if def_profile_val != "annual_progressive":
-                    def_logic_val = existing_target_db["repartition_logic"] or "Mese"
-                else:
-                    def_logic_val = ""
-
-            # Ensure default factors for new annual_progressive entries
-            if def_profile_val == "annual_progressive" and not def_repart_map_val.get(
-                "start_factor"
-            ):
-                # If map is empty or doesn't have factors, set defaults
-                def_repart_map_val["start_factor"] = 1.2
-                def_repart_map_val["end_factor"] = 0.8
+            # Ensure default factors for annual_progressive profiles if map is empty or lacks them
+            if def_profile_val in [
+                "annual_progressive",
+                "annual_progressive_weekday_bias",
+            ] and not def_repart_map_val.get("start_factor"):
+                def_repart_map_val["start_factor"] = (
+                    1.2 if def_profile_val == "annual_progressive" else 1.1
+                )
+                def_repart_map_val["end_factor"] = (
+                    0.8 if def_profile_val == "annual_progressive" else 0.9
+                )
 
             target1_var = tk.DoubleVar(value=def_target1_val)
             target2_var = tk.DoubleVar(value=def_target2_val)
             profile_var_entry = tk.StringVar(value=def_profile_val)
-            logic_var_entry = tk.StringVar(
-                value=def_logic_val
-            )  # Will be "" for annual_progressive initially
-            repartition_input_vars_entry = {}
+            logic_var_entry = tk.StringVar(value=def_logic_val)
+            repartition_input_vars_entry = (
+                {}
+            )  # This will store tk.Vars for dynamic inputs
 
+            # --- Top row: Target 1, Target 2, Profile Combobox ---
             top_row_frame_entry = ttk.Frame(kpi_entry_frame)
             top_row_frame_entry.pack(fill="x", pady=(0, 5))
             ttk.Label(top_row_frame_entry, text="Target 1:", width=8).pack(side="left")
@@ -1652,24 +1806,27 @@ class KpiApp(tk.Tk):
             ttk.Entry(top_row_frame_entry, textvariable=target2_var, width=10).pack(
                 side="left", padx=(2, 8)
             )
-            ttk.Label(
-                top_row_frame_entry, text="Profilo Distribuzione:", width=18
-            ).pack(side="left")
+            ttk.Label(top_row_frame_entry, text="Profilo Distrib.:", width=16).pack(
+                side="left"
+            )  # Adjusted width
             profile_cb_entry = ttk.Combobox(
                 top_row_frame_entry,
                 textvariable=profile_var_entry,
                 values=self.distribution_profile_options_tk,
                 state="readonly",
-                width=26,
-            )
+                width=28,
+            )  # Adjusted width
             profile_cb_entry.pack(side="left", padx=(2, 0), fill="x", expand=True)
 
-            repartition_controls_container_entry = ttk.Frame(kpi_entry_frame)
-            repartition_controls_container_entry.pack(fill="x", pady=(2, 0))
+            # --- Container for dynamic repartition controls (logic radios and specific inputs) ---
+            repartition_controls_outer_container = ttk.Frame(kpi_entry_frame)
+            repartition_controls_outer_container.pack(fill="x", pady=(2, 0))
 
-            cmd_profile_change = lambda e, p=profile_var_entry, l=logic_var_entry, r=repartition_input_vars_entry, container=repartition_controls_container_entry, def_map=def_repart_map_val, k_id=kpi_id, c_type=calc_type: self._update_repartition_input_area_tk(
-                container, p, l, r, def_map, k_id, c_type
-            )
+            # Bind profile change to update the repartition area
+            # The lambda now correctly captures all necessary current variables for the call
+            cmd_profile_change = lambda event, p_var=profile_var_entry, l_var=logic_var_entry, r_vars_dict=repartition_input_vars_entry, container=repartition_controls_outer_container, def_map=def_repart_map_val: self._update_repartition_input_area_tk(
+                container, p_var, l_var, r_vars_dict, def_map
+            )  # Removed kpi_id, calc_type as not used by UI func
             profile_cb_entry.bind("<<ComboboxSelected>>", cmd_profile_change)
 
             self.kpi_target_entry_widgets[kpi_id] = {
@@ -1677,22 +1834,22 @@ class KpiApp(tk.Tk):
                 "target2_var": target2_var,
                 "profile_var": profile_var_entry,
                 "logic_var": logic_var_entry,
-                "repartition_vars": repartition_input_vars_entry,
+                "repartition_vars": repartition_input_vars_entry,  # Holds tk.Vars for percentages/factors or the Text widget
                 "calc_type": calc_type,
-                "repartition_controls_container": repartition_controls_container_entry,
+                "repartition_controls_container": repartition_controls_outer_container,  # Frame to populate
                 "kpi_display_name": kpi_display_name_str,
             }
-            # Initial call to populate repartition controls based on loaded/default profile
+
+            # Initial call to populate the repartition controls area based on loaded/default profile and logic
             self._update_repartition_input_area_tk(
-                repartition_controls_container_entry,
+                repartition_controls_outer_container,
                 profile_var_entry,
                 logic_var_entry,
                 repartition_input_vars_entry,
                 def_repart_map_val,
-                kpi_id,
-                calc_type,
             )
-        self.scrollable_frame_target.update_idletasks()
+
+        self.scrollable_frame_target.update_idletasks()  # Ensure layout is calculated
         self.canvas_target.config(scrollregion=self.canvas_target.bbox("all"))
 
     def save_all_targets_entry(self):
@@ -1704,16 +1861,20 @@ class KpiApp(tk.Tk):
             if stabilimento_id_val is None:
                 messagebox.showerror("Errore", "Stabilimento non valido selezionato.")
                 return
-        except (ValueError, KeyError):
+        except (
+            ValueError,
+            KeyError,
+        ):  # Catches error if stabilimento_var_target.get() is not in map
             messagebox.showerror("Errore", "Seleziona anno e stabilimento validi.")
             return
-        targets_to_save_for_db, all_inputs_valid_target = {}, True
+
+        targets_to_save_for_db = {}
+        all_inputs_valid_target = True
+
         for kpi_id_val, widgets_dict in self.kpi_target_entry_widgets.items():
             try:
-                annual_target1, annual_target2 = (
-                    widgets_dict["target1_var"].get(),
-                    widgets_dict["target2_var"].get(),
-                )
+                annual_target1 = widgets_dict["target1_var"].get()
+                annual_target2 = widgets_dict["target2_var"].get()
             except tk.TclError:
                 messagebox.showerror(
                     "Errore Validazione",
@@ -1722,58 +1883,61 @@ class KpiApp(tk.Tk):
                 all_inputs_valid_target = False
                 break
 
-            profile_val = widgets_dict["profile_var"].get()
-            # repartition_logic_val will be set based on profile type
-            # repartition_values_to_save will store factors OR period percentages
-            repartition_logic_val = ""
+            selected_profile = widgets_dict["profile_var"].get()
+            selected_logic = widgets_dict[
+                "logic_var"
+            ].get()  # This is from the radio buttons
+
+            # For some profiles, logic is implicitly Anno from UI perspective, even if radio buttons are hidden
+            if selected_profile in [
+                "annual_progressive",
+                "annual_progressive_weekday_bias",
+                "true_annual_sinusoidal",
+                "even_distribution",
+            ]:
+                effective_logic_for_saving = "Anno"
+            else:
+                effective_logic_for_saving = (
+                    selected_logic  # Mese, Trimestre, Settimana
+                )
+
             repartition_values_to_save = {}
 
-            if profile_val == "annual_progressive":
-                repartition_logic_val = (
-                    ""  # Backend will derive periods if needed based on factors
-                )
-                try:
-                    start_factor = widgets_dict["repartition_vars"][
-                        "start_factor"
-                    ].get()
-                    end_factor = widgets_dict["repartition_vars"]["end_factor"].get()
-                    if not (
-                        isinstance(start_factor, (int, float))
-                        and isinstance(end_factor, (int, float))
-                    ):
-                        raise tk.TclError("Fattori non numerici")
-                    repartition_values_to_save = {
-                        "start_factor": start_factor,
-                        "end_factor": end_factor,
-                    }
-                except (tk.TclError, KeyError) as e:
-                    messagebox.showerror(
-                        "Errore Validazione",
-                        f"KPI '{widgets_dict['kpi_display_name']}': Valori per Fattore Iniziale/Finale non validi per 'annual_progressive'. Dettagli: {e}",
-                    )
-                    all_inputs_valid_target = False
-                    break
+            if effective_logic_for_saving == "Anno":
+                if selected_profile in [
+                    "annual_progressive",
+                    "annual_progressive_weekday_bias",
+                ]:
+                    try:
+                        start_factor = widgets_dict["repartition_vars"][
+                            "start_factor"
+                        ].get()
+                        end_factor = widgets_dict["repartition_vars"][
+                            "end_factor"
+                        ].get()
+                        repartition_values_to_save = {
+                            "start_factor": start_factor,
+                            "end_factor": end_factor,
+                        }
+                    except (tk.TclError, KeyError):
+                        messagebox.showerror(
+                            "Errore Validazione",
+                            f"KPI '{widgets_dict['kpi_display_name']}': Fattori non validi per '{selected_profile}'.",
+                        )
+                        all_inputs_valid_target = False
+                        break
+                # For "even_distribution" or "true_annual_sinusoidal" with "Anno" logic, repartition_values_to_save remains {}
 
-            elif profile_val in [
-                "monthly_sinusoidal",
-                "legacy_intra_period_progressive",
-            ]:
-                repartition_logic_val = widgets_dict[
-                    "logic_var"
-                ].get()  # Should be Mese or Trimestre
-                if not repartition_logic_val:
-                    messagebox.showerror(
-                        "Errore Interno",
-                        f"KPI '{widgets_dict['kpi_display_name']}': Logica di ripartizione (Mese/Trimestre) non impostata per profilo {profile_val}.",
-                    )
-                    all_inputs_valid_target = False
-                    break
-
-                current_sum_perc, num_repart_periods = 0.0, 0
+            elif (
+                effective_logic_for_saving == "Mese"
+                or effective_logic_for_saving == "Trimestre"
+            ):
+                current_sum_perc = 0.0
+                num_repart_periods = 0
                 temp_period_percentages = {}
                 for key, var_obj in widgets_dict["repartition_vars"].items():
-                    if key in ["start_factor", "end_factor"]:
-                        continue  # Skip factor keys if present
+                    if key in ["start_factor", "end_factor", "weekly_json_text_widget"]:
+                        continue
                     try:
                         val = var_obj.get()
                         temp_period_percentages[key] = val
@@ -1789,43 +1953,71 @@ class KpiApp(tk.Tk):
                 if not all_inputs_valid_target:
                     break
 
+                # Validate sum of percentages only if target is non-zero
                 if (
                     num_repart_periods > 0
                     and (abs(annual_target1) > 1e-9 or abs(annual_target2) > 1e-9)
                     and not (99.9 <= current_sum_perc <= 100.1)
-                ):
+                ):  # Allow slight floating point inaccuracies
                     messagebox.showerror(
                         "Errore Validazione",
-                        f"KPI '{widgets_dict['kpi_display_name']}', la somma delle percentuali di ripartizione ({repartition_logic_val}) è {current_sum_perc:.2f}%. Deve essere circa 100% se il target non è zero.",
+                        f"KPI '{widgets_dict['kpi_display_name']}', la somma delle percentuali "
+                        f"di ripartizione ({effective_logic_for_saving}) è {current_sum_perc:.2f}%. "
+                        "Deve essere circa 100% se il target non è zero.",
                     )
                     all_inputs_valid_target = False
                     break
                 repartition_values_to_save = temp_period_percentages
-            else:
-                # Fallback for any other profile or unexpected state
-                # This ensures repartition_values is always a dict.
-                # The backend should handle this profile with its own default repartitions if factors/percentages are not provided.
-                repartition_logic_val = (
-                    "Mese"  # A sensible default if profile doesn't specify
+
+            elif effective_logic_for_saving == "Settimana":
+                json_text_widget = widgets_dict["repartition_vars"].get(
+                    "weekly_json_text_widget"
                 )
-                # For a truly generic profile without UI inputs for repartition,
-                # repartition_values_to_save might remain empty, and backend uses its internal logic.
-                # Or, provide default equal monthly if this state is reached unexpectedly.
-                # For safety, let's keep it empty and let backend handle it or define default for it.
-                repartition_values_to_save = {}
+                if json_text_widget:
+                    json_str = json_text_widget.get("1.0", tk.END).strip()
+                    if json_str:  # Only try to parse if not empty
+                        try:
+                            parsed_json = json.loads(json_str)
+                            if not isinstance(parsed_json, dict):
+                                messagebox.showerror(
+                                    "Errore Validazione",
+                                    f"KPI '{widgets_dict['kpi_display_name']}': L'input settimanale deve essere un JSON object valido (es. {{...}}).",
+                                )
+                                all_inputs_valid_target = False
+                                break
+                            repartition_values_to_save = parsed_json
+                        except json.JSONDecodeError:
+                            messagebox.showerror(
+                                "Errore Validazione",
+                                f"KPI '{widgets_dict['kpi_display_name']}': Formato JSON non valido per i valori settimanali.",
+                            )
+                            all_inputs_valid_target = False
+                            break
+                    # If json_str is empty, repartition_values_to_save remains {}, backend might default to even weekly
+                else:  # Should not happen if UI is correct
+                    messagebox.showerror(
+                        "Errore Interno",
+                        f"KPI '{widgets_dict['kpi_display_name']}': Controllo input JSON settimanale mancante.",
+                    )
+                    all_inputs_valid_target = False
+                    break
 
             targets_to_save_for_db[kpi_id_val] = {
                 "annual_target1": annual_target1,
                 "annual_target2": annual_target2,
-                "repartition_logic": repartition_logic_val,
+                "repartition_logic": effective_logic_for_saving,
                 "repartition_values": repartition_values_to_save,
-                "distribution_profile": profile_val,
+                "distribution_profile": selected_profile,
+                "profile_params": {},  # Placeholder for future UI for profile_params
             }
+
         if not all_inputs_valid_target:
             return
+
         if not targets_to_save_for_db:
             messagebox.showwarning("Attenzione", "Nessun target definito da salvare.")
             return
+
         try:
             db.save_annual_targets(
                 year_val, stabilimento_id_val, targets_to_save_for_db
@@ -1833,7 +2025,8 @@ class KpiApp(tk.Tk):
             messagebox.showinfo(
                 "Successo", "Target salvati e ripartizioni ricalcolate (inclusi CSV)!"
             )
-            self.refresh_all_relevant_data()  # This will reload the entries, showing saved values
+            # self.refresh_all_relevant_data() # This will reload everything
+            self.load_kpi_targets_for_entry_target()  # Just reload current tab to see saved values
         except Exception as e:
             messagebox.showerror(
                 "Errore Salvataggio",
