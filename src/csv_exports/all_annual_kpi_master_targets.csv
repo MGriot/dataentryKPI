@@ -1,2 +1,0 @@
-annual_target_id,year,stabilimento_id,stabilimento_name,kpi_id,kpi_group_name,kpi_subgroup_name,kpi_indicator_name,kpi_description,kpi_calculation_type,kpi_unit_of_measure,kpi_visible_in_ui,annual_target1_value,annual_target2_value,distribution_profile,repartition_logic,repartition_values_json
-1,2025,1,ddd,1,q,s,d,sd,Media,s,Sì,100.00,50.00,annual_progressive,Anno,"{""start_factor"": 1.2, ""end_factor"": 0.8}"
