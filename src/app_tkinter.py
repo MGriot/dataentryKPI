@@ -27,14 +27,28 @@ def get_kpi_display_name(kpi_data):
     try:
         # Use .get(key, default_if_key_missing_or_None) for robustness with sqlite3.Row
         # Although sqlite3.Row usually has the key if selected, value can be None.
-        g_name = kpi_data["group_name"] if kpi_data["group_name"] else "N/G (Gruppo non specificato)"
-        sg_name = kpi_data["subgroup_name"] if kpi_data["subgroup_name"] else "N/S (Sottogruppo non specificato)"
-        i_name = kpi_data["indicator_name"] if kpi_data["indicator_name"] else "N/I (Indicatore non specificato)"
+        g_name = (
+            kpi_data["group_name"]
+            if kpi_data["group_name"]
+            else "N/G (Gruppo non specificato)"
+        )
+        sg_name = (
+            kpi_data["subgroup_name"]
+            if kpi_data["subgroup_name"]
+            else "N/S (Sottogruppo non specificato)"
+        )
+        i_name = (
+            kpi_data["indicator_name"]
+            if kpi_data["indicator_name"]
+            else "N/I (Indicatore non specificato)"
+        )
         return f"{g_name} > {sg_name} > {i_name}"
     except KeyError as e:
         # This means the SQL query in db.get_kpis() didn't return the expected column.
         # This should ideally not happen if the SQL is correct.
-        print(f"KeyError in get_kpi_display_name: La colonna '{e}' è mancante nei dati KPI.")
+        print(
+            f"KeyError in get_kpi_display_name: La colonna '{e}' è mancante nei dati KPI."
+        )
         return "N/D (Struttura Dati KPI Incompleta)"
     except Exception as ex:
         # Catch any other unexpected error during name construction.
@@ -1403,23 +1417,67 @@ class KpiApp(tk.Tk):
     def _update_repartition_input_area_tk(
         self,
         container,
-        profile_var,
-        logic_var,
-        repartition_vars_dict,
-        default_repartition_map,
-        kpi_id,
-        calc_type,
+        profile_var,  # StringVar for the profile combobox
+        logic_var,  # StringVar for Mese/Trimestre radio buttons
+        repartition_vars_dict,  # Dict to store period percentage vars OR factor vars
+        default_repartition_map,  # Dict potentially holding default values for periods or factors
+        kpi_id,  # The kpi_id for this entry block
+        calc_type,  # Calculation type
     ):
         for widget in container.winfo_children():
             widget.destroy()
-        repartition_vars_dict.clear()
+        repartition_vars_dict.clear()  # Clear previous vars
+
         profile = profile_var.get()
-        if profile in ["monthly_sinusoidal", "legacy_intra_period_progressive"]:
+
+        if profile == "annual_progressive":
+            logic_var.set(
+                ""
+            )  # Annual progressive doesn't use Mese/Trimestre logic directly here
+
+            ap_factors_frame = ttk.Frame(container)
+            ap_factors_frame.pack(fill="x", pady=(5, 2))
+
+            # Use defaults from default_repartition_map if available, otherwise hardcoded defaults
+            start_factor_val = default_repartition_map.get("start_factor", 1.2)
+            end_factor_val = default_repartition_map.get("end_factor", 0.8)
+
+            start_factor_var = tk.DoubleVar(value=round(start_factor_val, 2))
+            end_factor_var = tk.DoubleVar(value=round(end_factor_val, 2))
+
+            # Storing these vars for later retrieval during save
+            repartition_vars_dict["start_factor"] = start_factor_var
+            repartition_vars_dict["end_factor"] = end_factor_var
+
+            ttk.Label(ap_factors_frame, text="Fattore Iniziale:", width=15).grid(
+                row=0, column=0, padx=(0, 2), pady=2, sticky="w"
+            )
+            ttk.Entry(ap_factors_frame, textvariable=start_factor_var, width=7).grid(
+                row=0, column=1, padx=(0, 10), pady=2, sticky="ew"
+            )
+
+            ttk.Label(ap_factors_frame, text="Fattore Finale:", width=15).grid(
+                row=0, column=2, padx=(0, 2), pady=2, sticky="w"
+            )
+            ttk.Entry(ap_factors_frame, textvariable=end_factor_var, width=7).grid(
+                row=0, column=3, padx=(0, 5), pady=2, sticky="ew"
+            )
+            # ap_factors_frame.columnconfigure(1, weight=1) # Optional: Allow entry to expand a bit
+            # ap_factors_frame.columnconfigure(3, weight=1)
+
+            ttk.Label(
+                ap_factors_frame,
+                text="(Es: 1.2 per iniziare più alto, 0.8 per finire più basso. Ricalcolo normalizza al 100%.)",
+                font=("Calibri", 8, "italic"),
+            ).grid(row=1, column=0, columnspan=4, pady=(0, 5), sticky="w")
+
+        elif profile in ["monthly_sinusoidal", "legacy_intra_period_progressive"]:
             logic_frame = ttk.Frame(container)
             logic_frame.pack(fill="x", pady=(5, 2))
             ttk.Label(
                 logic_frame, text="Logica Ripartizione % Annuale:", width=25
             ).pack(side="left", padx=(0, 5))
+            # Regenerate command for radio buttons to ensure it uses the current closure context
             cmd = lambda p=profile_var, l=logic_var, r_vars=repartition_vars_dict, c=container, def_map=default_repartition_map, kid=kpi_id, ct=calc_type: self._update_repartition_input_area_tk(
                 c, p, l, r_vars, def_map, kid, ct
             )
@@ -1433,8 +1491,9 @@ class KpiApp(tk.Tk):
                 value="Trimestre",
                 command=cmd,
             ).pack(side="left", padx=5)
-            if not logic_var.get():
+            if not logic_var.get():  # If logic_var was cleared or is empty, default it
                 logic_var.set("Mese")
+
             input_area = ttk.Frame(container)
             input_area.pack(fill="x", expand=True)
             current_logic = logic_var.get()
@@ -1449,18 +1508,30 @@ class KpiApp(tk.Tk):
                 row, col = divmod(i, num_cols)
                 period_frame = ttk.Frame(input_area)
                 period_frame.grid(row=row, column=col, padx=3, pady=2, sticky="ew")
-                input_area.columnconfigure(col, weight=1)
+                input_area.columnconfigure(
+                    col, weight=1
+                )  # Make columns in grid expand equally
                 ttk.Label(period_frame, text=f"{period_name} (%):", width=12).pack(
                     side="left"
                 )
+                # Use default_repartition_map if available for this period_name
                 val_to_set = default_repartition_map.get(period_name, default_perc_val)
                 var = tk.DoubleVar(value=round(val_to_set, 2))
                 repartition_vars_dict[period_name] = var
                 ttk.Entry(period_frame, textvariable=var, width=7).pack(
                     side="left", fill="x", expand=True
                 )
+            # Ensure start_factor/end_factor are not in repartition_vars_dict from a previous profile selection
+            if "start_factor" in repartition_vars_dict:
+                del repartition_vars_dict["start_factor"]
+            if "end_factor" in repartition_vars_dict:
+                del repartition_vars_dict["end_factor"]
         else:
             logic_var.set("")
+            if "start_factor" in repartition_vars_dict:
+                del repartition_vars_dict["start_factor"]
+            if "end_factor" in repartition_vars_dict:
+                del repartition_vars_dict["end_factor"]
 
     def load_kpi_targets_for_entry_target(self, event=None):
         for widget in self.scrollable_frame_target.winfo_children():
@@ -1480,89 +1551,110 @@ class KpiApp(tk.Tk):
             )
             if stabilimento_id is None:
                 ttk.Label(
-                    self.scrollable_frame_target, text="Stabilimento selezionato non valido."
+                    self.scrollable_frame_target,
+                    text="Stabilimento selezionato non valido.",
                 ).pack(pady=10)
                 return
         except ValueError:
-            ttk.Label(
-                self.scrollable_frame_target, text="Anno non valido."
-            ).pack(pady=10)
+            ttk.Label(self.scrollable_frame_target, text="Anno non valido.").pack(
+                pady=10
+            )
             return
 
-        kpis_for_target_entry = db.get_kpis(only_visible=True) # This is already ordered
+        kpis_for_target_entry = db.get_kpis(only_visible=True)
         if not kpis_for_target_entry:
             ttk.Label(
-                self.scrollable_frame_target, text="Nessun KPI (visibile per target) definito nel sistema."
+                self.scrollable_frame_target,
+                text="Nessun KPI (visibile per target) definito nel sistema.",
             ).pack(pady=10)
             return
 
         for kpi_row_data in kpis_for_target_entry:
-            if not isinstance(kpi_row_data, (sqlite3.Row, dict)): continue # Safety check
+            if not isinstance(kpi_row_data, (sqlite3.Row, dict)):
+                continue
 
-            kpi_id = kpi_row_data["id"] # Assuming 'id' is the kpi_spec_id
-            if kpi_id is None: continue # Should not happen if data is clean
+            kpi_id = kpi_row_data["id"]
+            if kpi_id is None:
+                continue
 
-            # Use the improved helper function for the display name
             kpi_display_name_str = get_kpi_display_name(kpi_row_data)
-            
-            kpi_unit = kpi_row_data["unit_of_measure"] or "" # Default to empty string if None
+            kpi_unit = kpi_row_data["unit_of_measure"] or ""
             calc_type = kpi_row_data["calculation_type"]
-
-            # Construct the label for the LabelFrame, ensuring it's clear
             frame_label_text = kpi_display_name_str
             if kpi_unit:
                 frame_label_text += f" (Unità: {kpi_unit})"
             else:
                 frame_label_text += " (Unità: N/D)"
 
-
             kpi_entry_frame = ttk.LabelFrame(
                 self.scrollable_frame_target, text=frame_label_text, padding=10
             )
-            kpi_entry_frame.pack(fill="x", expand=True, padx=5, pady=(0,7))
+            kpi_entry_frame.pack(fill="x", expand=True, padx=5, pady=(0, 7))
 
             existing_target_db = db.get_annual_target(year, stabilimento_id, kpi_id)
-            def_target1_val, def_target2_val, def_logic_val, def_profile_val, def_repart_map_val = 0.0, 0.0, "Mese", "annual_progressive", {}
-            
-            if existing_target_db and isinstance(existing_target_db, (sqlite3.Row, dict)):
+            (
+                def_target1_val,
+                def_target2_val,
+                def_logic_val,
+                def_profile_val,
+                def_repart_map_val,
+            ) = (0.0, 0.0, "Mese", "annual_progressive", {})
+
+            if existing_target_db and isinstance(
+                existing_target_db, (sqlite3.Row, dict)
+            ):
                 def_target1_val = float(existing_target_db["annual_target1"] or 0.0)
                 def_target2_val = float(existing_target_db["annual_target2"] or 0.0)
-                def_logic_val = existing_target_db["repartition_logic"] or "Mese"
+
                 db_profile = existing_target_db["distribution_profile"]
                 if db_profile and db_profile in self.distribution_profile_options_tk:
                     def_profile_val = db_profile
-                elif not db_profile: # if None or empty string from DB
+                elif not db_profile:
                     def_profile_val = "annual_progressive"
-                
+
                 repart_values_str = existing_target_db["repartition_values"]
                 if repart_values_str:
                     try:
                         loaded_map = json.loads(repart_values_str)
-                        if isinstance(loaded_map, dict): def_repart_map_val = loaded_map
+                        if isinstance(loaded_map, dict):
+                            def_repart_map_val = loaded_map
                     except json.JSONDecodeError:
-                        def_repart_map_val = {} # Fallback if JSON is malformed
+                        def_repart_map_val = {}
+
+                if def_profile_val != "annual_progressive":
+                    def_logic_val = existing_target_db["repartition_logic"] or "Mese"
+                else:
+                    def_logic_val = ""
+
+            # Ensure default factors for new annual_progressive entries
+            if def_profile_val == "annual_progressive" and not def_repart_map_val.get(
+                "start_factor"
+            ):
+                # If map is empty or doesn't have factors, set defaults
+                def_repart_map_val["start_factor"] = 1.2
+                def_repart_map_val["end_factor"] = 0.8
 
             target1_var = tk.DoubleVar(value=def_target1_val)
             target2_var = tk.DoubleVar(value=def_target2_val)
             profile_var_entry = tk.StringVar(value=def_profile_val)
-            logic_var_entry = tk.StringVar(value=def_logic_val)
+            logic_var_entry = tk.StringVar(
+                value=def_logic_val
+            )  # Will be "" for annual_progressive initially
             repartition_input_vars_entry = {}
 
             top_row_frame_entry = ttk.Frame(kpi_entry_frame)
             top_row_frame_entry.pack(fill="x", pady=(0, 5))
             ttk.Label(top_row_frame_entry, text="Target 1:", width=8).pack(side="left")
             ttk.Entry(top_row_frame_entry, textvariable=target1_var, width=10).pack(
-                side="left", padx=(2,8)
+                side="left", padx=(2, 8)
             )
-            ttk.Label(top_row_frame_entry, text="Target 2:", width=8).pack(
-                side="left"
-            )
+            ttk.Label(top_row_frame_entry, text="Target 2:", width=8).pack(side="left")
             ttk.Entry(top_row_frame_entry, textvariable=target2_var, width=10).pack(
-                side="left", padx=(2,8)
+                side="left", padx=(2, 8)
             )
-            ttk.Label(top_row_frame_entry, text="Profilo Distribuzione:", width=18).pack(
-                side="left"
-            )
+            ttk.Label(
+                top_row_frame_entry, text="Profilo Distribuzione:", width=18
+            ).pack(side="left")
             profile_cb_entry = ttk.Combobox(
                 top_row_frame_entry,
                 textvariable=profile_var_entry,
@@ -1570,15 +1662,14 @@ class KpiApp(tk.Tk):
                 state="readonly",
                 width=26,
             )
-            profile_cb_entry.pack(side="left", padx=(2,0), fill="x", expand=True)
+            profile_cb_entry.pack(side="left", padx=(2, 0), fill="x", expand=True)
 
             repartition_controls_container_entry = ttk.Frame(kpi_entry_frame)
-            repartition_controls_container_entry.pack(fill="x", pady=(2,0))
+            repartition_controls_container_entry.pack(fill="x", pady=(2, 0))
 
-            cmd_profile_change = lambda e, p=profile_var_entry, l=logic_var_entry, r=repartition_input_vars_entry, \
-                               container=repartition_controls_container_entry, def_map=def_repart_map_val, \
-                               k_id=kpi_id, c_type=calc_type: \
-                               self._update_repartition_input_area_tk(container, p, l, r, def_map, k_id, c_type)
+            cmd_profile_change = lambda e, p=profile_var_entry, l=logic_var_entry, r=repartition_input_vars_entry, container=repartition_controls_container_entry, def_map=def_repart_map_val, k_id=kpi_id, c_type=calc_type: self._update_repartition_input_area_tk(
+                container, p, l, r, def_map, k_id, c_type
+            )
             profile_cb_entry.bind("<<ComboboxSelected>>", cmd_profile_change)
 
             self.kpi_target_entry_widgets[kpi_id] = {
@@ -1589,8 +1680,9 @@ class KpiApp(tk.Tk):
                 "repartition_vars": repartition_input_vars_entry,
                 "calc_type": calc_type,
                 "repartition_controls_container": repartition_controls_container_entry,
-                "kpi_display_name": kpi_display_name_str # Store the potentially "N/G > N/S > N/I" name for error messages
+                "kpi_display_name": kpi_display_name_str,
             }
+            # Initial call to populate repartition controls based on loaded/default profile
             self._update_repartition_input_area_tk(
                 repartition_controls_container_entry,
                 profile_var_entry,
@@ -1602,7 +1694,6 @@ class KpiApp(tk.Tk):
             )
         self.scrollable_frame_target.update_idletasks()
         self.canvas_target.config(scrollregion=self.canvas_target.bbox("all"))
-
 
     def save_all_targets_entry(self):
         try:
@@ -1630,24 +1721,62 @@ class KpiApp(tk.Tk):
                 )
                 all_inputs_valid_target = False
                 break
-            profile_val, repartition_logic_val, repartition_values_val = (
-                widgets_dict["profile_var"].get(),
-                widgets_dict["logic_var"].get(),
-                {},
-            )
-            if profile_val in ["monthly_sinusoidal", "legacy_intra_period_progressive"]:
-                if not repartition_logic_val:
+
+            profile_val = widgets_dict["profile_var"].get()
+            # repartition_logic_val will be set based on profile type
+            # repartition_values_to_save will store factors OR period percentages
+            repartition_logic_val = ""
+            repartition_values_to_save = {}
+
+            if profile_val == "annual_progressive":
+                repartition_logic_val = (
+                    ""  # Backend will derive periods if needed based on factors
+                )
+                try:
+                    start_factor = widgets_dict["repartition_vars"][
+                        "start_factor"
+                    ].get()
+                    end_factor = widgets_dict["repartition_vars"]["end_factor"].get()
+                    if not (
+                        isinstance(start_factor, (int, float))
+                        and isinstance(end_factor, (int, float))
+                    ):
+                        raise tk.TclError("Fattori non numerici")
+                    repartition_values_to_save = {
+                        "start_factor": start_factor,
+                        "end_factor": end_factor,
+                    }
+                except (tk.TclError, KeyError) as e:
                     messagebox.showerror(
-                        "Errore Interno",
-                        f"KPI '{widgets_dict['kpi_display_name']}': Logica di ripartizione non impostata per profilo {profile_val}.",
+                        "Errore Validazione",
+                        f"KPI '{widgets_dict['kpi_display_name']}': Valori per Fattore Iniziale/Finale non validi per 'annual_progressive'. Dettagli: {e}",
                     )
                     all_inputs_valid_target = False
                     break
+
+            elif profile_val in [
+                "monthly_sinusoidal",
+                "legacy_intra_period_progressive",
+            ]:
+                repartition_logic_val = widgets_dict[
+                    "logic_var"
+                ].get()  # Should be Mese or Trimestre
+                if not repartition_logic_val:
+                    messagebox.showerror(
+                        "Errore Interno",
+                        f"KPI '{widgets_dict['kpi_display_name']}': Logica di ripartizione (Mese/Trimestre) non impostata per profilo {profile_val}.",
+                    )
+                    all_inputs_valid_target = False
+                    break
+
                 current_sum_perc, num_repart_periods = 0.0, 0
+                temp_period_percentages = {}
                 for key, var_obj in widgets_dict["repartition_vars"].items():
+                    if key in ["start_factor", "end_factor"]:
+                        continue  # Skip factor keys if present
                     try:
                         val = var_obj.get()
-                        repartition_values_val[key] = val
+                        temp_period_percentages[key] = val
                         current_sum_perc += val
                         num_repart_periods += 1
                     except tk.TclError:
@@ -1659,26 +1788,37 @@ class KpiApp(tk.Tk):
                         break
                 if not all_inputs_valid_target:
                     break
+
                 if (
                     num_repart_periods > 0
-                    and (annual_target1 > 1e-9 or annual_target2 > 1e-9)
+                    and (abs(annual_target1) > 1e-9 or abs(annual_target2) > 1e-9)
                     and not (99.9 <= current_sum_perc <= 100.1)
                 ):
                     messagebox.showerror(
                         "Errore Validazione",
-                        f"KPI '{widgets_dict['kpi_display_name']}', la somma delle percentuali di ripartizione ({repartition_logic_val}) è {current_sum_perc:.2f}%. Deve essere circa 100%.",
+                        f"KPI '{widgets_dict['kpi_display_name']}', la somma delle percentuali di ripartizione ({repartition_logic_val}) è {current_sum_perc:.2f}%. Deve essere circa 100% se il target non è zero.",
                     )
                     all_inputs_valid_target = False
                     break
+                repartition_values_to_save = temp_period_percentages
             else:
-                repartition_logic_val, repartition_values_val = "Mese", {
-                    calendar.month_name[i]: round(100.0 / 12.0, 5) for i in range(1, 13)
-                }
+                # Fallback for any other profile or unexpected state
+                # This ensures repartition_values is always a dict.
+                # The backend should handle this profile with its own default repartitions if factors/percentages are not provided.
+                repartition_logic_val = (
+                    "Mese"  # A sensible default if profile doesn't specify
+                )
+                # For a truly generic profile without UI inputs for repartition,
+                # repartition_values_to_save might remain empty, and backend uses its internal logic.
+                # Or, provide default equal monthly if this state is reached unexpectedly.
+                # For safety, let's keep it empty and let backend handle it or define default for it.
+                repartition_values_to_save = {}
+
             targets_to_save_for_db[kpi_id_val] = {
                 "annual_target1": annual_target1,
                 "annual_target2": annual_target2,
                 "repartition_logic": repartition_logic_val,
-                "repartition_values": repartition_values_val,
+                "repartition_values": repartition_values_to_save,
                 "distribution_profile": profile_val,
             }
         if not all_inputs_valid_target:
@@ -1693,7 +1833,7 @@ class KpiApp(tk.Tk):
             messagebox.showinfo(
                 "Successo", "Target salvati e ripartizioni ricalcolate (inclusi CSV)!"
             )
-            self.refresh_all_relevant_data()
+            self.refresh_all_relevant_data()  # This will reload the entries, showing saved values
         except Exception as e:
             messagebox.showerror(
                 "Errore Salvataggio",
@@ -1777,35 +1917,45 @@ class KpiApp(tk.Tk):
         self.res_period_cb_vis.current(2)
         self.res_period_cb_vis.pack(side="left", padx=(2, 5))
         self.res_period_cb_vis.bind("<<ComboboxSelected>>", self.show_results_data)
-        ttk.Label(filter_frame_res, text="Target:").pack(side="left", padx=(5, 0))
-        self.res_target_num_var = tk.IntVar(value=1)
-        ttk.Radiobutton(
-            filter_frame_res,
-            text="T1",
-            variable=self.res_target_num_var,
-            value=1,
-            command=self.show_results_data,
-        ).pack(side="left")
-        ttk.Radiobutton(
-            filter_frame_res,
-            text="T2",
-            variable=self.res_target_num_var,
-            value=2,
-            command=self.show_results_data,
-        ).pack(side="left", padx=(0, 5))
+
+        # REMOVED Target RadioButtons and Label
+        # ttk.Label(filter_frame_res, text="Target:").pack(side="left", padx=(5, 0))
+        # self.res_target_num_var = tk.IntVar(value=1) # This variable is no longer needed
+        # ttk.Radiobutton(
+        #     filter_frame_res,
+        #     text="T1",
+        #     variable=self.res_target_num_var,
+        #     value=1,
+        #     command=self.show_results_data,
+        # ).pack(side="left")
+        # ttk.Radiobutton(
+        #     filter_frame_res,
+        #     text="T2",
+        #     variable=self.res_target_num_var,
+        #     value=2,
+        #     command=self.show_results_data,
+        # ).pack(side="left", padx=(0, 5))
+
         ttk.Button(
             filter_frame_res,
             text="Aggiorna Vista",
             command=self.show_results_data,
             style="Accent.TButton",
         ).pack(side="left", padx=5)
+
         self.results_data_tree = ttk.Treeview(
-            self.results_frame, columns=("Periodo", "Target"), show="headings"
+            self.results_frame,
+            columns=("Periodo", "Valore Target 1", "Valore Target 2"),
+            show="headings",
         )
         self.results_data_tree.heading("Periodo", text="Periodo")
-        self.results_data_tree.heading("Target", text="Valore Target")
+        self.results_data_tree.heading("Valore Target 1", text="Valore Target 1")
+        self.results_data_tree.heading("Valore Target 2", text="Valore Target 2")
+
         self.results_data_tree.column("Periodo", width=200, anchor="w")
-        self.results_data_tree.column("Target", width=150, anchor="e")
+        self.results_data_tree.column("Valore Target 1", width=150, anchor="e")
+        self.results_data_tree.column("Valore Target 2", width=150, anchor="e")
+
         self.results_data_tree.pack(fill="both", expand=True, pady=(5, 0))
         self.summary_label_var_vis = tk.StringVar()
         ttk.Label(
@@ -1954,7 +2104,7 @@ class KpiApp(tk.Tk):
                 self.res_indicator_var.get(),
                 self.res_period_var_vis.get(),
             )
-            target_num_to_show = self.res_target_num_var.get()
+            # target_num_to_show = self.res_target_num_var.get() # REMOVED
             if not all([stabilimento_name_res, indicator_name_res, period_type_res]):
                 return
             stabilimento_id_res = self.res_stabilimenti_map_vis.get(
@@ -2007,41 +2157,124 @@ class KpiApp(tk.Tk):
             ):
                 prof_val = target_ann_info_res["distribution_profile"]
                 profile_disp_res = prof_val if prof_val else "annual_progressive"
-            data_ripartiti_res = db.get_ripartiti_data(
+
+            # Fetch data for Target 1
+            data_ripartiti_t1 = db.get_ripartiti_data(
                 year_val_res,
                 stabilimento_id_res,
                 kpi_id_res,
                 period_type_res,
-                target_num_to_show,
+                1,  # Target 1
             )
-            if not data_ripartiti_res:
+            # Fetch data for Target 2
+            data_ripartiti_t2 = db.get_ripartiti_data(
+                year_val_res,
+                stabilimento_id_res,
+                kpi_id_res,
+                period_type_res,
+                2,  # Target 2
+            )
+
+            map_t1 = (
+                {row["Periodo"]: row["Target"] for row in data_ripartiti_t1}
+                if data_ripartiti_t1
+                else {}
+            )
+            map_t2 = (
+                {row["Periodo"]: row["Target"] for row in data_ripartiti_t2}
+                if data_ripartiti_t2
+                else {}
+            )
+
+            ordered_periods = []
+            if data_ripartiti_t1:
+                ordered_periods = [row["Periodo"] for row in data_ripartiti_t1]
+            elif data_ripartiti_t2:
+                ordered_periods = [row["Periodo"] for row in data_ripartiti_t2]
+
+            display_rows_added = False
+            total_sum_t1_res, count_t1_res = 0.0, 0
+            total_sum_t2_res, count_t2_res = 0.0, 0
+
+            for period_name in ordered_periods:
+                val_t1 = map_t1.get(period_name)
+                val_t2 = map_t2.get(period_name)
+
+                target1_display = (
+                    f"{val_t1:.2f}" if isinstance(val_t1, (int, float)) else "N/A"
+                )
+                target2_display = (
+                    f"{val_t2:.2f}" if isinstance(val_t2, (int, float)) else "N/A"
+                )
+
+                self.results_data_tree.insert(
+                    "", "end", values=(period_name, target1_display, target2_display)
+                )
+                display_rows_added = True
+
+                if isinstance(val_t1, (int, float)):
+                    total_sum_t1_res += val_t1
+                    count_t1_res += 1
+                if isinstance(val_t2, (int, float)):
+                    total_sum_t2_res += val_t2
+                    count_t2_res += 1
+
+            if not display_rows_added:
                 self.summary_label_var_vis.set(
-                    f"Nessun dato ripartito per {kpi_display_name_res_str}, Target {target_num_to_show} (Profilo: {profile_disp_res})."
+                    f"Nessun dato ripartito per {kpi_display_name_res_str} (Profilo: {profile_disp_res})."
                 )
                 return
-            total_sum_res, count_res = 0.0, 0
-            for row_data in data_ripartiti_res:
-                period_val, target_val = row_data["Periodo"], row_data["Target"]
-                self.results_data_tree.insert(
-                    "", "end", values=(period_val, f"{target_val:.2f}")
-                )
-                if isinstance(target_val, (int, float)):
-                    total_sum_res += target_val
-                    count_res += 1
-            summary_text_res = f"KPI: {kpi_display_name_res_str} | Profilo: {profile_disp_res} | Target: {target_num_to_show} | "
-            if count_res > 0:
-                summary_text_res += (
-                    f"Totale Ripartito ({period_type_res}): {total_sum_res:,.2f} {kpi_unit_res}"
+
+            summary_text_res_parts = [
+                f"KPI: {kpi_display_name_res_str}",
+                f"Profilo: {profile_disp_res}",
+            ]
+
+            if count_t1_res > 0:
+                agg_t1_val = (
+                    total_sum_t1_res
                     if calc_type_res == "Incrementale"
-                    else f"Media Ripartita ({period_type_res}): {(total_sum_res / count_res if count_res > 0 else 0):,.2f} {kpi_unit_res}"
+                    else (total_sum_t1_res / count_t1_res)
                 )
-            else:
-                summary_text_res += "Nessun dato aggregato."
-            self.summary_label_var_vis.set(summary_text_res)
+                agg_t1_label = (
+                    "Totale T1" if calc_type_res == "Incrementale" else "Media T1"
+                )
+                summary_text_res_parts.append(
+                    f"{agg_t1_label} ({period_type_res}): {agg_t1_val:,.2f} {kpi_unit_res}"
+                )
+
+            if count_t2_res > 0:
+                agg_t2_val = (
+                    total_sum_t2_res
+                    if calc_type_res == "Incrementale"
+                    else (total_sum_t2_res / count_t2_res)
+                )
+                agg_t2_label = (
+                    "Totale T2" if calc_type_res == "Incrementale" else "Media T2"
+                )
+                summary_text_res_parts.append(
+                    f"{agg_t2_label} ({period_type_res}): {agg_t2_val:,.2f} {kpi_unit_res}"
+                )
+
+            if (
+                count_t1_res == 0 and count_t2_res == 0 and display_rows_added
+            ):  # Should be caught by !display_rows_added
+                summary_text_res_parts.append(
+                    "Dati aggregati non disponibili."
+                )  # Or some other message
+
+            self.summary_label_var_vis.set(" | ".join(summary_text_res_parts))
+
         except ValueError:
+            self.summary_label_var_vis.set(
+                "Errore: Anno non valido o altri input numerici errati."
+            )
             return
         except Exception as e:
-            self.summary_label_var_vis.set(f"Errore: {e}")
+            self.summary_label_var_vis.set(f"Errore durante la visualizzazione: {e}")
+            import traceback
+
+            traceback.print_exc()
 
     # --- Scheda Esportazione Dati ---
     def create_export_widgets(self):
