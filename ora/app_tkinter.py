@@ -1,80 +1,181 @@
 # app_tkinter.py
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
-import database_manager as db
-import export_manager
+import database_manager as db_manager  # For writes/setup/calculations
+import data_retriever as db_retriever  # NEW: For reads
+import export_manager  # Stays the same
+
 import json
 import datetime
 import calendar
 from pathlib import Path
-import sqlite3
+import sqlite3  # Keep for specific error types if needed
 import os
 import sys
 import subprocess
 import traceback
+from app_config import *
 
 
 # --- Helper Function ---
-def get_kpi_display_name(kpi_data):
+def get_kpi_display_name(
+    kpi_data_row,
+):  # Renamed parameter to indicate it's likely a row
     """
     Generates a display name for a KPI using its hierarchy.
-    kpi_data is expected to be a dict-like object (e.g., sqlite3.Row or dict)
-    containing 'group_name', 'subgroup_name', 'indicator_name'.
+    kpi_data_row is expected to be an sqlite3.Row object or a dict.
     """
-    if not kpi_data:
+    if not kpi_data_row:
         return "N/D (KPI Data Mancante)"
     try:
-        # Use .get() for safer access in case keys are missing, though they should be present
-        g_name = kpi_data.get("group_name") or "N/G (No Group)"
-        sg_name = kpi_data.get("subgroup_name") or "N/S (No Subgroup)"
-        i_name = kpi_data.get("indicator_name") or "N/I (No Indicator)"
+        # Check if keys exist, suitable for sqlite3.Row or dict
+        g_name = (
+            kpi_data_row["group_name"]
+            if "group_name" in kpi_data_row.keys()
+            else "N/G (No Group)"
+        )
+        sg_name = (
+            kpi_data_row["subgroup_name"]
+            if "subgroup_name" in kpi_data_row.keys()
+            else "N/S (No Subgroup)"
+        )
+        i_name = (
+            kpi_data_row["indicator_name"]
+            if "indicator_name" in kpi_data_row.keys()
+            else "N/I (No Indicator)"
+        )
+
+        # Handle if values are None from DB
+        g_name = g_name or "N/G (Nome Gruppo Vuoto)"
+        sg_name = sg_name or "N/S (Nome Sottogruppo Vuoto)"
+        i_name = i_name or "N/I (Nome Indicatore Vuoto)"
+
         return f"{g_name} > {sg_name} > {i_name}"
     except (
-        Exception
-    ) as ex:  # Catch any unexpected error during string formatting or access
-        print(f"Errore imprevisto in get_kpi_display_name: {ex}")
-        return "N/D (Errore Display Nome)"
+        AttributeError,
+        KeyError,
+        IndexError,
+        TypeError,
+    ) as ex:  # Catch more specific errors if direct access fails
+        print(f"Errore in get_kpi_display_name (Dati: {type(kpi_data_row)}): {ex}")
+        # Fallback if it's not a dict-like or row-like object with expected keys
+        return "N/D (Errore Struttura Dati KPI)"
+    except Exception as ex_general:  # General catch-all
+        print(f"Errore imprevisto in get_kpi_display_name: {ex_general}")
+        return "N/D (Errore Display Nome Imprevisto)"
+
+
+def safe_get_from_row(row, key, default=None):
+    """Safely gets a value from an sqlite3.Row object, like dict.get()."""
+    if row is None:
+        return default
+    try:
+        return row[key]
+    except (
+        IndexError
+    ):  # Column name might not exist if schema changed or query is dynamic
+        # This can also be sqlite3.InterfaceError if key is not a valid column name at all
+        # or KeyError if somehow it's a dict and key is missing
+        return default
+    except KeyError:  # If it was accidentally a dict
+        return default
+
+
+# Then use it:
+def _set_kpi_spec_fields_from_data(self, kpi_data_row):
+    if kpi_data_row is None:
+        return
+
+    self.kpi_spec_desc_var.set(safe_get_from_row(kpi_data_row, "description", ""))
+    self.kpi_spec_type_var.set(
+        safe_get_from_row(
+            kpi_data_row, "calculation_type", self.kpi_calc_type_options_tk[0]
+        )
+    )
+    self.kpi_spec_unit_var.set(safe_get_from_row(kpi_data_row, "unit_of_measure", ""))
+    self.kpi_spec_visible_var.set(
+        bool(safe_get_from_row(kpi_data_row, "visible", True))
+    )
 
 
 class KpiApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Gestione Target KPI - Desktop")
-        self.geometry("1450x900")  # Slightly increased size
+        self.title("Gestione Target KPI - Desktop v2.2")
+        self.geometry("1600x950")
 
-        self._populating_kpi_spec_combos = (
-            False  # Flag to prevent cascading updates during combo population
-        )
+        self._populating_kpi_spec_combos = False
+        self._populating_target_kpi_entries = False
+        self._master_sub_update_active = False
 
         style = ttk.Style(self)
-        try:
-            # Prefer 'clam' for a more modern look if available
-            if "clam" in style.theme_names():
-                style.theme_use("clam")
-            elif "alt" in style.theme_names():
-                style.theme_use("alt")
-            else:  # Fallback to the first available theme
-                style.theme_use(style.theme_names()[0])
-        except tk.TclError:
-            print(
-                "Nessun tema ttk trovato o errore nell'impostazione del tema. Uso fallback."
-            )
-            # Minimal styling if themes fail
-            pass
+        # Theme selection logic (keep your existing robust logic)
+        available_themes = style.theme_names()
+        preferred_themes = ['clam', 'alt', 'vista', 'xpnative', 'default']
+        theme_set_successfully = False
+        for theme_name_attempt in preferred_themes:
+            if theme_name_attempt in available_themes:
+                try:
+                    style.theme_use(theme_name_attempt)
+                    theme_set_successfully = True
+                    print(f"Successfully set theme: {theme_name_attempt}")
+                    break
+                except tk.TclError:
+                    print(f"Failed to set theme: {theme_name_attempt}, trying next.")
+        if not theme_set_successfully:
+            print("CRITICAL: No ttk theme could be explicitly set. Using system default.")
+        
+        # Get the actual theme in use for logging
+        current_theme_in_use = style.theme_use()
+        print(f"Final theme in use: {current_theme_in_use}")
 
-        style.configure(
-            "Accent.TButton", foreground="white", background="#007bff"
-        )  # Blue accent
+        # Store default style properties for resetting
+        self.style_defaults = {}
+        try:
+            self.style_defaults['TLabelFrame_relief'] = style.lookup("TLabelFrame", "relief")
+            self.style_defaults['TLabelFrame_borderwidth'] = style.lookup("TLabelFrame", "borderwidth")
+            # Background of the LabelFrame content area is hard to get reliably and set directly.
+            # We'll focus on the label's background.
+            self.style_defaults['TLabelframe.Label_background'] = style.lookup("TLabelframe.Label", "background")
+            self.style_defaults['TLabelframe.Label_foreground'] = style.lookup("TLabelframe.Label", "foreground")
+            self.default_app_bg = self.cget('bg') # General app background
+        except tk.TclError as e:
+            print(f"Warning: Could not lookup some default style properties for theme '{current_theme_in_use}': {e}")
+            self.style_defaults.setdefault('TLabelFrame_relief', 'groove') # Common fallback
+            self.style_defaults.setdefault('TLabelFrame_borderwidth', 2)   # Common fallback
+            self.style_defaults.setdefault('TLabelframe.Label_background', '#f0f0f0') # Fallback
+            self.style_defaults.setdefault('TLabelframe.Label_foreground', 'black') # Fallback
+            self.default_app_bg = '#f0f0f0'
+
+
+        # General Style Configurations
+        style.configure("Accent.TButton", foreground="white", background="#007bff", font=("Calibri", 10))
         style.configure("Treeview.Heading", font=("Calibri", 10, "bold"))
-        style.configure("Listbox", font=("Calibri", 10))
+        style.configure("TListbox", font=("Calibri", 10))
         style.configure("TCombobox", font=("Calibri", 10))
-        style.configure("TEntry", font=("Calibri", 10))
+        style.configure("TEntry", font=("Calibri", 10), padding=(3,3))
         style.configure("TLabel", font=("Calibri", 10))
         style.configure("TButton", font=("Calibri", 10))
         style.configure("TRadiobutton", font=("Calibri", 10))
         style.configure("TCheckbutton", font=("Calibri", 10))
         style.configure("TSpinbox", font=("Calibri", 10))
-        style.configure("TLabelframe.Label", font=("Calibri", 10, "bold"))
+        style.configure("TLabelframe.Label", font=("Calibri", 10, "bold")) # Default LabelFrame label
+        style.configure("TLabelframe", font=("Calibri", 10)) # Default LabelFrame general
+
+        # Define options for our "manual" and "derived" visual states' labels
+        # These are NOT new style *names* for the LabelFrame itself anymore for dynamic switching,
+        # but rather configurations for the label part of it.
+        # The main LabelFrame visual change (relief, border) will be done directly.
+
+        # Options for the LABEL of a "manual" frame
+        style.configure("ManualState.TLabelframe.Label",
+                        background="#fff0f0",
+                        foreground="black")
+
+        # Options for the LABEL of a "derived" frame
+        style.configure("DerivedState.TLabelframe.Label",
+                        background=self.style_defaults.get('TLabelframe.Label_background'),
+                        foreground=self.style_defaults.get('TLabelframe.Label_foreground'))
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
@@ -84,6 +185,7 @@ class KpiApp(tk.Tk):
         self.kpi_hierarchy_frame = ttk.Frame(self.notebook, padding="10")
         self.kpi_template_frame = ttk.Frame(self.notebook, padding="10")
         self.kpi_spec_frame = ttk.Frame(self.notebook, padding="10")
+        self.master_sub_link_frame = ttk.Frame(self.notebook, padding="10")
         self.stabilimenti_frame = ttk.Frame(self.notebook, padding="10")
         self.results_frame = ttk.Frame(self.notebook, padding="10")
         self.export_frame = ttk.Frame(self.notebook, padding="10")
@@ -91,39 +193,35 @@ class KpiApp(tk.Tk):
         # Add frames to notebook
         self.notebook.add(self.target_frame, text="🎯 Inserimento Target")
         self.notebook.add(self.kpi_hierarchy_frame, text="🗂️ Gestione Gerarchia KPI")
-        self.notebook.add(
-            self.kpi_template_frame, text="📋 Gestione Template Indicatori"
-        )
+        self.notebook.add(self.kpi_template_frame, text="📋 Gestione Template Indicatori")
         self.notebook.add(self.kpi_spec_frame, text="⚙️ Gestione Specifiche KPI")
+        self.notebook.add(self.master_sub_link_frame, text="🔗 Gestione Link Master/Sub")
         self.notebook.add(self.stabilimenti_frame, text="🏭 Gestione Stabilimenti")
         self.notebook.add(self.results_frame, text="📈 Visualizzazione Risultati")
         self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
 
-        # Constants for UI choices, using constants from database_manager
+        # Use constants imported from app_config
         self.distribution_profile_options_tk = [
-            db.PROFILE_EVEN,
-            db.PROFILE_ANNUAL_PROGRESSIVE,
-            db.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-            db.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-            db.PROFILE_MONTHLY_SINUSOIDAL,
-            db.PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
-            db.PROFILE_QUARTERLY_PROGRESSIVE,
-            db.PROFILE_QUARTERLY_SINUSOIDAL,
-            "event_based_spikes_or_dips",  # This is handled by profile_params
+            PROFILE_EVEN, PROFILE_ANNUAL_PROGRESSIVE,
+            PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS, PROFILE_TRUE_ANNUAL_SINUSOIDAL,
+            PROFILE_MONTHLY_SINUSOIDAL, PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
+            PROFILE_QUARTERLY_PROGRESSIVE, PROFILE_QUARTERLY_SINUSOIDAL,
+            "event_based_spikes_or_dips",
         ]
         self.repartition_logic_options_tk = [
-            db.REPARTITION_LOGIC_ANNO,
-            db.REPARTITION_LOGIC_MESE,
-            db.REPARTITION_LOGIC_TRIMESTRE,
-            db.REPARTITION_LOGIC_SETTIMANA,
+            REPARTITION_LOGIC_ANNO, REPARTITION_LOGIC_MESE,
+            REPARTITION_LOGIC_TRIMESTRE, REPARTITION_LOGIC_SETTIMANA,
         ]
-        self.kpi_calc_type_options_tk = [db.CALC_TYPE_INCREMENTALE, db.CALC_TYPE_MEDIA]
+        self.kpi_calc_type_options_tk = [
+            CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+        ]
 
         # Create widgets for each tab
         self.create_target_widgets()
         self.create_kpi_hierarchy_widgets()
         self.create_kpi_template_widgets()
         self.create_kpi_spec_widgets()
+        self.create_master_sub_link_widgets()
         self.create_stabilimenti_widgets()
         self.create_results_widgets()
         self.create_export_widgets()
@@ -154,14 +252,17 @@ class KpiApp(tk.Tk):
         )
         if hasattr(self, "refresh_kpi_templates_display"):
             self.refresh_kpi_templates_display()
-
         self.refresh_kpi_specs_tree()
+        if hasattr(self, "refresh_master_sub_displays"):
+            self.refresh_master_sub_displays()  # NEW
         self.refresh_stabilimenti_tree()
-        self.populate_target_comboboxes()
+        self.populate_target_comboboxes()  # This will also call load_kpi_targets_for_entry_target
         self.populate_results_comboboxes()
 
     # --- Scheda Gestione Gerarchia KPI ---
-    def create_kpi_hierarchy_widgets(self):
+    def create_kpi_hierarchy_widgets(
+        self,
+    ):  # (Largely unchanged from previous, ensure db calls are correct)
         main_frame = ttk.Frame(self.kpi_hierarchy_frame)
         main_frame.pack(fill="both", expand=True)
 
@@ -279,7 +380,6 @@ class KpiApp(tk.Tk):
             pre_selected_group_name = self.groups_listbox.get(
                 self.groups_listbox.curselection()[0]
             )
-
         actual_pre_selected_subgroup_raw_name = pre_selected_subgroup_raw_name
         if (
             actual_pre_selected_subgroup_raw_name is None
@@ -294,8 +394,8 @@ class KpiApp(tk.Tk):
             )[0]
 
         self.groups_listbox.delete(0, tk.END)
-        self.current_groups_map = {}
-        groups_data = db.get_kpi_groups()
+        self.current_groups_map = {}  # {name: id}
+        groups_data = db_retriever.get_kpi_groups()
         group_selected_idx = -1
         for i, group in enumerate(groups_data):
             self.groups_listbox.insert(tk.END, group["name"])
@@ -311,16 +411,18 @@ class KpiApp(tk.Tk):
                 pre_selected_subgroup_raw_name=actual_pre_selected_subgroup_raw_name
             )
         else:
-            self.on_group_select_hierarchy_tab()
+            self.on_group_select_hierarchy_tab()  # Will clear subgroups and indicators
 
     def on_group_select_hierarchy_tab(
         self, event=None, pre_selected_subgroup_raw_name=None
     ):
         self.subgroups_listbox.delete(0, tk.END)
         self.indicators_listbox.delete(0, tk.END)
-        self.current_subgroups_map = {}
-        self.current_subgroups_raw_map = {}
-        self.current_indicators_map = {}
+        self.current_subgroups_map = {}  # {display_name: id}
+        self.current_subgroups_raw_map = (
+            {}
+        )  # {raw_name: {id, template_id, template_name}}
+        self.current_indicators_map = {}  # {name: id}
 
         self.add_subgroup_btn.config(state="disabled")
         self.edit_subgroup_btn.config(state="disabled")
@@ -342,7 +444,7 @@ class KpiApp(tk.Tk):
 
         if group_id:
             self.add_subgroup_btn.config(state="normal")
-            subgroups_data = db.get_kpi_subgroups_by_group_revised(group_id)
+            subgroups_data = db_retriever.get_kpi_subgroups_by_group_revised(group_id)
             subgroup_selected_idx = -1
             for i, sg in enumerate(subgroups_data):
                 raw_sg_name = sg["name"]
@@ -368,7 +470,7 @@ class KpiApp(tk.Tk):
                 self.subgroups_listbox.selection_set(subgroup_selected_idx)
                 self.subgroups_listbox.activate(subgroup_selected_idx)
                 self.subgroups_listbox.see(subgroup_selected_idx)
-            self.on_subgroup_select_hierarchy_tab()
+            self.on_subgroup_select_hierarchy_tab()  # Populate indicators for the (pre)selected subgroup
         else:
             self.add_subgroup_btn.config(state="disabled")
 
@@ -402,7 +504,7 @@ class KpiApp(tk.Tk):
             else:
                 self.add_indicator_btn.config(state="normal", text="Nuovo")
 
-            for ind in db.get_kpi_indicators_by_subgroup(subgroup_id):
+            for ind in db_retriever.get_kpi_indicators_by_subgroup(subgroup_id):
                 self.indicators_listbox.insert(tk.END, ind["name"])
                 self.current_indicators_map[ind["name"]] = ind["id"]
         self.on_indicator_select_hierarchy_tab()
@@ -438,11 +540,14 @@ class KpiApp(tk.Tk):
                     item_matches = True
             elif current_lb_item_display == item_name_to_select:
                 item_matches = True
+
             if item_matches:
                 listbox.selection_set(i)
                 listbox.activate(i)
                 listbox.see(i)
-                listbox.event_generate("<<ListboxSelect>>")
+                listbox.event_generate(
+                    "<<ListboxSelect>>"
+                )  # Trigger select event handler
                 return True
         return False
 
@@ -450,7 +555,7 @@ class KpiApp(tk.Tk):
         name = simpledialog.askstring("Nuovo Gruppo", "Nome Gruppo KPI:", parent=self)
         if name:
             try:
-                db.add_kpi_group(name)
+                db_manager.add_kpi_group(name)
                 self.refresh_all_relevant_data()
                 self.after(
                     100,
@@ -461,16 +566,16 @@ class KpiApp(tk.Tk):
 
     def edit_selected_group(self):
         sel_idx = self.groups_listbox.curselection()
-        if not sel_idx:
+        old_name = self.groups_listbox.get(sel_idx[0]) if sel_idx else None
+        if not old_name:
             return
-        old_name = self.groups_listbox.get(sel_idx[0])
         group_id = self.current_groups_map.get(old_name)
         new_name = simpledialog.askstring(
             "Modifica Gruppo", "Nuovo nome:", initialvalue=old_name, parent=self
         )
         if new_name and new_name != old_name:
             try:
-                db.update_kpi_group(group_id, new_name)
+                db_manager.update_kpi_group(group_id, new_name)
                 self.refresh_all_relevant_data()
                 self.after(
                     100,
@@ -483,9 +588,9 @@ class KpiApp(tk.Tk):
 
     def delete_selected_group(self):
         sel_idx = self.groups_listbox.curselection()
-        if not sel_idx:
+        name_to_delete = self.groups_listbox.get(sel_idx[0]) if sel_idx else None
+        if not name_to_delete:
             return
-        name_to_delete = self.groups_listbox.get(sel_idx[0])
         group_id = self.current_groups_map.get(name_to_delete)
         if messagebox.askyesno(
             "Conferma",
@@ -493,7 +598,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db.delete_kpi_group(group_id)
+                db_manager.delete_kpi_group(group_id)
                 self.refresh_all_relevant_data()
             except Exception as e:
                 messagebox.showerror(
@@ -510,12 +615,13 @@ class KpiApp(tk.Tk):
         group_id = self.current_groups_map.get(group_name_for_refresh)
         if not group_id:
             return
+
         dialog = SubgroupEditorDialog(
             self, title="Nuovo Sottogruppo", group_id_context=group_id
         )
         if dialog.result_name and dialog.result_template_id is not False:
             try:
-                db.add_kpi_subgroup(
+                db_manager.add_kpi_subgroup(
                     dialog.result_name, group_id, dialog.result_template_id
                 )
                 self.refresh_all_relevant_data()
@@ -564,7 +670,7 @@ class KpiApp(tk.Tk):
                 or dialog.result_template_id != subgroup_details.get("template_id")
             ):
                 try:
-                    db.update_kpi_subgroup(
+                    db_manager.update_kpi_subgroup(
                         subgroup_details["id"],
                         dialog.result_name,
                         group_id,
@@ -598,12 +704,11 @@ class KpiApp(tk.Tk):
         display_name_to_delete = self.subgroups_listbox.get(subgroup_sel_idx[0])
         raw_name_confirm = display_name_to_delete.split(" (Template:")[0]
         subgroup_id = self.current_subgroups_map.get(display_name_to_delete)
-
-        group_name_for_refresh = None
-        if self.groups_listbox.curselection():
-            group_name_for_refresh = self.groups_listbox.get(
-                self.groups_listbox.curselection()[0]
-            )
+        group_name_for_refresh = (
+            self.groups_listbox.get(self.groups_listbox.curselection()[0])
+            if self.groups_listbox.curselection()
+            else None
+        )
 
         if messagebox.askyesno(
             "Conferma",
@@ -611,7 +716,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db.delete_kpi_subgroup(subgroup_id)
+                db_manager.delete_kpi_subgroup(subgroup_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self.after(
@@ -648,18 +753,17 @@ class KpiApp(tk.Tk):
             )
             return
 
-        group_name_for_refresh = None
-        if self.groups_listbox.curselection():
-            group_name_for_refresh = self.groups_listbox.get(
-                self.groups_listbox.curselection()[0]
-            )
-
+        group_name_for_refresh = (
+            self.groups_listbox.get(self.groups_listbox.curselection()[0])
+            if self.groups_listbox.curselection()
+            else None
+        )
         name = simpledialog.askstring(
             "Nuovo Indicatore", "Nome Indicatore KPI:", parent=self
         )
         if name:
             try:
-                db.add_kpi_indicator(name, subgroup_id)
+                db_manager.add_kpi_indicator(name, subgroup_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self._select_item_in_listbox(
@@ -704,18 +808,17 @@ class KpiApp(tk.Tk):
             )
             return
 
-        group_name_for_refresh = None
-        if self.groups_listbox.curselection():
-            group_name_for_refresh = self.groups_listbox.get(
-                self.groups_listbox.curselection()[0]
-            )
-
+        group_name_for_refresh = (
+            self.groups_listbox.get(self.groups_listbox.curselection()[0])
+            if self.groups_listbox.curselection()
+            else None
+        )
         new_name = simpledialog.askstring(
             "Modifica Indicatore", "Nuovo nome:", initialvalue=old_name, parent=self
         )
         if new_name and new_name != old_name:
             try:
-                db.update_kpi_indicator(indicator_id, new_name, subgroup_id)
+                db_manager.update_kpi_indicator(indicator_id, new_name, subgroup_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self._select_item_in_listbox(
@@ -762,19 +865,20 @@ class KpiApp(tk.Tk):
                 )
                 return
 
-        group_name_for_refresh = None
-        if self.groups_listbox.curselection():
-            group_name_for_refresh = self.groups_listbox.get(
-                self.groups_listbox.curselection()[0]
-            )
-
+        group_name_for_refresh = (
+            self.groups_listbox.get(self.groups_listbox.curselection()[0])
+            if self.groups_listbox.curselection()
+            else None
+        )
         if messagebox.askyesno(
             "Conferma",
             f"Eliminare indicatore '{name_to_delete}' e la sua specifica/target?",
             parent=self,
         ):
             try:
-                db.delete_kpi_indicator(indicator_id)
+                db_manager.delete_kpi_indicator(
+                    indicator_id
+                )  # This function in db_manager handles all related data.
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self._select_item_in_listbox(
@@ -794,7 +898,9 @@ class KpiApp(tk.Tk):
                 )
 
     # --- Scheda Gestione Template Indicatori ---
-    def create_kpi_template_widgets(self):
+    def create_kpi_template_widgets(
+        self,
+    ):  # (Largely unchanged, ensure db calls are correct)
         main_frame = ttk.Frame(self.kpi_template_frame)
         main_frame.pack(fill="both", expand=True)
         template_list_frame = ttk.LabelFrame(
@@ -858,11 +964,10 @@ class KpiApp(tk.Tk):
         }
         for col, width in cols_defs.items():
             self.template_definitions_tree.heading(col, text=col)
-            anchor = "center" if col in ["ID", "Visibile"] else "w"
             self.template_definitions_tree.column(
                 col,
                 width=width,
-                anchor=anchor,
+                anchor="center" if col in ["ID", "Visibile"] else "w",
                 stretch=(col in ["Descrizione", "Nome Indicatore"]),
             )
         self.template_definitions_tree.pack(fill="both", expand=True, pady=(0, 5))
@@ -895,8 +1000,8 @@ class KpiApp(tk.Tk):
             width=12,
         )
         self.remove_definition_btn.pack(side="left", padx=2)
-        self.current_templates_map = {}
-        self.current_template_definitions_map = {}
+        self.current_templates_map = {}  # {name: id}
+        self.current_template_definitions_map = {}  # {tree_iid: definition_id}
 
     def refresh_kpi_templates_display(self, pre_selected_template_name=None):
         if (
@@ -910,7 +1015,7 @@ class KpiApp(tk.Tk):
         self.templates_listbox.delete(0, tk.END)
         self.current_templates_map.clear()
         selected_idx = -1
-        for i, template in enumerate(db.get_kpi_indicator_templates()):
+        for i, template in enumerate(db_retriever.get_kpi_indicator_templates()):
             self.templates_listbox.insert(tk.END, template["name"])
             self.current_templates_map[template["name"]] = template["id"]
             if template["name"] == pre_selected_template_name:
@@ -940,7 +1045,7 @@ class KpiApp(tk.Tk):
             )
             template_id = self.current_templates_map.get(template_name)
             if template_id:
-                for defi in db.get_template_defined_indicators(template_id):
+                for defi in db_retriever.get_template_defined_indicators(template_id):
                     vis_str = "Sì" if defi["default_visible"] else "No"
                     iid = self.template_definitions_tree.insert(
                         "",
@@ -974,18 +1079,18 @@ class KpiApp(tk.Tk):
                 or ""
             )
             try:
-                db.add_kpi_indicator_template(name, desc)
+                db_manager.add_kpi_indicator_template(name, desc)
                 self.refresh_kpi_templates_display(pre_selected_template_name=name)
             except Exception as e:
                 messagebox.showerror("Errore", f"Impossibile aggiungere template: {e}")
 
     def edit_selected_kpi_template(self):
         sel_idx = self.templates_listbox.curselection()
-        if not sel_idx:
+        old_name = self.templates_listbox.get(sel_idx[0]) if sel_idx else None
+        if not old_name:
             return
-        old_name = self.templates_listbox.get(sel_idx[0])
         template_id = self.current_templates_map.get(old_name)
-        template_data = db.get_kpi_indicator_template_by_id(template_id)
+        template_data = db_retriever.get_kpi_indicator_template_by_id(template_id)
         if not template_data:
             return
         new_name = simpledialog.askstring(
@@ -1003,11 +1108,13 @@ class KpiApp(tk.Tk):
             )
             if new_name != old_name or new_desc != template_data["description"]:
                 try:
-                    db.update_kpi_indicator_template(template_id, new_name, new_desc)
+                    db_manager.update_kpi_indicator_template(
+                        template_id, new_name, new_desc
+                    )
                     self.refresh_kpi_templates_display(
                         pre_selected_template_name=new_name
                     )
-                    self.refresh_all_relevant_data()
+                    self.refresh_all_relevant_data()  # Propagate changes if template was linked
                 except Exception as e:
                     messagebox.showerror(
                         "Errore", f"Impossibile modificare template: {e}"
@@ -1015,9 +1122,9 @@ class KpiApp(tk.Tk):
 
     def delete_selected_kpi_template(self):
         sel_idx = self.templates_listbox.curselection()
-        if not sel_idx:
+        name_to_delete = self.templates_listbox.get(sel_idx[0]) if sel_idx else None
+        if not name_to_delete:
             return
-        name_to_delete = self.templates_listbox.get(sel_idx[0])
         template_id = self.current_templates_map.get(name_to_delete)
         if messagebox.askyesno(
             "Conferma",
@@ -1025,9 +1132,9 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db.delete_kpi_indicator_template(template_id)
+                db_manager.delete_kpi_indicator_template(template_id)
                 self.refresh_kpi_templates_display()
-                self.refresh_all_relevant_data()
+                self.refresh_all_relevant_data()  # Refresh hierarchy and specs
             except Exception as e:
                 messagebox.showerror(
                     "Errore",
@@ -1048,7 +1155,7 @@ class KpiApp(tk.Tk):
         if dialog.result_data:
             data = dialog.result_data
             try:
-                db.add_indicator_definition_to_template(
+                db_manager.add_indicator_definition_to_template(
                     template_id,
                     data["name"],
                     data["calc_type"],
@@ -1056,8 +1163,8 @@ class KpiApp(tk.Tk):
                     data["visible"],
                     data["desc"],
                 )
-                self.on_template_select()
-                self.refresh_all_relevant_data()
+                self.on_template_select()  # Refresh definitions tree
+                self.refresh_all_relevant_data()  # Propagate
             except Exception as e:
                 messagebox.showerror(
                     "Errore",
@@ -1073,7 +1180,7 @@ class KpiApp(tk.Tk):
             self.templates_listbox.get(template_sel_idx[0])
         )
         definition_id_to_edit = self.current_template_definitions_map.get(def_sel_iid)
-        current_def_data = db.get_template_indicator_definition_by_id(
+        current_def_data = db_retriever.get_template_indicator_definition_by_id(
             definition_id_to_edit
         )
         if not current_def_data:
@@ -1088,7 +1195,7 @@ class KpiApp(tk.Tk):
         if dialog.result_data:
             data = dialog.result_data
             try:
-                db.update_indicator_definition_in_template(
+                db_manager.update_indicator_definition_in_template(
                     definition_id_to_edit,
                     data["name"],
                     data["calc_type"],
@@ -1096,8 +1203,8 @@ class KpiApp(tk.Tk):
                     data["visible"],
                     data["desc"],
                 )
-                self.on_template_select()
-                self.refresh_all_relevant_data()
+                self.on_template_select()  # Refresh definitions tree
+                self.refresh_all_relevant_data()  # Propagate
             except Exception as e:
                 messagebox.showerror(
                     "Errore",
@@ -1116,9 +1223,11 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db.remove_indicator_definition_from_template(definition_id_to_remove)
-                self.on_template_select()
-                self.refresh_all_relevant_data()
+                db_manager.remove_indicator_definition_from_template(
+                    definition_id_to_remove
+                )
+                self.on_template_select()  # Refresh definitions tree
+                self.refresh_all_relevant_data()  # Propagate
             except Exception as e:
                 messagebox.showerror(
                     "Errore",
@@ -1126,7 +1235,7 @@ class KpiApp(tk.Tk):
                 )
 
     # --- Scheda Gestione Specifiche KPI ---
-    def create_kpi_spec_widgets(self):
+    def create_kpi_spec_widgets(self):  # (Largely unchanged, ensure db calls)
         add_kpi_frame_outer = ttk.LabelFrame(
             self.kpi_spec_frame, text="Aggiungi/Modifica Specifica KPI", padding=10
         )
@@ -1291,7 +1400,7 @@ class KpiApp(tk.Tk):
         indicator_to_select_name=None,
     ):
         self._populating_kpi_spec_combos = True
-        self.groups_for_kpi_spec = db.get_kpi_groups()
+        self.groups_for_kpi_spec = db_retriever.get_kpi_groups()
         group_names = [g["name"] for g in self.groups_for_kpi_spec]
         self.kpi_spec_group_cb["values"] = group_names
         if group_to_select_name and group_to_select_name in group_names:
@@ -1318,15 +1427,16 @@ class KpiApp(tk.Tk):
             self.kpi_spec_subgroup_var.set("")
         if not pre_selected_indicator_name:
             self.kpi_spec_indicator_var.set("")
-
         selected_group_obj = next(
             (g for g in self.groups_for_kpi_spec if g["name"] == group_name), None
         )
         if selected_group_obj:
-            self.subgroups_for_kpi_spec_details = db.get_kpi_subgroups_by_group_revised(
-                selected_group_obj["id"]
+            self.subgroups_for_kpi_spec_details = (
+                db_retriever.get_kpi_subgroups_by_group_revised(
+                    selected_group_obj["id"]
+                )
             )
-            self.subgroup_display_to_raw_map_spec = {}
+            self.subgroup_display_to_raw_map_spec = {}  # {display_name: raw_name}
             display_subgroup_names = []
             for sg_dict in self.subgroups_for_kpi_spec_details:
                 raw_name = sg_dict["name"]
@@ -1338,17 +1448,18 @@ class KpiApp(tk.Tk):
                 display_subgroup_names.append(display_name)
                 self.subgroup_display_to_raw_map_spec[display_name] = raw_name
             self.kpi_spec_subgroup_cb["values"] = display_subgroup_names
-
-            target_display_subgroup_name_to_set = None
-            if subgroup_to_select_raw_name:
-                for (
-                    disp_name,
-                    raw_name_mapped,
-                ) in self.subgroup_display_to_raw_map_spec.items():
-                    if raw_name_mapped == subgroup_to_select_raw_name:
-                        target_display_subgroup_name_to_set = disp_name
-                        break
-
+            target_display_subgroup_name_to_set = (
+                next(
+                    (
+                        dn
+                        for dn, rn in self.subgroup_display_to_raw_map_spec.items()
+                        if rn == subgroup_to_select_raw_name
+                    ),
+                    None,
+                )
+                if subgroup_to_select_raw_name
+                else None
+            )
             if target_display_subgroup_name_to_set:
                 self.kpi_spec_subgroup_var.set(target_display_subgroup_name_to_set)
                 self._populate_kpi_spec_indicators(pre_selected_indicator_name)
@@ -1364,13 +1475,11 @@ class KpiApp(tk.Tk):
         self.kpi_spec_indicator_cb["values"] = []
         if not pre_selected_indicator_name:
             self.kpi_spec_indicator_var.set("")
-
         raw_subgroup_name_lookup = self.subgroup_display_to_raw_map_spec.get(
             display_subgroup_name
         )
-        selected_subgroup_obj_from_list = None
-        if raw_subgroup_name_lookup and hasattr(self, "subgroups_for_kpi_spec_details"):
-            selected_subgroup_obj_from_list = next(
+        selected_subgroup_obj_from_list = (
+            next(
                 (
                     sg
                     for sg in self.subgroups_for_kpi_spec_details
@@ -1378,9 +1487,12 @@ class KpiApp(tk.Tk):
                 ),
                 None,
             )
-
+            if raw_subgroup_name_lookup
+            and hasattr(self, "subgroups_for_kpi_spec_details")
+            else None
+        )
         if selected_subgroup_obj_from_list:
-            self.indicators_for_kpi_spec = db.get_kpi_indicators_by_subgroup(
+            self.indicators_for_kpi_spec = db_retriever.get_kpi_indicators_by_subgroup(
                 selected_subgroup_obj_from_list["id"]
             )
             indicator_names = [ind["name"] for ind in self.indicators_for_kpi_spec]
@@ -1391,7 +1503,7 @@ class KpiApp(tk.Tk):
             ):
                 self.kpi_spec_indicator_var.set(pre_selected_indicator_name)
                 if self._populating_kpi_spec_combos:
-                    self._load_or_prepare_kpi_spec_fields()
+                    self._load_or_prepare_kpi_spec_fields()  # Important: load fields if populating hierarchically
             elif (
                 not self._populating_kpi_spec_combos and not pre_selected_indicator_name
             ):
@@ -1406,10 +1518,8 @@ class KpiApp(tk.Tk):
         self.selected_indicator_id_for_spec = None
         self.current_editing_kpi_id = None
         self.save_kpi_spec_btn.config(text="Aggiungi Specifica")
-
-        selected_indicator_obj = None
-        if hasattr(self, "indicators_for_kpi_spec") and self.indicators_for_kpi_spec:
-            selected_indicator_obj = next(
+        selected_indicator_obj = (
+            next(
                 (
                     ind
                     for ind in self.indicators_for_kpi_spec
@@ -1417,24 +1527,30 @@ class KpiApp(tk.Tk):
                 ),
                 None,
             )
-
+            if hasattr(self, "indicators_for_kpi_spec") and self.indicators_for_kpi_spec
+            else None
+        )
         if selected_indicator_obj:
             self.selected_indicator_id_for_spec = selected_indicator_obj["id"]
-            all_kpi_specs_list = db.get_kpis()
+            all_kpi_specs_list = (
+                db_retriever.get_all_kpis_detailed()
+            )  # This gets full details, including kpis.id
             existing_kpi_spec_for_indicator = next(
                 (
                     kpi_spec
                     for kpi_spec in all_kpi_specs_list
-                    if kpi_spec["indicator_id"] == self.selected_indicator_id_for_spec
+                    if kpi_spec["actual_indicator_id"]
+                    == self.selected_indicator_id_for_spec
                 ),
                 None,
-            )
-
+            )  # Match on actual_indicator_id
             if existing_kpi_spec_for_indicator:
                 self._set_kpi_spec_fields_from_data(existing_kpi_spec_for_indicator)
-                self.current_editing_kpi_id = existing_kpi_spec_for_indicator["id"]
+                self.current_editing_kpi_id = existing_kpi_spec_for_indicator[
+                    "id"
+                ]  # This is kpis.id
                 self.save_kpi_spec_btn.config(text="Modifica Specifica")
-            else:
+            else:  # No existing spec, prepare for new, possibly from template
                 self.clear_kpi_spec_fields(
                     keep_hierarchy=True,
                     keep_group=True,
@@ -1445,11 +1561,8 @@ class KpiApp(tk.Tk):
                 raw_subgroup_name_lookup = self.subgroup_display_to_raw_map_spec.get(
                     display_subgroup_name
                 )
-                subgroup_obj = None
-                if raw_subgroup_name_lookup and hasattr(
-                    self, "subgroups_for_kpi_spec_details"
-                ):
-                    subgroup_obj = next(
+                subgroup_obj = (
+                    next(
                         (
                             sg
                             for sg in self.subgroups_for_kpi_spec_details
@@ -1457,13 +1570,20 @@ class KpiApp(tk.Tk):
                         ),
                         None,
                     )
-
-                if subgroup_obj and subgroup_obj.get("template_id"):
+                    if raw_subgroup_name_lookup
+                    and hasattr(self, "subgroups_for_kpi_spec_details")
+                    else None
+                )
+                if subgroup_obj and subgroup_obj.get(
+                    "template_id"
+                ):  # Subgroup is templated
                     template_id = subgroup_obj["template_id"]
-                    template_def = db.get_template_indicator_definition_by_name(
-                        template_id, indicator_name
+                    template_def = (
+                        db_retriever.get_template_indicator_definition_by_name(
+                            template_id, indicator_name
+                        )
                     )
-                    if template_def:
+                    if template_def:  # Pre-fill from template definition
                         self.kpi_spec_desc_var.set(
                             template_def["default_description"] or ""
                         )
@@ -1477,7 +1597,7 @@ class KpiApp(tk.Tk):
                         self.kpi_spec_visible_var.set(
                             bool(template_def["default_visible"])
                         )
-        else:
+        else:  # No indicator selected
             self.clear_kpi_spec_fields(
                 keep_hierarchy=True,
                 keep_group=True,
@@ -1485,28 +1605,42 @@ class KpiApp(tk.Tk):
                 keep_indicator=False,
             )
 
-    def _set_kpi_spec_fields_from_data(self, kpi_data_dict):
+    def _set_kpi_spec_fields_from_data(self, kpi_data_row_obj): # Parameter renamed to clarify it's a row object
+        if kpi_data_row_obj is None:
+            # Optionally clear fields or set to defaults if kpi_data_row_obj is None
+            self.kpi_spec_desc_var.set("")
+            self.kpi_spec_type_var.set(self.kpi_calc_type_options_tk[0])
+            self.kpi_spec_unit_var.set("")
+            self.kpi_spec_visible_var.set(True)
+            return
+
+        # Convert sqlite3.Row to a standard Python dictionary
+        kpi_data_dict = dict(kpi_data_row_obj)
+
         self.kpi_spec_desc_var.set(kpi_data_dict.get("description", ""))
         self.kpi_spec_type_var.set(
             kpi_data_dict.get("calculation_type", self.kpi_calc_type_options_tk[0])
         )
         self.kpi_spec_unit_var.set(kpi_data_dict.get("unit_of_measure", ""))
         self.kpi_spec_visible_var.set(bool(kpi_data_dict.get("visible", True)))
-
+        
     def load_kpi_spec_for_editing(self, kpi_data_full_dict):
-        self._populating_kpi_spec_combos = True
-        self.current_editing_kpi_id = kpi_data_full_dict["id"]
-        self.selected_indicator_id_for_spec = kpi_data_full_dict["actual_indicator_id"]
+        self._populating_kpi_spec_combos = True  # Prevent intermediate updates
+        self.current_editing_kpi_id = kpi_data_full_dict["id"]  # This is kpis.id
+        self.selected_indicator_id_for_spec = kpi_data_full_dict[
+            "actual_indicator_id"
+        ]  # This is kpi_indicators.id
         self.populate_kpi_spec_hier_combos(
             group_to_select_name=kpi_data_full_dict["group_name"],
             subgroup_to_select_raw_name=kpi_data_full_dict["subgroup_name"],
             indicator_to_select_name=kpi_data_full_dict["indicator_name"],
         )
         self._populating_kpi_spec_combos = False
+        # After hierarchy is set, if indicator matches, then set fields
         if self.kpi_spec_indicator_var.get() == kpi_data_full_dict["indicator_name"]:
             self._set_kpi_spec_fields_from_data(kpi_data_full_dict)
             self.save_kpi_spec_btn.config(text="Modifica Specifica")
-        else:
+        else:  # Should not happen if populate_kpi_spec_hier_combos worked correctly
             self.clear_kpi_spec_fields_button_action()
 
     def clear_kpi_spec_fields_button_action(self):
@@ -1518,7 +1652,7 @@ class KpiApp(tk.Tk):
         self.kpi_spec_indicator_cb["values"] = []
         self.clear_kpi_spec_fields(keep_hierarchy=False)
         self._populating_kpi_spec_combos = False
-        self.populate_kpi_spec_hier_combos()
+        self.populate_kpi_spec_hier_combos()  # Repopulate group combo (will be empty selection)
 
     def clear_kpi_spec_fields(
         self,
@@ -1558,9 +1692,7 @@ class KpiApp(tk.Tk):
         self.kpi_spec_type_var.set(self.kpi_calc_type_options_tk[0])
         self.kpi_spec_unit_var.set("")
         self.kpi_spec_visible_var.set(True)
-        if not (
-            keep_hierarchy and keep_indicator and keep_subgroup and keep_group
-        ):  # Reset editing ID if any part of hierarchy is reset
+        if not (keep_hierarchy and keep_indicator and keep_subgroup and keep_group):
             self.current_editing_kpi_id = None
             self.save_kpi_spec_btn.config(text="Aggiungi Specifica")
 
@@ -1575,8 +1707,8 @@ class KpiApp(tk.Tk):
         unit = self.kpi_spec_unit_var.get().strip()
         visible = self.kpi_spec_visible_var.get()
         try:
-            if self.current_editing_kpi_id is not None:
-                db.update_kpi(
+            if self.current_editing_kpi_id is not None:  # Editing existing kpis.id
+                db_manager.update_kpi_spec(
                     self.current_editing_kpi_id,
                     self.selected_indicator_id_for_spec,
                     desc,
@@ -1585,8 +1717,8 @@ class KpiApp(tk.Tk):
                     visible,
                 )
                 messagebox.showinfo("Successo", "Specifica KPI aggiornata!")
-            else:
-                db.add_kpi(
+            else:  # Adding new kpis entry
+                db_manager.add_kpi_spec(
                     self.selected_indicator_id_for_spec, desc, calc_type, unit, visible
                 )
                 messagebox.showinfo(
@@ -1618,39 +1750,44 @@ class KpiApp(tk.Tk):
             return
         item_values = self.kpi_specs_tree.item(selected_item_iid, "values")
         try:
-            kpi_spec_id_to_delete = int(item_values[0])
+            kpi_spec_id_to_delete = int(item_values[0])  # This is kpis.id
         except (TypeError, ValueError, IndexError):
             messagebox.showerror("Errore", "ID specifica KPI non valido.")
             return
+
         kpi_name_confirm = f"{item_values[1]} > {item_values[2]} > {item_values[3]}"
         if messagebox.askyesno(
             "Conferma",
-            f"Eliminare specifica KPI:\n{kpi_name_confirm} (ID Spec: {kpi_spec_id_to_delete})?\nEliminerà anche tutti i target associati.",
+            f"Eliminare specifica KPI:\n{kpi_name_confirm} (ID Spec: {kpi_spec_id_to_delete})?\nEliminerà anche tutti i target associati e i link master/sub.",
             parent=self,
         ):
             try:
-                with sqlite3.connect(db.DB_TARGETS) as conn_targets:
-                    conn_targets.execute(
-                        "DELETE FROM annual_targets WHERE kpi_id = ?",
-                        (kpi_spec_id_to_delete,),
+                # To delete a kpi_spec (kpis table entry) and all its related data (targets, links),
+                # it's often cleaner to delete the corresponding kpi_indicator entry,
+                # which should cascade to the kpis table entry if FKs are set up correctly.
+                # db_manager.delete_kpi_indicator handles this comprehensive deletion.
+
+                # First, find the kpi_indicator.id associated with this kpi_spec_id
+                kpi_spec_details = db_retriever.get_kpi_detailed_by_id(
+                    kpi_spec_id_to_delete
+                )
+                if (
+                    not kpi_spec_details
+                    or "actual_indicator_id" not in kpi_spec_details
+                ):
+                    messagebox.showerror(
+                        "Errore",
+                        f"Impossibile trovare kpi_indicator.id per kpi_spec.id {kpi_spec_id_to_delete}.",
                     )
-                for db_path_del, table_name_del in [
-                    (db.DB_KPI_DAYS, "daily_targets"),
-                    (db.DB_KPI_WEEKS, "weekly_targets"),
-                    (db.DB_KPI_MONTHS, "monthly_targets"),
-                    (db.DB_KPI_QUARTERS, "quarterly_targets"),
-                ]:
-                    with sqlite3.connect(db_path_del) as conn_periodic:
-                        conn_periodic.execute(
-                            f"DELETE FROM {table_name_del} WHERE kpi_id = ?",
-                            (kpi_spec_id_to_delete,),
-                        )
-                with sqlite3.connect(db.DB_KPIS) as conn_kpis:
-                    conn_kpis.execute(
-                        "DELETE FROM kpis WHERE id = ?", (kpi_spec_id_to_delete,)
-                    )
+                    return
+
+                actual_indicator_id_to_delete = kpi_spec_details["actual_indicator_id"]
+                db_manager.delete_kpi_indicator(
+                    actual_indicator_id_to_delete
+                )  # This should cascade and clean up
+
                 messagebox.showinfo(
-                    "Successo", "Specifica KPI e relativi target eliminati."
+                    "Successo", "Specifica KPI e relativi dati eliminati."
                 )
                 self.refresh_all_relevant_data()
                 self.clear_kpi_spec_fields_button_action()
@@ -1663,26 +1800,34 @@ class KpiApp(tk.Tk):
     def refresh_kpi_specs_tree(self):
         for i in self.kpi_specs_tree.get_children():
             self.kpi_specs_tree.delete(i)
-        all_kpis_data = db.get_kpis()
+        all_kpis_data = db_retriever.get_all_kpis_detailed()  # Gets kpis.id as 'id'
         indicator_to_template_name_map = {}
-        all_groups_for_map = db.get_kpi_groups()
+        all_groups_for_map = db_retriever.get_kpi_groups()
         for grp_map_dict in all_groups_for_map:
-            subgroups_for_map_list = db.get_kpi_subgroups_by_group_revised(
+            subgroups_for_map_list = db_retriever.get_kpi_subgroups_by_group_revised(
                 grp_map_dict["id"]
             )
             for sg_map_dict in subgroups_for_map_list:
                 if sg_map_dict.get("template_name"):
-                    indicators_in_sg_list = db.get_kpi_indicators_by_subgroup(
+                    indicators_in_sg_list = db_retriever.get_kpi_indicators_by_subgroup(
                         sg_map_dict["id"]
                     )
-                    for ind_map_dict in indicators_in_sg_list:
+                    for (
+                        ind_map_dict
+                    ) in (
+                        indicators_in_sg_list
+                    ):  # ind_map_dict['id'] is kpi_indicators.id
                         indicator_to_template_name_map[ind_map_dict["id"]] = (
                             sg_map_dict["template_name"]
                         )
 
-        for kpi_row_dict in all_kpis_data:
+        for (
+            kpi_row_dict
+        ) in (
+            all_kpis_data
+        ):  # kpi_row_dict['id'] is kpis.id, kpi_row_dict['actual_indicator_id'] is kpi_indicators.id
             template_name_display = indicator_to_template_name_map.get(
-                kpi_row_dict["indicator_id"], ""
+                kpi_row_dict["actual_indicator_id"], ""
             )
             self.kpi_specs_tree.insert(
                 "",
@@ -1703,19 +1848,16 @@ class KpiApp(tk.Tk):
         current_group_sel_name = self.kpi_spec_group_var.get()
         current_subgroup_sel_display_name = self.kpi_spec_subgroup_var.get()
         current_indicator_sel_name = self.kpi_spec_indicator_var.get()
-        current_subgroup_sel_raw_name = None
-        if (
-            hasattr(self, "subgroup_display_to_raw_map_spec")
+        current_subgroup_sel_raw_name = (
+            self.subgroup_display_to_raw_map_spec.get(current_subgroup_sel_display_name)
+            if hasattr(self, "subgroup_display_to_raw_map_spec")
             and current_subgroup_sel_display_name
-        ):
-            current_subgroup_sel_raw_name = self.subgroup_display_to_raw_map_spec.get(
-                current_subgroup_sel_display_name
+            else (
+                current_subgroup_sel_display_name.split(" (Tpl:")[0]
+                if current_subgroup_sel_display_name
+                else None
             )
-        elif current_subgroup_sel_display_name:
-            current_subgroup_sel_raw_name = current_subgroup_sel_display_name.split(
-                " (Tpl:"
-            )[0]
-
+        )
         self.populate_kpi_spec_hier_combos(
             group_to_select_name=(
                 current_group_sel_name if current_group_sel_name else None
@@ -1736,11 +1878,13 @@ class KpiApp(tk.Tk):
         if not item_values or len(item_values) == 0:
             return
         try:
-            kpi_id_to_edit = int(item_values[0])
+            kpi_id_to_edit = int(item_values[0])  # This is kpis.id
         except (TypeError, ValueError, IndexError):
             messagebox.showerror("Errore", "ID KPI non valido.")
             return
-        kpi_data_full_dict = db.get_kpi_by_id(kpi_id_to_edit)
+        kpi_data_full_dict = db_retriever.get_kpi_detailed_by_id(
+            kpi_id_to_edit
+        )  # Expects kpis.id
         if kpi_data_full_dict:
             self.load_kpi_spec_for_editing(kpi_data_full_dict)
         else:
@@ -1750,7 +1894,7 @@ class KpiApp(tk.Tk):
             )
 
     # --- Scheda Gestione Stabilimenti ---
-    def create_stabilimenti_widgets(self):
+    def create_stabilimenti_widgets(self):  # (Largely unchanged)
         self.st_tree = ttk.Treeview(
             self.stabilimenti_frame, columns=("ID", "Nome", "Visibile"), show="headings"
         )
@@ -1774,7 +1918,7 @@ class KpiApp(tk.Tk):
     def refresh_stabilimenti_tree(self):
         for i in self.st_tree.get_children():
             self.st_tree.delete(i)
-        for r_dict in db.get_stabilimenti():
+        for r_dict in db_retriever.get_all_stabilimenti():
             self.st_tree.insert(
                 "",
                 "end",
@@ -1805,7 +1949,7 @@ class KpiApp(tk.Tk):
             messagebox.showerror("Errore", "ID stabilimento non valido.")
             return
 
-    def stabilimento_editor_window(self, data_tuple=None):
+    def stabilimento_editor_window(self, data_tuple=None):  # (Unchanged)
         win = tk.Toplevel(self)
         win.title("Editor Stabilimento" if data_tuple else "Nuovo Stabilimento")
         win.transient(self)
@@ -1839,9 +1983,9 @@ class KpiApp(tk.Tk):
                 return
             try:
                 if s_id is not None:
-                    db.update_stabilimento(s_id, nome_val, visible_var.get())
+                    db_manager.update_stabilimento(s_id, nome_val, visible_var.get())
                 else:
-                    db.add_stabilimento(nome_val, visible_var.get())
+                    db_manager.add_stabilimento(nome_val, visible_var.get())
                 self.refresh_all_relevant_data()
                 win.destroy()
             except sqlite3.IntegrityError:
@@ -1925,38 +2069,32 @@ class KpiApp(tk.Tk):
             command=self.save_all_targets_entry,
             style="Accent.TButton",
         ).pack()
-        self.kpi_target_entry_widgets = {}
+        self.kpi_target_entry_widgets = {}  # {kpi_spec_id: {widget_vars_and_controls}}
 
-    def _on_mousewheel_target(self, event):
+    def _on_mousewheel_target(self, event):  # (Unchanged)
         active_tab_text = ""
         try:
             active_tab_text = self.notebook.tab(self.notebook.select(), "text")
         except tk.TclError:
             return
-
         if active_tab_text == "🎯 Inserimento Target":
             canvas_x = self.canvas_target.winfo_rootx()
             canvas_y = self.canvas_target.winfo_rooty()
-            canvas_width = self.canvas_target.winfo_width()
-            canvas_height = self.canvas_target.winfo_height()
+            canvas_w = self.canvas_target.winfo_width()
+            canvas_h = self.canvas_target.winfo_height()
             if (
-                canvas_x <= event.x_root < canvas_x + canvas_width
-                and canvas_y <= event.y_root < canvas_y + canvas_height
+                canvas_x <= event.x_root < canvas_x + canvas_w
+                and canvas_y <= event.y_root < canvas_y + canvas_h
             ):
-                delta = 0
-                if sys.platform.startswith("win") or sys.platform.startswith("darwin"):
-                    delta = -1 * (
-                        event.delta // (120 if sys.platform.startswith("win") else 1)
-                    )
-                else:
-                    if event.num == 4:
-                        delta = -1
-                    elif event.num == 5:
-                        delta = 1
+                delta = (
+                    -1 * (event.delta // (120 if sys.platform.startswith("win") else 1))
+                    if sys.platform.startswith(("win", "darwin"))
+                    else (-1 if event.num == 4 else (1 if event.num == 5 else 0))
+                )
                 self.canvas_target.yview_scroll(delta, "units")
 
     def populate_target_comboboxes(self):
-        stabilimenti_vis = db.get_stabilimenti(only_visible=True)
+        stabilimenti_vis = db_retriever.get_all_stabilimenti(only_visible=True)
         self.stabilimenti_map_target = {s["name"]: s["id"] for s in stabilimenti_vis}
         current_stabilimento_name = self.stabilimento_var_target.get()
         self.stabilimento_cb_target["values"] = list(
@@ -1973,7 +2111,7 @@ class KpiApp(tk.Tk):
             )
         else:
             self.stabilimento_var_target.set("")
-        self.load_kpi_targets_for_entry_target()
+        self.load_kpi_targets_for_entry_target()  # This will also populate KPIs
 
     def _update_repartition_input_area_tk(
         self,
@@ -1982,7 +2120,7 @@ class KpiApp(tk.Tk):
         logic_var,
         repartition_vars_dict,
         default_repartition_map_from_db,
-    ):
+    ):  # (Unchanged)
         for widget in container_frame.winfo_children():
             widget.destroy()
         repartition_vars_dict.clear()
@@ -1990,44 +2128,43 @@ class KpiApp(tk.Tk):
         selected_logic_from_var = logic_var.get()
         show_logic_radios = True
         effective_logic_for_db = selected_logic_from_var
-
         if selected_profile in [
-            db.PROFILE_ANNUAL_PROGRESSIVE,
-            db.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-            db.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-            db.PROFILE_EVEN,
+            db_manager.PROFILE_ANNUAL_PROGRESSIVE,
+            db_manager.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
+            db_manager.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
+            db_manager.PROFILE_EVEN,
             "event_based_spikes_or_dips",
         ]:
             show_logic_radios = False
-            effective_logic_for_db = db.REPARTITION_LOGIC_ANNO
-            logic_var.set(db.REPARTITION_LOGIC_ANNO)
+            effective_logic_for_db = db_manager.REPARTITION_LOGIC_ANNO
+            logic_var.set(db_manager.REPARTITION_LOGIC_ANNO)
         elif selected_profile in [
-            db.PROFILE_QUARTERLY_PROGRESSIVE,
-            db.PROFILE_QUARTERLY_SINUSOIDAL,
+            db_manager.PROFILE_QUARTERLY_PROGRESSIVE,
+            db_manager.PROFILE_QUARTERLY_SINUSOIDAL,
         ]:
             if selected_logic_from_var not in [
-                db.REPARTITION_LOGIC_MESE,
-                db.REPARTITION_LOGIC_TRIMESTRE,
-                db.REPARTITION_LOGIC_SETTIMANA,
+                db_manager.REPARTITION_LOGIC_MESE,
+                db_manager.REPARTITION_LOGIC_TRIMESTRE,
+                db_manager.REPARTITION_LOGIC_SETTIMANA,
             ]:
-                logic_var.set(db.REPARTITION_LOGIC_TRIMESTRE)
+                logic_var.set(db_manager.REPARTITION_LOGIC_TRIMESTRE)
             effective_logic_for_db = logic_var.get()
         elif selected_profile in [
-            db.PROFILE_MONTHLY_SINUSOIDAL,
-            db.PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
+            db_manager.PROFILE_MONTHLY_SINUSOIDAL,
+            db_manager.PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
         ]:
             if selected_logic_from_var not in [
-                db.REPARTITION_LOGIC_MESE,
-                db.REPARTITION_LOGIC_TRIMESTRE,
-                db.REPARTITION_LOGIC_SETTIMANA,
+                db_manager.REPARTITION_LOGIC_MESE,
+                db_manager.REPARTITION_LOGIC_TRIMESTRE,
+                db_manager.REPARTITION_LOGIC_SETTIMANA,
             ]:
-                logic_var.set(db.REPARTITION_LOGIC_MESE)
+                logic_var.set(db_manager.REPARTITION_LOGIC_MESE)
             effective_logic_for_db = logic_var.get()
         else:
             effective_logic_for_db = selected_logic_from_var
             if not effective_logic_for_db:
-                logic_var.set(db.REPARTITION_LOGIC_ANNO)
-                effective_logic_for_db = db.REPARTITION_LOGIC_ANNO
+                logic_var.set(db_manager.REPARTITION_LOGIC_ANNO)
+                effective_logic_for_db = db_manager.REPARTITION_LOGIC_ANNO
 
         if show_logic_radios:
             logic_selection_frame = ttk.Frame(container_frame)
@@ -2035,8 +2172,8 @@ class KpiApp(tk.Tk):
             ttk.Label(logic_selection_frame, text="Logica Rip. Valori:", width=18).pack(
                 side="left", padx=(0, 5)
             )
-            radio_cmd = lambda p_var=profile_var, l_var=logic_var, r_vars=repartition_vars_dict, c=container_frame, d_map=default_repartition_map_from_db: self._update_repartition_input_area_tk(
-                c, p_var, l_var, r_vars, d_map
+            radio_cmd = lambda pv=profile_var, lv=logic_var, rvars=repartition_vars_dict, cf=container_frame, dmap=default_repartition_map_from_db: self._update_repartition_input_area_tk(
+                cf, pv, lv, rvars, dmap
             )
             for logic_option in self.repartition_logic_options_tk:
                 ttk.Radiobutton(
@@ -2049,7 +2186,10 @@ class KpiApp(tk.Tk):
 
         input_details_frame = ttk.Frame(container_frame)
         input_details_frame.pack(fill="x", expand=True, pady=(5, 0))
-        if effective_logic_for_db == db.REPARTITION_LOGIC_MESE and show_logic_radios:
+        if (
+            effective_logic_for_db == db_manager.REPARTITION_LOGIC_MESE
+            and show_logic_radios
+        ):
             periods = [calendar.month_name[i] for i in range(1, 13)]
             num_cols = 4
             default_val = 100.0 / len(periods)
@@ -2068,7 +2208,7 @@ class KpiApp(tk.Tk):
                     side="left", fill="x", expand=True
                 )
         elif (
-            effective_logic_for_db == db.REPARTITION_LOGIC_TRIMESTRE
+            effective_logic_for_db == db_manager.REPARTITION_LOGIC_TRIMESTRE
             and show_logic_radios
         ):
             periods = ["Q1", "Q2", "Q3", "Q4"]
@@ -2089,7 +2229,7 @@ class KpiApp(tk.Tk):
                     side="left", fill="x", expand=True
                 )
         elif (
-            effective_logic_for_db == db.REPARTITION_LOGIC_SETTIMANA
+            effective_logic_for_db == db_manager.REPARTITION_LOGIC_SETTIMANA
             and show_logic_radios
         ):
             ttk.Label(input_details_frame, text="Valori Settimanali (JSON):").pack(
@@ -2104,7 +2244,7 @@ class KpiApp(tk.Tk):
             )
             if (
                 isinstance(default_repartition_map_from_db, dict)
-                and not "weekly_json" in default_repartition_map_from_db
+                and "weekly_json" not in default_repartition_map_from_db
                 and any(
                     k.count("-W") > 0 for k in default_repartition_map_from_db.keys()
                 )
@@ -2121,7 +2261,6 @@ class KpiApp(tk.Tk):
                 text='Formato: {"ANNO-Wnum": valore_percentuale, ...}',
                 font=("Calibri", 8, "italic"),
             ).pack(side="top", anchor="w")
-
         if selected_profile == "event_based_spikes_or_dips":
             ttk.Label(input_details_frame, text="Parametri Eventi (JSON):").pack(
                 side="top", anchor="w", pady=(5, 2)
@@ -2158,92 +2297,374 @@ class KpiApp(tk.Tk):
             ).pack(side="top", anchor="w")
 
     def load_kpi_targets_for_entry_target(self, event=None):
-        for widget in self.scrollable_frame_target.winfo_children(): widget.destroy()
-        self.kpi_target_entry_widgets.clear(); self.canvas_target.yview_moveto(0)
+        if self._populating_target_kpi_entries:
+            return  # Prevent re-entry if already populating
+        self._populating_target_kpi_entries = True
+
+        for widget in self.scrollable_frame_target.winfo_children():
+            widget.destroy()
+        self.kpi_target_entry_widgets.clear()
+        self.canvas_target.yview_moveto(0)
 
         if not self.stabilimento_var_target.get() or not self.year_var_target.get():
-            ttk.Label(self.scrollable_frame_target, text="Seleziona anno e stabilimento.").pack(pady=10); return
+            ttk.Label(
+                self.scrollable_frame_target, text="Seleziona anno e stabilimento."
+            ).pack(pady=10)
+            self._populating_target_kpi_entries = False
+            return
         try:
             year = int(self.year_var_target.get())
-            stabilimento_id = self.stabilimenti_map_target.get(self.stabilimento_var_target.get())
-            if stabilimento_id is None: ttk.Label(self.scrollable_frame_target, text="Stabilimento non valido.").pack(pady=10); return
-        except ValueError: ttk.Label(self.scrollable_frame_target, text="Anno non valido.").pack(pady=10); return
+            stabilimento_id = self.stabilimenti_map_target.get(
+                self.stabilimento_var_target.get()
+            )
+            if stabilimento_id is None:
+                ttk.Label(
+                    self.scrollable_frame_target, text="Stabilimento non valido."
+                ).pack(pady=10)
+                self._populating_target_kpi_entries = False
+                return
+        except ValueError:
+            ttk.Label(self.scrollable_frame_target, text="Anno non valido.").pack(
+                pady=10
+            )
+            self._populating_target_kpi_entries = False
+            return
 
-        kpis_for_entry = db.get_kpis(only_visible=True) 
-        if not kpis_for_entry: ttk.Label(self.scrollable_frame_target, text="Nessun KPI visibile definito.").pack(pady=10); return
+        kpis_for_entry = db_retriever.get_all_kpis_detailed(only_visible=True)
+        if not kpis_for_entry:
+            ttk.Label(
+                self.scrollable_frame_target, text="Nessun KPI visibile definito."
+            ).pack(pady=10)
+            self._populating_target_kpi_entries = False
+            return
 
-        for kpi_data_dict in kpis_for_entry:
-            kpi_id = kpi_data_dict["id"] 
-            if kpi_id is None: continue
+        for (
+            kpi_data_dict
+        ) in kpis_for_entry:  # kpi_data_dict['id'] is kpis.id (kpi_spec_id)
+            kpi_spec_id = kpi_data_dict["id"]
+            if kpi_spec_id is None:
+                continue
 
-            frame_label = f"{get_kpi_display_name(kpi_data_dict)} (Unità: {kpi_data_dict['unit_of_measure'] or 'N/D'}, Tipo: {kpi_data_dict['calculation_type']})"
-            kpi_entry_frame = ttk.LabelFrame(self.scrollable_frame_target, text=frame_label, padding=10)
+            frame_label = f"{get_kpi_display_name(kpi_data_dict)} (ID Spec: {kpi_spec_id}, Unità: {kpi_data_dict['unit_of_measure'] or 'N/D'}, Tipo: {kpi_data_dict['calculation_type']})"
+            kpi_entry_frame = ttk.LabelFrame(
+                self.scrollable_frame_target, text=frame_label, padding=10
+            )
             kpi_entry_frame.pack(fill="x", expand=True, padx=5, pady=(0, 7))
 
-            existing_target_db_row = db.get_annual_target(year, stabilimento_id, kpi_id)
-            def_t1, def_t2 = 0.0, 0.0; def_profile = db.PROFILE_ANNUAL_PROGRESSIVE; def_logic = db.REPARTITION_LOGIC_ANNO
-            def_repart_map_for_ui = {} 
-            
-            if existing_target_db_row: 
+            existing_target_db_row = db_retriever.get_annual_target_entry(
+                year, stabilimento_id, kpi_spec_id
+            )
+            def_t1, def_t2 = 0.0, 0.0
+            def_profile = db_manager.PROFILE_ANNUAL_PROGRESSIVE
+            def_logic = db_manager.REPARTITION_LOGIC_ANNO
+            def_repart_map_for_ui = {}
+            def_is_manual1, def_is_manual2 = (
+                True,
+                True,
+            )  # Default to manual if no record
+
+            if existing_target_db_row: # This is an sqlite3.Row
                 def_t1 = float(existing_target_db_row["annual_target1"] or 0.0)
                 def_t2 = float(existing_target_db_row["annual_target2"] or 0.0)
                 db_profile_val = existing_target_db_row["distribution_profile"]
                 if db_profile_val and db_profile_val in self.distribution_profile_options_tk: def_profile = db_profile_val
-                def_logic = existing_target_db_row["repartition_logic"] or db.REPARTITION_LOGIC_ANNO
-                
-                repart_values_json_str = existing_target_db_row["repartition_values"]
-                if repart_values_json_str:
-                    try: def_repart_map_for_ui = json.loads(repart_values_json_str)
-                    except json.JSONDecodeError: print(f"WARN: JSON repartition_values non valido per KPI {kpi_id}")
-                
-                # --- THIS IS THE CORRECTED SECTION ---
+                def_logic = existing_target_db_row["repartition_logic"] or db_manager.REPARTITION_LOGIC_ANNO
+                def_is_manual1 = bool(existing_target_db_row["is_target1_manual"])
+                def_is_manual2 = bool(existing_target_db_row["is_target2_manual"])
+                try: def_repart_map_for_ui = json.loads(existing_target_db_row["repartition_values"] or "{}")
+                except json.JSONDecodeError: print(f"WARN: JSON repartition_values non valido per KPI {kpi_spec_id}")
+
+                # profile_params_json_str = existing_target_db_row.get("profile_params") # OLD - POTENTIAL ERROR
+                # SAFER WAY:
                 profile_params_json_str = None
-                try:
+                if "profile_params" in existing_target_db_row.keys(): # Check if key exists
                     profile_params_json_str = existing_target_db_row["profile_params"]
-                except IndexError: # Handles if the column 'profile_params' somehow doesn't exist in the row
-                    print(f"WARN: Colonna 'profile_params' non trovata per KPI {kpi_id} nel target annuale.")
-                # --- END OF CORRECTION ---
-                                
+
                 if profile_params_json_str:
                     try:
                         loaded_profile_params = json.loads(profile_params_json_str)
                         if isinstance(loaded_profile_params, dict) and "events" in loaded_profile_params:
                             def_repart_map_for_ui["event_json"] = json.dumps(loaded_profile_params["events"], indent=2)
-                    except json.JSONDecodeError: print(f"WARN: JSON profile_params non valido per KPI {kpi_id}")
-            
-            if def_profile == "event_based_spikes_or_dips" and "event_json" not in def_repart_map_for_ui:
-                def_repart_map_for_ui["event_json"] = json.dumps([{"start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","multiplier":1.0,"addition":0.0, "comment":"Esempio"}], indent=2)
-            if def_logic == db.REPARTITION_LOGIC_SETTIMANA and "weekly_json" not in def_repart_map_for_ui:
-                if all(isinstance(k, str) and k.count("-W")==1 for k in def_repart_map_for_ui.keys()): 
-                    def_repart_map_for_ui = {"weekly_json": json.dumps(def_repart_map_for_ui, indent=2)}
-                else: 
-                    def_repart_map_for_ui["weekly_json"] = json.dumps({"Info":"Es: {\"2024-W01\": 2.5}"},indent=2)
+                    except json.JSONDecodeError: print(f"WARN: JSON profile_params non valido per KPI {kpi_spec_id}")
 
-            target1_var = tk.DoubleVar(value=def_t1); target2_var = tk.DoubleVar(value=def_t2)
-            profile_var = tk.StringVar(value=def_profile); logic_var = tk.StringVar(value=def_logic)
-            repart_input_vars = {} 
+            kpi_role = db_retriever.get_kpi_role_details(kpi_spec_id)
+            is_sub_kpi = kpi_role["role"] == "sub"
 
-            top_row = ttk.Frame(kpi_entry_frame); top_row.pack(fill="x", pady=(0, 5))
-            ttk.Label(top_row, text="Target 1:", width=8).pack(side="left"); ttk.Entry(top_row, textvariable=target1_var, width=10).pack(side="left", padx=(2, 8))
-            ttk.Label(top_row, text="Target 2:", width=8).pack(side="left"); ttk.Entry(top_row, textvariable=target2_var, width=10).pack(side="left", padx=(2, 8))
-            ttk.Label(top_row, text="Profilo Distrib.:", width=16).pack(side="left")
-            profile_cb = ttk.Combobox(top_row, textvariable=profile_var, values=self.distribution_profile_options_tk, state="readonly", width=28)
-            profile_cb.pack(side="left", padx=(2, 0), fill="x", expand=True)
-            
-            repart_controls_container = ttk.Frame(kpi_entry_frame); repart_controls_container.pack(fill="x", pady=(2,0))
-            cmd_profile_chg = lambda ev, pv=profile_var, lv=logic_var, rvars=repart_input_vars, cframe=repart_controls_container, dmap=def_repart_map_for_ui: \
-                                self._update_repartition_input_area_tk(cframe, pv, lv, rvars, dmap)
-            profile_cb.bind("<<ComboboxSelected>>", cmd_profile_chg)
-            
-            self.kpi_target_entry_widgets[kpi_id] = {
-                "target1_var": target1_var, "target2_var": target2_var, "profile_var": profile_var,
-                "logic_var": logic_var, "repartition_vars": repart_input_vars, 
-                "calc_type": kpi_data_dict["calculation_type"], "kpi_display_name": get_kpi_display_name(kpi_data_dict)
+            target1_var = tk.DoubleVar(value=def_t1)
+            target2_var = tk.DoubleVar(value=def_t2)
+            profile_var = tk.StringVar(value=def_profile)
+            logic_var = tk.StringVar(value=def_logic)
+            repart_input_vars = {}
+
+            current_kpi_widgets = {
+                "target1_var": target1_var,
+                "target2_var": target2_var,
+                "profile_var": profile_var,
+                "logic_var": logic_var,
+                "repartition_vars": repart_input_vars,
+                "calc_type": kpi_data_dict["calculation_type"],
+                "kpi_display_name": get_kpi_display_name(kpi_data_dict),
+                "is_sub_kpi": is_sub_kpi,
+                "master_kpi_id": kpi_role.get("master_id") if is_sub_kpi else None,
+                "entry_frame": kpi_entry_frame,
             }
-            self._update_repartition_input_area_tk(repart_controls_container, profile_var, logic_var, repart_input_vars, def_repart_map_for_ui)
+            self.kpi_target_entry_widgets[kpi_spec_id] = current_kpi_widgets
 
+            top_row = ttk.Frame(kpi_entry_frame)
+            top_row.pack(fill="x", pady=(0, 5))
+            ttk.Label(top_row, text="Target 1:").pack(side="left")
+            target1_entry = ttk.Entry(top_row, textvariable=target1_var, width=10)
+            target1_entry.pack(side="left", padx=(2, 1))
+            current_kpi_widgets["target1_entry"] = target1_entry
+            force_manual1_var = tk.BooleanVar(value=def_is_manual1)
+            force_manual1_cb = ttk.Checkbutton(
+                top_row,
+                text="Man.",
+                variable=force_manual1_var,
+                command=lambda k_id=kpi_spec_id, t_num=1: self._on_force_manual_toggle(
+                    k_id, t_num
+                ),
+            )
+            if is_sub_kpi:
+                force_manual1_cb.pack(side="left", padx=(0, 6))
+            current_kpi_widgets["force_manual1_var"] = force_manual1_var
+
+            ttk.Label(top_row, text="Target 2:").pack(side="left")
+            target2_entry = ttk.Entry(top_row, textvariable=target2_var, width=10)
+            target2_entry.pack(side="left", padx=(2, 1))
+            current_kpi_widgets["target2_entry"] = target2_entry
+            force_manual2_var = tk.BooleanVar(value=def_is_manual2)
+            force_manual2_cb = ttk.Checkbutton(
+                top_row,
+                text="Man.",
+                variable=force_manual2_var,
+                command=lambda k_id=kpi_spec_id, t_num=2: self._on_force_manual_toggle(
+                    k_id, t_num
+                ),
+            )
+            if is_sub_kpi:
+                force_manual2_cb.pack(side="left", padx=(0, 10))
+            current_kpi_widgets["force_manual2_var"] = force_manual2_var
+
+            ttk.Label(top_row, text="Profilo Distrib.:", width=14).pack(side="left")
+            profile_cb = ttk.Combobox(
+                top_row,
+                textvariable=profile_var,
+                values=self.distribution_profile_options_tk,
+                state="readonly",
+                width=26,
+            )
+            profile_cb.pack(side="left", padx=(2, 0), fill="x", expand=True)
+
+            repart_controls_container = ttk.Frame(kpi_entry_frame)
+            repart_controls_container.pack(fill="x", pady=(2, 0))
+            cmd_profile_chg = lambda ev, pv=profile_var, lv=logic_var, rvars=repart_input_vars, cframe=repart_controls_container, dmap=def_repart_map_for_ui: self._update_repartition_input_area_tk(
+                cframe, pv, lv, rvars, dmap
+            )
+            profile_cb.bind("<<ComboboxSelected>>", cmd_profile_chg)
+            self._update_repartition_input_area_tk(
+                repart_controls_container,
+                profile_var,
+                logic_var,
+                repart_input_vars,
+                def_repart_map_for_ui,
+            )
+
+            # Link Master KPI target change to update subKPIs
+            if kpi_role["role"] == "master":
+                target1_var.trace_add(
+                    "write",
+                    lambda *args, k_id=kpi_spec_id, tn=1: self._on_master_target_change(
+                        k_id, tn
+                    ),
+                )
+                target2_var.trace_add(
+                    "write",
+                    lambda *args, k_id=kpi_spec_id, tn=2: self._on_master_target_change(
+                        k_id, tn
+                    ),
+                )
+
+            # Initial state update for subKPI entry fields and visual cues
+            if is_sub_kpi:
+                self._update_sub_kpi_target_field_state(kpi_spec_id, 1)
+                self._update_sub_kpi_target_field_state(kpi_spec_id, 2)
+
+        # After all individual KPIs are loaded, perform an initial distribution for all masters
+        # This ensures subKPIs reflect derived values correctly on load if not manual.
+        # Needs to be done outside the loop to ensure all widgets are created.
+        self.after(
+            100, self._initial_master_sub_ui_distribution
+        )  # Use 'after' to ensure UI is fully built
+
+        self._populating_target_kpi_entries = False
         self.scrollable_frame_target.update_idletasks()
         self.canvas_target.config(scrollregion=self.canvas_target.bbox("all"))
+
+    def _initial_master_sub_ui_distribution(self):
+        if self._master_sub_update_active:
+            return  # Avoid if already processing
+        self._master_sub_update_active = True
+        print("Esecuzione _initial_master_sub_ui_distribution...")
+        for kpi_spec_id_master, widgets_master in self.kpi_target_entry_widgets.items():
+            if widgets_master.get("master_kpi_id") is None and not widgets_master.get(
+                "is_sub_kpi"
+            ):  # Potential master
+                role_check = db_retriever.get_kpi_role_details(kpi_spec_id_master)
+                if role_check["role"] == "master":
+                    print(
+                        f"  Inizializzazione distribuzione per Master KPI: {kpi_spec_id_master}"
+                    )
+                    self._distribute_master_target_to_subs_ui(kpi_spec_id_master, 1)
+                    self._distribute_master_target_to_subs_ui(kpi_spec_id_master, 2)
+        self._master_sub_update_active = False
+
+    def _on_force_manual_toggle(self, sub_kpi_id, target_number):
+        if self._master_sub_update_active or self._populating_target_kpi_entries:
+            return
+        self._master_sub_update_active = True
+
+        self._update_sub_kpi_target_field_state(sub_kpi_id, target_number)
+
+        sub_kpi_widgets = self.kpi_target_entry_widgets.get(sub_kpi_id)
+        if sub_kpi_widgets and sub_kpi_widgets["master_kpi_id"]:
+            master_id = sub_kpi_widgets["master_kpi_id"]
+            # Re-distribute for the specific target number that was toggled
+            self._distribute_master_target_to_subs_ui(master_id, target_number)
+
+        self._master_sub_update_active = False
+
+    def _on_master_target_change(self, master_kpi_id, target_number_changed):
+        if self._master_sub_update_active or self._populating_target_kpi_entries:
+            return
+        self._master_sub_update_active = True
+        # Only distribute for the target number that changed
+        self._distribute_master_target_to_subs_ui(master_kpi_id, target_number_changed)
+        self._master_sub_update_active = False
+
+    def _update_sub_kpi_target_field_state(self, sub_kpi_id, target_number):
+        widgets = self.kpi_target_entry_widgets.get(sub_kpi_id)
+        if not widgets or not widgets.get("is_sub_kpi"):
+            return
+
+        manual_var = widgets.get(f"force_manual{target_number}_var")
+        target_entry_widget = widgets.get(f"target{target_number}_entry")
+        entry_frame_widget = widgets.get("entry_frame") # This is the ttk.LabelFrame
+
+        if not all([manual_var, target_entry_widget, entry_frame_widget]):
+            print(f"WARN: Missing widget references for sub_kpi_id {sub_kpi_id}, target {target_number} in _update_sub_kpi_target_field_state.")
+            return
+
+        if manual_var.get(): # Manual state
+            target_entry_widget.config(state="normal")
+            try:
+                entry_frame_widget.configure(
+                    relief="sunken",
+                    borderwidth=2
+                )
+                # Try to style the label part of the LabelFrame
+                if hasattr(entry_frame_widget, 'labelwidget') and entry_frame_widget.labelwidget:
+                    entry_frame_widget.labelwidget.configure(style="ManualState.TLabelframe.Label")
+                else: # Fallback: try to configure the LabelFrame's label options directly if labelwidget not found
+                    entry_frame_widget.configure(labelstyle="ManualState.TLabelframe.Label")
+
+                # print(f"Applied direct 'manual' properties to frame for KPI {sub_kpi_id}")
+            except tk.TclError as e:
+                print(f"Error applying direct 'manual' properties/styles to frame for KPI {sub_kpi_id}: {e}")
+
+        else: # Derived state
+            target_entry_widget.config(state="disabled")
+            try:
+                entry_frame_widget.configure(
+                    relief=self.style_defaults.get('TLabelFrame_relief', 'flat'), # Reset to theme default or fallback
+                    borderwidth=self.style_defaults.get('TLabelFrame_borderwidth', 1) # Reset to theme default or fallback
+                )
+                # Try to style the label part of the LabelFrame
+                if hasattr(entry_frame_widget, 'labelwidget') and entry_frame_widget.labelwidget:
+                    entry_frame_widget.labelwidget.configure(style="DerivedState.TLabelframe.Label")
+                else: # Fallback
+                    entry_frame_widget.configure(labelstyle="DerivedState.TLabelframe.Label")
+
+                # print(f"Applied direct 'derived' properties to frame for KPI {sub_kpi_id}")
+            except tk.TclError as e:
+                print(f"Error applying direct 'derived' properties/styles to frame for KPI {sub_kpi_id}: {e}")
+    def _distribute_master_target_to_subs_ui(
+        self, master_kpi_id, target_num_to_distribute
+    ):
+        if self._populating_target_kpi_entries:
+            return
+
+        master_widgets = self.kpi_target_entry_widgets.get(master_kpi_id)
+        if not master_widgets:
+            print(f"WARN: Master widgets non trovati per {master_kpi_id}")
+            return
+
+        linked_sub_ids = db_retriever.get_sub_kpis_for_master(master_kpi_id)
+        if not linked_sub_ids:
+            return
+
+        print(
+            f"Distribuendo Target {target_num_to_distribute} da Master {master_kpi_id} a subs: {linked_sub_ids}"
+        )
+
+        try:
+            master_target_val_var = master_widgets.get(
+                f"target{target_num_to_distribute}_var"
+            )
+            if master_target_val_var is None:
+                print(
+                    f"WARN: Master target var non trovata per {master_kpi_id}, target {target_num_to_distribute}"
+                )
+                return
+            master_target_val = master_target_val_var.get()
+        except tk.TclError:
+            master_target_val = 0.0
+
+        sum_manual_sub_targets = 0.0
+        non_manual_sub_kpi_ids_in_ui = []
+
+        for sub_id in linked_sub_ids:
+            sub_widgets = self.kpi_target_entry_widgets.get(sub_id)
+            if sub_widgets and sub_widgets["is_sub_kpi"]:
+                manual_var_sub = sub_widgets.get(
+                    f"force_manual{target_num_to_distribute}_var"
+                )
+                target_var_sub = sub_widgets.get(
+                    f"target{target_num_to_distribute}_var"
+                )
+                if manual_var_sub and target_var_sub:  # Check widgets exist
+                    if manual_var_sub.get():  # Is manual
+                        try:
+                            sum_manual_sub_targets += target_var_sub.get()
+                        except tk.TclError:
+                            pass
+                    else:  # Is not manual
+                        non_manual_sub_kpi_ids_in_ui.append(sub_id)
+
+        remaining_master_target = master_target_val - sum_manual_sub_targets
+
+        if non_manual_sub_kpi_ids_in_ui:
+            target_per_sub = (
+                remaining_master_target / len(non_manual_sub_kpi_ids_in_ui)
+                if len(non_manual_sub_kpi_ids_in_ui) > 0
+                else 0
+            )
+            for sub_id_to_update in non_manual_sub_kpi_ids_in_ui:
+                sub_widgets_to_update = self.kpi_target_entry_widgets.get(
+                    sub_id_to_update
+                )
+                if sub_widgets_to_update:
+                    target_var_to_set = sub_widgets_to_update.get(
+                        f"target{target_num_to_distribute}_var"
+                    )
+                    if target_var_to_set:
+                        target_var_to_set.set(round(target_per_sub, 2))
+                    self._update_sub_kpi_target_field_state(
+                        sub_id_to_update, target_num_to_distribute
+                    )
+        print(
+            f"  Fine distribuzione per Master {master_kpi_id}, Target {target_num_to_distribute}. Rimanente: {remaining_master_target}"
+        )
 
     def save_all_targets_entry(self):
         try:
@@ -2251,14 +2672,19 @@ class KpiApp(tk.Tk):
             stabilimento_id = self.stabilimenti_map_target.get(
                 self.stabilimento_var_target.get()
             )
-        except (ValueError, KeyError):
+        except (ValueError, KeyError, TypeError):
             messagebox.showerror("Errore", "Anno o stabilimento non validi.")
             return
         if stabilimento_id is None:
             messagebox.showerror("Errore", "Stabilimento non selezionato.")
             return
+
         targets_to_save_db = {}
         all_inputs_valid = True
+        initiator_kpi_id_for_save = (
+            None  # Could be set if a specific KPI edit triggers save
+        )
+
         for kpi_id, kpi_widgets in self.kpi_target_entry_widgets.items():
             try:
                 t1_val = kpi_widgets["target1_var"].get()
@@ -2270,23 +2696,25 @@ class KpiApp(tk.Tk):
                 )
                 all_inputs_valid = False
                 break
+
             profile_ui = kpi_widgets["profile_var"].get()
             logic_ui = kpi_widgets["logic_var"].get()
             repart_values_for_db = {}
             profile_params_for_db = {}
             effective_logic_db = logic_ui
             if profile_ui in [
-                db.PROFILE_ANNUAL_PROGRESSIVE,
-                db.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-                db.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-                db.PROFILE_EVEN,
+                db_manager.PROFILE_ANNUAL_PROGRESSIVE,
+                db_manager.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
+                db_manager.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
+                db_manager.PROFILE_EVEN,
                 "event_based_spikes_or_dips",
             ]:
-                effective_logic_db = db.REPARTITION_LOGIC_ANNO
-            if (
-                effective_logic_db == db.REPARTITION_LOGIC_MESE
-                or effective_logic_db == db.REPARTITION_LOGIC_TRIMESTRE
-            ):
+                effective_logic_db = db_manager.REPARTITION_LOGIC_ANNO
+
+            if effective_logic_db in [
+                db_manager.REPARTITION_LOGIC_MESE,
+                db_manager.REPARTITION_LOGIC_TRIMESTRE,
+            ]:
                 sum_percent = 0.0
                 num_periods = 0
                 for period_key, tk_var in kpi_widgets["repartition_vars"].items():
@@ -2306,18 +2734,18 @@ class KpiApp(tk.Tk):
                 if not all_inputs_valid:
                     break
                 if (
-                    kpi_widgets["calc_type"] == db.CALC_TYPE_INCREMENTALE
+                    kpi_widgets["calc_type"] == db_manager.CALC_TYPE_INCREMENTALE
                     and num_periods > 0
                     and (abs(t1_val) > 1e-9 or abs(t2_val) > 1e-9)
                     and not (99.9 <= sum_percent <= 100.1)
                 ):
                     messagebox.showerror(
                         "Errore",
-                        f"KPI '{kpi_widgets['kpi_display_name']}' ({db.CALC_TYPE_INCREMENTALE}): Somma ripartizioni {effective_logic_db} è {sum_percent:.2f}%. Deve essere 100%.",
+                        f"KPI '{kpi_widgets['kpi_display_name']}' ({db_manager.CALC_TYPE_INCREMENTALE}): Somma ripartizioni {effective_logic_db} è {sum_percent:.2f}%. Deve essere 100%.",
                     )
                     all_inputs_valid = False
                     break
-            elif effective_logic_db == db.REPARTITION_LOGIC_SETTIMANA:
+            elif effective_logic_db == db_manager.REPARTITION_LOGIC_SETTIMANA:
                 json_text_widget = kpi_widgets["repartition_vars"].get(
                     "weekly_json_text_widget"
                 )
@@ -2333,6 +2761,7 @@ class KpiApp(tk.Tk):
                             )
                             all_inputs_valid = False
                             break
+
             if profile_ui == "event_based_spikes_or_dips":
                 event_text_widget = kpi_widgets["repartition_vars"].get(
                     "event_json_text_widget"
@@ -2349,6 +2778,17 @@ class KpiApp(tk.Tk):
                             )
                             all_inputs_valid = False
                             break
+
+            is_manual1, is_manual2 = (
+                True,
+                True,
+            )  # Default for non-subKPIs or if vars not found
+            if kpi_widgets["is_sub_kpi"]:
+                if "force_manual1_var" in kpi_widgets:
+                    is_manual1 = kpi_widgets["force_manual1_var"].get()
+                if "force_manual2_var" in kpi_widgets:
+                    is_manual2 = kpi_widgets["force_manual2_var"].get()
+
             targets_to_save_db[kpi_id] = {
                 "annual_target1": t1_val,
                 "annual_target2": t2_val,
@@ -2356,16 +2796,24 @@ class KpiApp(tk.Tk):
                 "repartition_values": repart_values_for_db,
                 "distribution_profile": profile_ui,
                 "profile_params": profile_params_for_db,
+                "is_target1_manual": is_manual1,
+                "is_target2_manual": is_manual2,
             }
         if not all_inputs_valid:
             return
         if not targets_to_save_db:
             messagebox.showwarning("Attenzione", "Nessun target valido da salvare.")
             return
+
         try:
-            db.save_annual_targets(year, stabilimento_id, targets_to_save_db)
+            db_manager.save_annual_targets(
+                year,
+                stabilimento_id,
+                targets_to_save_db,
+                initiator_kpi_spec_id=initiator_kpi_id_for_save,
+            )
             messagebox.showinfo("Successo", "Target salvati e CSV rigenerati!")
-            self.load_kpi_targets_for_entry_target()
+            self.load_kpi_targets_for_entry_target()  # Reload to reflect derived changes
         except Exception as e:
             messagebox.showerror(
                 "Errore Salvataggio",
@@ -2373,7 +2821,7 @@ class KpiApp(tk.Tk):
             )
 
     # --- Scheda Visualizzazione Risultati ---
-    def create_results_widgets(self):
+    def create_results_widgets(self):  # (Largely unchanged)
         filter_frame_outer_res = ttk.Frame(self.results_frame)
         filter_frame_outer_res.pack(fill="x", pady=5)
         filter_frame_res = ttk.Frame(filter_frame_outer_res)
@@ -2478,7 +2926,7 @@ class KpiApp(tk.Tk):
 
     def populate_results_comboboxes(self):
         current_stab_name_res = self.res_stabilimento_var_vis.get()
-        stabilimenti_all = db.get_stabilimenti()
+        stabilimenti_all = db_retriever.get_all_stabilimenti()
         self.res_stabilimenti_map_vis = {s["name"]: s["id"] for s in stabilimenti_all}
         self.res_stabilimento_cb_vis["values"] = list(
             self.res_stabilimenti_map_vis.keys()
@@ -2494,28 +2942,24 @@ class KpiApp(tk.Tk):
             )
         else:
             self.res_stabilimento_var_vis.set("")
-
         current_group_name_res = self.res_group_var.get()
         current_subgroup_display_name_res = self.res_subgroup_var.get()
         current_indicator_name_res = self.res_indicator_var.get()
-        self.res_groups_list = db.get_kpi_groups()
+        self.res_groups_list = db_retriever.get_kpi_groups()
         self.res_group_cb["values"] = [g["name"] for g in self.res_groups_list]
-
         if (
             current_group_name_res
             and current_group_name_res in self.res_group_cb["values"]
         ):
             self.res_group_var.set(current_group_name_res)
-            current_subgroup_raw_name_res = None
-            if (
-                hasattr(self, "res_subgroup_display_to_raw_map")
-                and current_subgroup_display_name_res
-            ):
-                current_subgroup_raw_name_res = (
-                    self.res_subgroup_display_to_raw_map.get(
-                        current_subgroup_display_name_res
-                    )
+            current_subgroup_raw_name_res = (
+                self.res_subgroup_display_to_raw_map.get(
+                    current_subgroup_display_name_res
                 )
+                if hasattr(self, "res_subgroup_display_to_raw_map")
+                and current_subgroup_display_name_res
+                else None
+            )
             self._populate_res_subgroups(
                 pre_selected_subgroup_raw_name=current_subgroup_raw_name_res,
                 pre_selected_indicator_name=current_indicator_name_res,
@@ -2540,13 +2984,14 @@ class KpiApp(tk.Tk):
         if not pre_selected_indicator_name:
             self.res_indicator_var.set("")
         self.current_kpi_id_for_results = None
-
         selected_group_obj = next(
             (g for g in self.res_groups_list if g["name"] == group_name), None
         )
         if selected_group_obj:
-            self.res_subgroups_list_details = db.get_kpi_subgroups_by_group_revised(
-                selected_group_obj["id"]
+            self.res_subgroups_list_details = (
+                db_retriever.get_kpi_subgroups_by_group_revised(
+                    selected_group_obj["id"]
+                )
             )
             self.res_subgroup_display_to_raw_map = {}
             display_subgroup_names = []
@@ -2560,10 +3005,8 @@ class KpiApp(tk.Tk):
                 display_subgroup_names.append(display_name)
                 self.res_subgroup_display_to_raw_map[display_name] = raw_name
             self.res_subgroup_cb["values"] = display_subgroup_names
-
-            target_display_subgroup_name = None
-            if pre_selected_subgroup_raw_name:
-                target_display_subgroup_name = next(
+            target_display_subgroup_name = (
+                next(
                     (
                         dn
                         for dn, rn in self.res_subgroup_display_to_raw_map.items()
@@ -2571,14 +3014,16 @@ class KpiApp(tk.Tk):
                     ),
                     None,
                 )
-
+                if pre_selected_subgroup_raw_name
+                else None
+            )
             if target_display_subgroup_name:
                 self.res_subgroup_var.set(target_display_subgroup_name)
                 self._populate_res_indicators(pre_selected_indicator_name)
-            else:  # No subgroup to preselect, or group cleared
-                self._populate_res_indicators()  # This will clear indicators and call show_results_data
-        else:  # No group selected
-            self._populate_res_indicators()  # This will clear indicators and call show_results_data
+            else:
+                self._populate_res_indicators()
+        else:
+            self._populate_res_indicators()
 
     def _populate_res_indicators(self, pre_selected_indicator_name=None):
         display_subgroup_name = self.res_subgroup_var.get()
@@ -2586,13 +3031,13 @@ class KpiApp(tk.Tk):
         if not pre_selected_indicator_name:
             self.res_indicator_var.set("")
         self.current_kpi_id_for_results = None
-
-        raw_subgroup_name_lookup = self.res_subgroup_display_to_raw_map.get(
-            display_subgroup_name
+        raw_subgroup_name_lookup = (
+            self.res_subgroup_display_to_raw_map.get(display_subgroup_name)
+            if hasattr(self, "res_subgroup_display_to_raw_map")
+            else None
         )
-        selected_subgroup_obj_from_list = None
-        if raw_subgroup_name_lookup and hasattr(self, "res_subgroups_list_details"):
-            selected_subgroup_obj_from_list = next(
+        selected_subgroup_obj_from_list = (
+            next(
                 (
                     s
                     for s in self.res_subgroups_list_details
@@ -2600,16 +3045,17 @@ class KpiApp(tk.Tk):
                 ),
                 None,
             )
-
+            if raw_subgroup_name_lookup and hasattr(self, "res_subgroups_list_details")
+            else None
+        )
         if selected_subgroup_obj_from_list:
-            all_indicators_in_subgroup = db.get_kpi_indicators_by_subgroup(
+            all_indicators_in_subgroup = db_retriever.get_kpi_indicators_by_subgroup(
                 selected_subgroup_obj_from_list["id"]
             )
-            all_kpi_specs_with_data = db.get_kpis()  # Get all kpi specs
-            # Filter indicators to only those that have a kpi spec defined
+            all_kpi_specs_with_data = db_retriever.get_all_kpis_detailed()
             indicator_ids_with_spec = {
-                k_spec["indicator_id"] for k_spec in all_kpi_specs_with_data
-            }
+                k_spec["actual_indicator_id"] for k_spec in all_kpi_specs_with_data
+            }  # Use actual_indicator_id
             self.res_indicators_list_filtered_details = [
                 ind
                 for ind in all_indicators_in_subgroup
@@ -2618,13 +3064,11 @@ class KpiApp(tk.Tk):
             self.res_indicator_cb["values"] = [
                 ind["name"] for ind in self.res_indicators_list_filtered_details
             ]
-
             if (
                 pre_selected_indicator_name
                 and pre_selected_indicator_name in self.res_indicator_cb["values"]
             ):
                 self.res_indicator_var.set(pre_selected_indicator_name)
-        # Always call show_results_data to update view, even if indicator list is empty or no indicator preselected
         self.show_results_data()
 
     def show_results_data(self, event=None):
@@ -2640,7 +3084,6 @@ class KpiApp(tk.Tk):
             stabilimento_name_res = self.res_stabilimento_var_vis.get()
             indicator_name_res = self.res_indicator_var.get()
             period_type_res = self.res_period_var_vis.get()
-
             if not all([stabilimento_name_res, indicator_name_res, period_type_res]):
                 self.summary_label_var_vis.set(
                     "Selezionare Anno, Stabilimento, Indicatore e Periodo."
@@ -2652,13 +3095,8 @@ class KpiApp(tk.Tk):
             if stabilimento_id_res is None:
                 self.summary_label_var_vis.set("Stabilimento selezionato non valido.")
                 return
-
-            selected_indicator_details_obj = None
-            if (
-                hasattr(self, "res_indicators_list_filtered_details")
-                and self.res_indicators_list_filtered_details
-            ):
-                selected_indicator_details_obj = next(
+            selected_indicator_details_obj = (
+                next(
                     (
                         ind
                         for ind in self.res_indicators_list_filtered_details
@@ -2666,18 +3104,24 @@ class KpiApp(tk.Tk):
                     ),
                     None,
                 )
+                if hasattr(self, "res_indicators_list_filtered_details")
+                and self.res_indicators_list_filtered_details
+                else None
+            )
             if not selected_indicator_details_obj:
                 self.summary_label_var_vis.set(
                     f"Indicatore '{indicator_name_res}' non trovato o senza specifica KPI."
                 )
                 return
 
-            indicator_actual_id = selected_indicator_details_obj["id"]
+            indicator_actual_id = selected_indicator_details_obj[
+                "id"
+            ]  # kpi_indicators.id
             kpi_spec_obj = next(
                 (
                     spec
-                    for spec in db.get_kpis()
-                    if spec["indicator_id"] == indicator_actual_id
+                    for spec in db_retriever.get_all_kpis_detailed()
+                    if spec["actual_indicator_id"] == indicator_actual_id
                 ),
                 None,
             )
@@ -2686,26 +3130,21 @@ class KpiApp(tk.Tk):
                     f"Specifica KPI non trovata per Indicatore ID {indicator_actual_id}."
                 )
                 return
-            kpi_id_res = kpi_spec_obj["id"]
+            kpi_spec_id_res = kpi_spec_obj["id"]  # This is kpis.id
             calc_type_res = kpi_spec_obj["calculation_type"]
             kpi_unit_res = kpi_spec_obj["unit_of_measure"] or ""
             kpi_display_name_res_str = get_kpi_display_name(kpi_spec_obj)
-            target_ann_info_res = db.get_annual_target(
-                year_val_res, stabilimento_id_res, kpi_id_res
-            )
+            target_ann_info_res = db_retriever.get_annual_target_entry(year_val_res, stabilimento_id_res, kpi_spec_id_res)
             profile_disp_res = "N/D"
-            if target_ann_info_res and isinstance(
-                target_ann_info_res, (sqlite3.Row, dict)
-            ):
-                profile_disp_res = (
-                    target_ann_info_res.get("distribution_profile", "N/D") or "N/D"
-                )
+            if target_ann_info_res:
+                if "distribution_profile" in target_ann_info_res.keys():
+                    profile_disp_res = target_ann_info_res["distribution_profile"] or "N/D"
 
-            data_t1 = db.get_ripartiti_data(
-                year_val_res, stabilimento_id_res, kpi_id_res, period_type_res, 1
+            data_t1 = db_retriever.get_periodic_targets_for_kpi(
+                year_val_res, stabilimento_id_res, kpi_spec_id_res, period_type_res, 1
             )
-            data_t2 = db.get_ripartiti_data(
-                year_val_res, stabilimento_id_res, kpi_id_res, period_type_res, 2
+            data_t2 = db_retriever.get_periodic_targets_for_kpi(
+                year_val_res, stabilimento_id_res, kpi_spec_id_res, period_type_res, 2
             )
             map_t1 = (
                 {row["Periodo"]: row["Target"] for row in data_t1} if data_t1 else {}
@@ -2750,20 +3189,20 @@ class KpiApp(tk.Tk):
             if count_t1 > 0:
                 agg_t1 = (
                     total_sum_t1
-                    if calc_type_res == db.CALC_TYPE_INCREMENTALE
+                    if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE
                     else (total_sum_t1 / count_t1)
                 )
                 summary_parts.append(
-                    f"{'Totale T1' if calc_type_res == db.CALC_TYPE_INCREMENTALE else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}"
+                    f"{'Totale T1' if calc_type_res==db_manager.CALC_TYPE_INCREMENTALE else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}"
                 )
             if count_t2 > 0:
                 agg_t2 = (
                     total_sum_t2
-                    if calc_type_res == db.CALC_TYPE_INCREMENTALE
+                    if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE
                     else (total_sum_t2 / count_t2)
                 )
                 summary_parts.append(
-                    f"{'Totale T2' if calc_type_res == db.CALC_TYPE_INCREMENTALE else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}"
+                    f"{'Totale T2' if calc_type_res==db_manager.CALC_TYPE_INCREMENTALE else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}"
                 )
             self.summary_label_var_vis.set(" | ".join(summary_parts))
         except ValueError as ve:
@@ -2773,16 +3212,16 @@ class KpiApp(tk.Tk):
             traceback.print_exc()
 
     # --- Scheda Esportazione Dati ---
-    def create_export_widgets(self):
+    def create_export_widgets(self):  # (Unchanged)
         export_main_frame = ttk.Frame(self.export_frame, padding=20)
         export_main_frame.pack(expand=True, fill="both")
         export_info_label_frame = ttk.Frame(export_main_frame)
         export_info_label_frame.pack(pady=10, anchor="center")
-        resolved_path_str = "N/D"
-        try:
-            resolved_path_str = str(Path(db.CSV_EXPORT_BASE_PATH).resolve())
-        except:
-            pass
+        resolved_path_str = (
+            str(Path(db_manager.CSV_EXPORT_BASE_PATH).resolve())
+            if hasattr(db_manager, "CSV_EXPORT_BASE_PATH")
+            else "N/D"
+        )
         ttk.Label(
             export_info_label_frame,
             text=(
@@ -2808,36 +3247,33 @@ class KpiApp(tk.Tk):
             command=self.open_export_folder,
         ).pack()
 
-    def open_export_folder(self):
+    def open_export_folder(self):  # (Unchanged)
         try:
-            export_path = Path(db.CSV_EXPORT_BASE_PATH).resolve()
-            if not export_path.exists():
-                export_path.mkdir(parents=True, exist_ok=True)
-                messagebox.showinfo(
-                    "Cartella Creata",
-                    f"Cartella esportazioni creata:\n{export_path}\nVuota. Salva target per popolarla.",
-                    parent=self,
-                )
-            if sys.platform == "win32":
-                os.startfile(export_path)
-            elif sys.platform == "darwin":
-                subprocess.Popen(["open", str(export_path)])
-            else:
-                subprocess.Popen(["xdg-open", str(export_path)])
+            export_path = Path(db_manager.CSV_EXPORT_BASE_PATH).resolve()
         except AttributeError:
             messagebox.showerror(
                 "Errore Config.",
                 "Percorso esportazioni CSV non configurato.",
                 parent=self,
             )
-        except Exception as e:
-            messagebox.showerror(
-                "Errore Apertura", f"Impossibile aprire cartella: {e}", parent=self
+            return
+        if not export_path.exists():
+            export_path.mkdir(parents=True, exist_ok=True)
+            messagebox.showinfo(
+                "Cartella Creata",
+                f"Cartella esportazioni creata:\n{export_path}\nVuota. Salva target per popolarla.",
+                parent=self,
             )
+        if sys.platform == "win32":
+            os.startfile(export_path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(export_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(export_path)])
 
-    def export_all_data_to_zip(self):
+    def export_all_data_to_zip(self):  # (Unchanged)
         try:
-            export_base_path_str = db.CSV_EXPORT_BASE_PATH
+            export_base_path_str = db_manager.CSV_EXPORT_BASE_PATH
         except AttributeError:
             messagebox.showerror(
                 "Errore Config.",
@@ -2899,9 +3335,312 @@ class KpiApp(tk.Tk):
                 parent=self,
             )
 
+    # --- Scheda Gestione Link Master/Sub (NEW) ---
+    def create_master_sub_link_widgets(self):
+        main_frame = ttk.Frame(self.master_sub_link_frame, padding=10)
+        main_frame.pack(fill="both", expand=True)
+
+        kpi_list_frame = ttk.LabelFrame(
+            main_frame, text="Tutti i KPI (Specifiche Definite)", padding=10
+        )
+        kpi_list_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+
+        cols = ("ID Spec", "Nome Completo KPI", "Ruolo Attuale")
+        self.master_sub_kpi_tree = ttk.Treeview(
+            kpi_list_frame, columns=cols, show="headings", height=20
+        )
+        self.master_sub_kpi_tree.heading("ID Spec", text="ID Spec")
+        self.master_sub_kpi_tree.column(
+            "ID Spec", width=60, anchor="center", stretch=tk.NO
+        )
+        self.master_sub_kpi_tree.heading("Nome Completo KPI", text="Nome Completo KPI")
+        self.master_sub_kpi_tree.column("Nome Completo KPI", width=350, stretch=tk.YES)
+        self.master_sub_kpi_tree.heading("Ruolo Attuale", text="Ruolo")
+        self.master_sub_kpi_tree.column(
+            "Ruolo Attuale", width=100, anchor="center", stretch=tk.NO
+        )
+        self.master_sub_kpi_tree.pack(fill="both", expand=True, pady=(0, 5))
+        self.master_sub_kpi_tree.bind(
+            "<<TreeviewSelect>>", self.on_master_sub_kpi_select
+        )
+
+        details_actions_frame = ttk.Frame(main_frame, padding=10)
+        details_actions_frame.pack(
+            side="left", fill="both", expand=True, padx=5, pady=5
+        )
+
+        self.selected_kpi_label_var = tk.StringVar(value="KPI Selezionato: Nessuno")
+        ttk.Label(
+            details_actions_frame,
+            textvariable=self.selected_kpi_label_var,
+            font=("Calibri", 11, "bold"),
+        ).pack(pady=10, anchor="w")
+
+        manages_frame = ttk.LabelFrame(
+            details_actions_frame,
+            text="Gestisce come Master (Subordinati):",
+            padding=10,
+        )
+        manages_frame.pack(fill="x", pady=5)
+        self.subs_of_master_listbox = tk.Listbox(
+            manages_frame, height=6, width=50, exportselection=False
+        )
+        self.subs_of_master_listbox.pack(fill="x", expand=True, pady=(0, 5))
+        manages_btn_frame = ttk.Frame(manages_frame)
+        manages_btn_frame.pack(fill="x")
+        self.link_sub_btn = ttk.Button(
+            manages_btn_frame,
+            text="Collega Nuovo SubKPI",
+            command=self.link_new_sub_kpi,
+            state="disabled",
+        )
+        self.link_sub_btn.pack(side="left", padx=2)
+        self.unlink_sub_btn = ttk.Button(
+            manages_btn_frame,
+            text="Scollega SubKPI Selez.",
+            command=self.unlink_selected_sub_kpi,
+            state="disabled",
+        )
+        self.unlink_sub_btn.pack(side="left", padx=2)
+        self.subs_of_master_listbox.bind(
+            "<<ListboxSelect>>",
+            lambda e: self.unlink_sub_btn.config(
+                state=(
+                    "normal"
+                    if self.subs_of_master_listbox.curselection()
+                    else "disabled"
+                )
+            ),
+        )
+
+        managed_by_frame = ttk.LabelFrame(
+            details_actions_frame, text="Gestito da Master:", padding=10
+        )
+        managed_by_frame.pack(fill="x", pady=5)
+        self.master_of_sub_label_var = tk.StringVar(value="Nessun Master")
+        ttk.Label(managed_by_frame, textvariable=self.master_of_sub_label_var).pack(
+            anchor="w"
+        )
+
+        self.all_kpis_for_linking_map = {}  # {kpi_spec_id: display_name}
+
+    def refresh_master_sub_displays(self, selected_kpi_spec_id_to_restore=None):
+        for i in self.master_sub_kpi_tree.get_children():
+            self.master_sub_kpi_tree.delete(i)
+        self.all_kpis_for_linking_map.clear()
+
+        all_kpis = db_retriever.get_all_kpis_detailed()  # Gets kpis.id as 'id'
+        item_to_select_iid = None
+        for kpi_spec in all_kpis:
+            display_name = get_kpi_display_name(kpi_spec)
+            self.all_kpis_for_linking_map[kpi_spec["id"]] = display_name
+            role_info = db_retriever.get_kpi_role_details(kpi_spec["id"])
+            role_display = role_info["role"].capitalize()
+            if role_info["role"] == "sub" and role_info["master_id"]:
+                master_name = self.all_kpis_for_linking_map.get(
+                    role_info["master_id"], f"ID {role_info['master_id']}"
+                )
+                role_display += f" (di {master_name[:20]}..)"  # Truncate if too long
+            elif role_info["role"] == "master" and role_info["related_kpis"]:
+                role_display += f" (gestisce {len(role_info['related_kpis'])})"
+
+            iid = self.master_sub_kpi_tree.insert(
+                "",
+                "end",
+                values=(kpi_spec["id"], display_name, role_display),
+                iid=str(kpi_spec["id"]),
+            )
+            if (
+                selected_kpi_spec_id_to_restore
+                and kpi_spec["id"] == selected_kpi_spec_id_to_restore
+            ):
+                item_to_select_iid = iid
+
+        if item_to_select_iid:
+            self.master_sub_kpi_tree.selection_set(item_to_select_iid)
+            self.master_sub_kpi_tree.focus(item_to_select_iid)
+            self.master_sub_kpi_tree.see(item_to_select_iid)
+
+        self.on_master_sub_kpi_select()
+
+    def on_master_sub_kpi_select(self, event=None):
+        self.subs_of_master_listbox.delete(0, tk.END)
+        self.master_of_sub_label_var.set("Nessun Master")
+        self.link_sub_btn.config(state="disabled")
+        self.unlink_sub_btn.config(state="disabled")
+
+        selected_items = self.master_sub_kpi_tree.selection()
+        if not selected_items:
+            self.selected_kpi_label_var.set("KPI Selezionato: Nessuno")
+            return
+
+        selected_kpi_spec_id = int(selected_items[0])
+        display_name = self.all_kpis_for_linking_map.get(selected_kpi_spec_id, "N/D")
+        self.selected_kpi_label_var.set(
+            f"KPI Selezionato: {display_name} (ID Spec: {selected_kpi_spec_id})"
+        )
+        self.link_sub_btn.config(state="normal")
+
+        subs = db_retriever.get_sub_kpis_for_master(selected_kpi_spec_id)
+        for sub_id in subs:
+            sub_display_name = self.all_kpis_for_linking_map.get(
+                sub_id, f"Sub ID Spec: {sub_id}"
+            )
+            self.subs_of_master_listbox.insert(
+                tk.END, f"{sub_display_name} (ID Spec: {sub_id})"
+            )
+
+        master_id = db_retriever.get_master_kpi_for_sub(selected_kpi_spec_id)
+        if master_id:
+            master_display_name = self.all_kpis_for_linking_map.get(
+                master_id, f"Master ID Spec: {master_id}"
+            )
+            self.master_of_sub_label_var.set(
+                f"{master_display_name} (ID Spec: {master_id})"
+            )
+
+    def link_new_sub_kpi(self):
+        selected_master_items = self.master_sub_kpi_tree.selection()
+        if not selected_master_items:
+            messagebox.showwarning(
+                "Attenzione", "Seleziona un KPI da designare come Master."
+            )
+            return
+        master_kpi_spec_id = int(selected_master_items[0])
+
+        available_kpis_for_sub = {
+            id: name
+            for id, name in self.all_kpis_for_linking_map.items()
+            if id != master_kpi_spec_id
+        }
+
+        dialog = LinkSubKpiDialog(
+            self, "Collega SubKPI", master_kpi_spec_id, available_kpis_for_sub
+        )
+        if dialog.result_sub_kpi_id:
+            try:
+                # Prevent linking if chosen sub is already a master of other KPIs
+                if db_retriever.get_sub_kpis_for_master(dialog.result_sub_kpi_id):
+                    messagebox.showerror(
+                        "Errore Logica",
+                        "Un KPI che è già Master di altri non può diventare SubKPI.",
+                        parent=self,
+                    )
+                    return
+                # Prevent linking if chosen sub is already a sub of ANOTHER master
+                existing_master_of_chosen_sub = db_retriever.get_master_kpi_for_sub(
+                    dialog.result_sub_kpi_id
+                )
+                if (
+                    existing_master_of_chosen_sub
+                    and existing_master_of_chosen_sub != master_kpi_spec_id
+                ):
+                    messagebox.showerror(
+                        "Errore Logica",
+                        "Questo KPI è già SubKPI di un altro Master.",
+                        parent=self,
+                    )
+                    return
+
+                db_manager.add_master_sub_kpi_link(
+                    master_kpi_spec_id, dialog.result_sub_kpi_id
+                )
+                self.refresh_master_sub_displays(
+                    selected_kpi_spec_id_to_restore=master_kpi_spec_id
+                )
+                self.populate_target_comboboxes()  # Refresh target entry tab for potential changes
+            except sqlite3.IntegrityError:
+                messagebox.showerror(
+                    "Errore DB",
+                    "Collegamento già esistente o ID non validi.",
+                    parent=self,
+                )
+            except ValueError as ve:
+                messagebox.showerror(
+                    "Errore Logica", str(ve), parent=self
+                )  # Catch custom errors from db_manager
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore", f"Impossibile collegare: {e}", parent=self
+                )
+
+    def unlink_selected_sub_kpi(self):
+        selected_master_items = self.master_sub_kpi_tree.selection()
+        selected_sub_item_indices = self.subs_of_master_listbox.curselection()
+        if not selected_master_items or not selected_sub_item_indices:
+            messagebox.showwarning(
+                "Attenzione",
+                "Seleziona un Master KPI e un SubKPI da scollegare dalla lista.",
+            )
+            return
+
+        master_kpi_spec_id = int(selected_master_items[0])
+        sub_item_text = self.subs_of_master_listbox.get(selected_sub_item_indices[0])
+        try:
+            sub_kpi_id_str = sub_item_text.split("(ID Spec: ")[1].replace(")", "")
+            sub_kpi_spec_id = int(sub_kpi_id_str)
+        except:
+            messagebox.showerror(
+                "Errore", "Impossibile determinare ID del SubKPI selezionato."
+            )
+            return
+
+        if messagebox.askyesno(
+            "Conferma Scollegamento",
+            f"Scollegare SubKPI ID Spec {sub_kpi_spec_id} da Master ID Spec {master_kpi_spec_id}?",
+            parent=self,
+        ):
+            try:
+                db_manager.remove_master_sub_kpi_link(
+                    master_kpi_spec_id, sub_kpi_spec_id
+                )
+                # When unlinking, the subKPI's targets should become manual if they were derived
+                target_entry = db_retriever.get_annual_target_entry(
+                    int(self.year_var_target.get()),
+                    self.stabilimenti_map_target.get(
+                        self.stabilimento_var_target.get()
+                    ),
+                    sub_kpi_spec_id,
+                )
+                if target_entry:
+                    updated_data_for_sub = {
+                        str(sub_kpi_spec_id): {
+                            "annual_target1": target_entry["annual_target1"],
+                            "annual_target2": target_entry["annual_target2"],
+                            "repartition_logic": target_entry["repartition_logic"],
+                            "repartition_values": json.loads(
+                                target_entry["repartition_values"] or "{}"
+                            ),
+                            "distribution_profile": target_entry[
+                                "distribution_profile"
+                            ],
+                            "profile_params": json.loads(
+                                target_entry.get("profile_params", "{}") or "{}"
+                            ),
+                            "is_target1_manual": True,  # Make it manual
+                            "is_target2_manual": True,  # Make it manual
+                        }
+                    }
+                    db_manager.save_annual_targets(
+                        int(self.year_var_target.get()),
+                        self.stabilimenti_map_target.get(
+                            self.stabilimento_var_target.get()
+                        ),
+                        updated_data_for_sub,
+                    )
+
+                self.refresh_master_sub_displays(
+                    selected_kpi_spec_id_to_restore=master_kpi_spec_id
+                )
+                self.populate_target_comboboxes()  # Refresh target entry to reflect new manual status
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore", f"Impossibile scollegare: {e}", parent=self
+                )
+
 
 # --- Dialog Classes ---
-class SubgroupEditorDialog(simpledialog.Dialog):
+class SubgroupEditorDialog(simpledialog.Dialog):  # (Unchanged)
     def __init__(
         self,
         parent,
@@ -2914,10 +3653,8 @@ class SubgroupEditorDialog(simpledialog.Dialog):
         self.initial_name = initial_name
         self.initial_template_id = initial_template_id
         self.result_name = None
-        self.result_template_id = (
-            False  # Use False to indicate no valid selection / cancel
-        )
-        self.templates_map = {"(Nessun Template)": None}  # Display name to ID
+        self.result_template_id = False
+        self.templates_map = {"(Nessun Template)": None}
         super().__init__(parent, title)
 
     def body(self, master):
@@ -2928,7 +3665,6 @@ class SubgroupEditorDialog(simpledialog.Dialog):
         self.name_entry = ttk.Entry(master, textvariable=self.name_var, width=35)
         self.name_entry.grid(row=0, column=1, padx=5, pady=5)
         self.name_entry.focus_set()
-
         ttk.Label(master, text="Template Indicatori:").grid(
             row=1, column=0, sticky="w", padx=5, pady=5
         )
@@ -2936,16 +3672,12 @@ class SubgroupEditorDialog(simpledialog.Dialog):
         self.template_cb = ttk.Combobox(
             master, textvariable=self.template_var, state="readonly", width=33
         )
-
-        available_templates = db.get_kpi_indicator_templates()  # List of dicts
+        available_templates = db_retriever.get_kpi_indicator_templates()
         for tpl in available_templates:
             self.templates_map[tpl["name"]] = tpl["id"]
         self.template_cb["values"] = list(self.templates_map.keys())
-
-        # Set initial selection for template combobox
-        if self.initial_template_id is not None:
-            # Find the display name corresponding to initial_template_id
-            selected_template_name = next(
+        selected_template_name = (
+            next(
                 (
                     name
                     for name, id_val in self.templates_map.items()
@@ -2953,41 +3685,33 @@ class SubgroupEditorDialog(simpledialog.Dialog):
                 ),
                 "(Nessun Template)",
             )
-            self.template_var.set(selected_template_name)
-        else:
-            self.template_var.set("(Nessun Template)")
+            if self.initial_template_id is not None
+            else "(Nessun Template)"
+        )
+        self.template_var.set(selected_template_name)
         self.template_cb.grid(row=1, column=1, padx=5, pady=5)
-        return self.name_entry  # Initial focus
+        return self.name_entry
 
     def apply(self):
         self.result_name = self.name_var.get().strip()
         selected_template_display_name = self.template_var.get()
-        self.result_template_id = self.templates_map.get(
-            selected_template_display_name
-        )  # Can be None
-
+        self.result_template_id = self.templates_map.get(selected_template_display_name)
         if not self.result_name:
             messagebox.showwarning(
                 "Input Mancante", "Nome sottogruppo obbligatorio.", parent=self
             )
-            # Reset results to indicate failure and keep dialog open
             self.result_name = None
-            self.result_template_id = (
-                False  # Special value to indicate dialog shouldn't close / invalid
-            )
-            # To keep dialog open, typically you'd have to manage the button actions differently
-            # or rely on the default behavior of simpledialog if validation fails (though it usually closes).
-            # For simplicity here, we set to invalid state. The caller checks `dialog.result_name`.
+            self.result_template_id = False
 
 
-class TemplateDefinitionEditorDialog(simpledialog.Dialog):
-    def __init__(
-        self, parent, title=None, template_id_context=None, initial_data=None
-    ):  # initial_data is a dict from db
+class TemplateDefinitionEditorDialog(simpledialog.Dialog):  # (Unchanged)
+    def __init__(self, parent, title=None, template_id_context=None, initial_data=None):
         self.initial_data = initial_data if initial_data else {}
-        self.result_data = None  # Will be a dict on success
-        # Store kpi_calc_type_options_tk from the parent KpiApp or db constants
-        self.kpi_calc_type_options = [db.CALC_TYPE_INCREMENTALE, db.CALC_TYPE_MEDIA]
+        self.result_data = None
+        self.kpi_calc_type_options = [
+            db_manager.CALC_TYPE_INCREMENTALE,
+            db_manager.CALC_TYPE_MEDIA,
+        ]
         super().__init__(parent, title)
 
     def body(self, master):
@@ -3008,7 +3732,6 @@ class TemplateDefinitionEditorDialog(simpledialog.Dialog):
         self.visible_var = tk.BooleanVar(
             value=bool(self.initial_data.get("default_visible", True))
         )
-
         ttk.Label(master, text="Nome Indicatore Template:").grid(
             row=0, column=0, sticky="w", padx=5, pady=3
         )
@@ -3064,30 +3787,79 @@ class TemplateDefinitionEditorDialog(simpledialog.Dialog):
         }
 
 
+class LinkSubKpiDialog(simpledialog.Dialog):  # (Unchanged from previous snippet)
+    def __init__(self, parent, title, master_kpi_id, available_kpis_map):
+        self.master_kpi_id = master_kpi_id
+        self.available_kpis_map = available_kpis_map
+        self.result_sub_kpi_id = None
+        super().__init__(parent, title)
+
+    def body(self, master):
+        ttk.Label(
+            master,
+            text=f"Seleziona SubKPI da collegare a Master ID Spec: {self.master_kpi_id}",
+        ).pack(pady=5)
+        self.sub_kpi_var = tk.StringVar()
+        self.sub_kpi_cb = ttk.Combobox(
+            master, textvariable=self.sub_kpi_var, state="readonly", width=50
+        )
+        linkable_kpis = []
+        self.display_to_id_map = {}
+        for k_id, name in self.available_kpis_map.items():
+            role_info = db_retriever.get_kpi_role_details(k_id)
+            # Allow linking if KPI is 'none' or already a sub of THIS master (for re-selection/no-op)
+            # Disallow if it's a master itself, or sub of ANOTHER master.
+            if (
+                role_info["role"] == "none"
+                or (
+                    role_info["role"] == "sub"
+                    and role_info["master_id"] == self.master_kpi_id
+                )
+                or (role_info["role"] == "sub" and role_info["master_id"] is None)
+            ):  # Should not happen, but as safeguard
+                # Further check: it should not ALREADY be a master of other KPIs
+                if not (
+                    role_info["role"] == "none"
+                    and db_retriever.get_sub_kpis_for_master(k_id)
+                ):  # If 'none', ensure it's not a master
+                    display_text = f"{name} (ID Spec: {k_id})"
+                    linkable_kpis.append(display_text)
+                    self.display_to_id_map[display_text] = k_id
+        self.sub_kpi_cb["values"] = sorted(linkable_kpis)
+        if linkable_kpis:
+            self.sub_kpi_var.set(linkable_kpis[0])
+        self.sub_kpi_cb.pack(pady=5)
+        return self.sub_kpi_cb
+
+    def apply(self):
+        selected_display_text = self.sub_kpi_var.get()
+        if selected_display_text:
+            self.result_sub_kpi_id = self.display_to_id_map.get(selected_display_text)
+        if not self.result_sub_kpi_id:
+            messagebox.showwarning(
+                "Selezione Mancante", "Nessun SubKPI valido selezionato.", parent=self
+            )
+
+
 if __name__ == "__main__":
     try:
-        # Ensure databases are set up before starting the app
-        db.setup_databases()
+        db_manager.setup_databases()  # Ensure DBs are set up with new schemas
         app = KpiApp()
         app.mainloop()
     except Exception as e:
-        # Log critical startup errors
         error_log_path = Path("app_startup_error.log")
         with open(error_log_path, "a") as f:
             f.write(f"{datetime.datetime.now()}: {traceback.format_exc()}\n")
-
-        # Attempt to show a Tkinter error message if Tk is available
         try:
             root_err = tk.Tk()
-            root_err.withdraw()  # Hide the main empty window
+            root_err.withdraw()
             messagebox.showerror(
                 "Errore Critico Avvio",
                 f"Impossibile avviare l'applicazione:\n{e}\n\nConsultare {error_log_path.resolve()}.",
             )
             root_err.destroy()
-        except tk.TclError:  # If Tkinter itself fails to initialize
+        except tk.TclError:
             print(
-                f"ERRORE CRITICO DI AVVIO (TKinter non disponibile):\n{traceback.format_exc()}"
+                f"ERRORE CRITICO DI AVVIO (TKinter non disponibile):\n{traceback.format_exc()}\nConsultare {error_log_path.resolve()} per dettagli."
             )
-            print(f"Consultare {error_log_path.resolve()} per dettagli.")
         sys.exit(1)
