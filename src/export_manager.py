@@ -1,9 +1,9 @@
-# export_manager.py
 import csv
 import zipfile
 from pathlib import Path
 import database_manager as db
 import sqlite3
+import calendar  # Import the calendar module for month names
 
 # Define the names for the global CSV files
 GLOBAL_CSV_FILES = {
@@ -12,12 +12,15 @@ GLOBAL_CSV_FILES = {
     "months": "all_monthly_kpi_targets.csv",
     "quarters": "all_quarterly_kpi_targets.csv",
     "annual": "all_annual_kpi_master_targets.csv",
+    "stabilimenti": "dict_stabilimenti.csv",  # New dict table
+    "kpis": "dict_kpis.csv",  # New dict table
 }
 
 
 def export_all_data_to_global_csvs(base_export_path_str):
     """
-    Generates/Overwrites 5 global CSV files with all data from the databases.
+    Generates/Overwrites 5 global CSV files with all data from the databases,
+    plus two dictionary tables for stabilimenti and KPI descriptions.
     """
     base_export_path = Path(base_export_path_str)
     base_export_path.mkdir(parents=True, exist_ok=True)
@@ -48,6 +51,19 @@ def export_all_data_to_global_csvs(base_export_path_str):
             )
         except Exception as e:
             print(f"ERRORE CRITICO durante esportazione {period_key}: {e}")
+
+    # 3. Export Dictionary Tables
+    try:
+        print(f"Esportazione {GLOBAL_CSV_FILES['stabilimenti']}...")
+        _export_stabilimenti_to_csv(base_export_path / GLOBAL_CSV_FILES["stabilimenti"])
+    except Exception as e:
+        print(f"ERRORE CRITICO durante esportazione stabilimenti: {e}")
+
+    try:
+        print(f"Esportazione {GLOBAL_CSV_FILES['kpis']}...")
+        _export_kpis_to_csv(base_export_path / GLOBAL_CSV_FILES["kpis"])
+    except Exception as e:
+        print(f"ERRORE CRITICO durante esportazione KPI dictionary: {e}")
 
     print(f"Esportazione globale CSV completata in {base_export_path}")
 
@@ -189,10 +205,7 @@ def _export_single_period_to_global_csv(
             order_clause_periodic = f"ORDER BY year, stabilimento_id, kpi_id, {period_col_name}, target_number"
             if period_col_name == "month_value":  # Special sort for month names
                 month_order_cases = " ".join(
-                    [
-                        f"WHEN '{db.calendar.month_name[i]}' THEN {i}"
-                        for i in range(1, 13)
-                    ]
+                    [f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)]
                 )
                 order_clause_periodic = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {month_order_cases} END, target_number"
             elif period_col_name == "quarter_value":  # Special sort for Q names
@@ -250,9 +263,8 @@ def _export_single_period_to_global_csv(
                 x[0],  # kpi_id
                 # Custom sort for period value if needed, e.g. for month names
                 (
-                    db.calendar.month_name[:].index(x[3])
-                    if period_col_name == "month_value"
-                    and x[3] in db.calendar.month_name
+                    calendar.month_name[:].index(x[3])
+                    if period_col_name == "month_value" and x[3] in calendar.month_name
                     else (
                         int(x[3][1:])
                         if period_col_name == "quarter_value"
@@ -285,6 +297,117 @@ def _export_single_period_to_global_csv(
                     period_val_str,
                     t1_val_str,
                     t2_val_str,
+                ]
+            )
+    print(f"Completata esportazione per: {output_filepath.name}")
+
+
+def _export_stabilimenti_to_csv(output_filepath):
+    """
+    Exports all records from the stabilimenti table.
+    """
+    header = ["id", "name", "description"]
+    all_stabilimenti = []
+    try:
+        with sqlite3.connect(db.DB_KPI_DESCRIPTION) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, description FROM stabilimenti ORDER BY name"
+            )
+            all_stabilimenti = cursor.fetchall()
+    except Exception as e:
+        print(
+            f"ERRORE (Export Stabilimenti): Impossibile recuperare i dati degli stabilimenti: {e}"
+        )
+        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile_err:
+            writer_err = csv.writer(csvfile_err)
+            writer_err.writerow(header)
+        return
+
+    with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(header)
+        if not all_stabilimenti:
+            print(f"Nessun dato trovato in stabilimenti per {output_filepath.name}")
+            return
+
+        for row in all_stabilimenti:
+            writer.writerow([row["id"], row["name"], row["description"]])
+    print(f"Completata esportazione per: {output_filepath.name}")
+
+
+def _export_kpis_to_csv(output_filepath):
+    """
+    Exports all records from the kpis table, including group and subgroup names.
+    """
+    header = [
+        "id",
+        "group_id",
+        "group_name",
+        "subgroup_id",
+        "subgroup_name",
+        "indicator_name",
+        "description",
+        "calculation_type",
+        "unit_of_measure",
+        "visible",
+    ]
+    all_kpis_data = []
+    try:
+        with sqlite3.connect(db.DB_KPI_DESCRIPTION) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            query = """
+                SELECT
+                    k.id,
+                    k.group_id,
+                    kg.name AS group_name,
+                    k.subgroup_id,
+                    ksg.name AS subgroup_name,
+                    k.indicator_name,
+                    k.description,
+                    k.calculation_type,
+                    k.unit_of_measure,
+                    k.visible
+                FROM
+                    kpis k
+                LEFT JOIN
+                    kpi_groups kg ON k.group_id = kg.id
+                LEFT JOIN
+                    kpi_subgroups ksg ON k.subgroup_id = ksg.id
+                ORDER BY
+                    kg.name, ksg.name, k.indicator_name
+            """
+            cursor.execute(query)
+            all_kpis_data = cursor.fetchall()
+    except Exception as e:
+        print(f"ERRORE (Export KPIs): Impossibile recuperare i dati dei KPI: {e}")
+        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile_err:
+            writer_err = csv.writer(csvfile_err)
+            writer_err.writerow(header)
+        return
+
+    with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(header)
+        if not all_kpis_data:
+            print(f"Nessun dato trovato in kpis per {output_filepath.name}")
+            return
+
+        for row in all_kpis_data:
+            writer.writerow(
+                [
+                    row["id"],
+                    row["group_id"],
+                    row["group_name"],
+                    row["subgroup_id"],
+                    row["subgroup_name"],
+                    row["indicator_name"],
+                    row["description"],
+                    row["calculation_type"],
+                    row["unit_of_measure"],
+                    "Sì" if row["visible"] else "No",
                 ]
             )
     print(f"Completata esportazione per: {output_filepath.name}")

@@ -144,21 +144,37 @@ def get_kpi_indicators_by_subgroup(subgroup_id):
 def get_all_kpis_detailed(only_visible=False):
     """
     Fetches all KPI specifications with their full hierarchy names (group, subgroup, indicator).
-    Includes kpis.id, kpis.indicator_id (actual_indicator_id), subgroup_id.
+    Includes kpis.id (as 'id'), kpis.indicator_id, kpi_indicators.id (as 'actual_indicator_id'), sg.id (as 'subgroup_id').
     kpis.id is the kpi_spec_id.
     """
     with sqlite3.connect(DB_KPIS) as conn:
         conn.row_factory = sqlite3.Row
+        # The query correctly selects k.id, which becomes accessible as "id" in the sqlite3.Row object.
+        # If "id" is not found or is None later, it implies issues with the data in the 'kpis' table itself.
         query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
                           k.indicator_id, i.id as actual_indicator_id,
                           k.description, k.calculation_type, k.unit_of_measure, k.visible,
-                          sg.id as subgroup_id
-                   FROM kpis k JOIN kpi_indicators i ON k.indicator_id = i.id
-                   JOIN kpi_subgroups sg ON i.subgroup_id = sg.id JOIN kpi_groups g ON sg.group_id = g.id """
+                          sg.id as subgroup_id, sg.indicator_template_id
+                   FROM kpis k 
+                   JOIN kpi_indicators i ON k.indicator_id = i.id
+                   JOIN kpi_subgroups sg ON i.subgroup_id = sg.id 
+                   JOIN kpi_groups g ON sg.group_id = g.id """
         if only_visible:
             query += " WHERE k.visible = 1"
         query += " ORDER BY g.name, sg.name, i.name"
-        return conn.execute(query).fetchall()
+
+        try:
+            fetched_rows = conn.execute(query).fetchall()
+            # Example of pre-filtering problematic rows if absolutely necessary,
+            # though fixing data source is better.
+            # valid_rows = [row for row in fetched_rows if row and "id" in row.keys() and row["id"] is not None]
+            # return valid_rows
+            return fetched_rows  # Return as is, Streamlit app will handle/warn
+        except sqlite3.Error as e:
+            print(
+                f"Database error in get_all_kpis_detailed: {e}"
+            )  # Or st.error in Streamlit context if possible
+            return []  # Return empty list on error
 
 
 def get_kpi_detailed_by_id(kpi_spec_id):
