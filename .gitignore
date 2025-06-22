@@ -164,6 +164,8 @@ cython_debug/
 *.egg
 *.zip
 *.tar.gz
+*.7z
+*.rar
 
 # database files
 *.db
