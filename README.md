@@ -1,44 +1,72 @@
-# Data Entry KPI Dashboard
+# Data Entry KPI Target Manager
 
 ## Overview
 
-This project provides a comprehensive dashboard solution for visualizing, analyzing, and managing Key Performance Indicators (KPIs) related to data entry processes. It offers both a desktop application (Tkinter) and a web application (Streamlit) to cater to different user preferences and deployment scenarios.
+This project is a specialized data entry application designed for managing and distributing Key Performance Indicator (KPI) targets. It is **not** a dashboard or analytics platform, but a robust tool for inputting annual KPI targets and automatically splitting them into periodic targets (monthly, weekly, daily) using advanced, configurable logic.
 
-## Goals
+The application is available as both a desktop (Tkinter) and web (Streamlit) interface, providing flexibility for different environments and user preferences.
 
-*   Provide a user-friendly interface for monitoring data entry performance.
-*   Enable data-driven decision-making through insightful visualizations.
-*   Facilitate efficient target setting and performance tracking.
-*   Offer flexible deployment options with both desktop and web applications.
+## Purpose
 
-## Features
+- **Centralize KPI Target Entry:** Provide a structured interface for entering annual KPI targets for various indicators, departments, and facilities.
+- **Automate Target Distribution:** Enable users to define how annual targets are split into smaller periods (months, weeks, days) using customizable distribution profiles and logic.
+- **Support Complex KPI Structures:** Allow for hierarchical KPI definitions, template-based indicator creation, and master/sub-KPI relationships with weighted distributions.
+- **Facilitate Data Export:** Make it easy to export all target data for integration with external reporting or dashboard systems.
 
-*   **Data Visualization:** Displays KPIs using a variety of charts and graphs for easy understanding of trends and performance.
-*   **Data Filtering:** Allows users to filter data based on various criteria such as date ranges, data entry operators, departments, and more.
-*   **Performance Tracking:** Tracks the performance of data entry operators, teams, and the overall process over time.
-*   **Target Setting:** Enables users to set annual targets for KPIs and distribute them across different periods (monthly, quarterly, weekly).
-*   **Data Export:** Allows exporting analyzed data and visualizations in various formats (CSV, Excel, ZIP).
-*   **KPI Hierarchy Management:** Provides tools to define and manage a hierarchical structure for KPIs (Groups, Subgroups, Indicators).
-*   **KPI Specification Management:** Allows defining detailed specifications for each KPI, including calculation types, units of measure, and visibility settings.
-*   **Stabilimento (Facility) Management:** Manages a list of facilities for which KPIs are tracked.
-*   **Master/Sub KPI Linking:** Allows linking KPIs to create master-subordinate relationships, enabling weighted target distribution.
-*   **User Authentication (Future):** (Planned) Secure access to the dashboard with user accounts and permission levels.
+## Key Features
 
-## Data Sources
+### 1. KPI Target Entry & Management
 
-The application uses data primarily from structured data sources, including:
+- **Annual Target Input:** Enter yearly targets for each KPI, with support for multiple target values per KPI (e.g., Target 1, Target 2).
+- **Manual or Automatic Entry:** Choose to enter targets manually for each period or let the system calculate them based on distribution logic.
 
-*   **SQLite Databases:** Stores KPI definitions, targets, and historical data.
-*   **CSV/Excel Files:** Used for importing historical data and exporting analyzed results.
+### 2. Advanced Target Distribution Logic
 
-Ensure that data is properly formatted with columns for date, operator, facility, and relevant data entry metrics.
+- **Flexible Splitting:** Distribute annual targets into months, quarters, weeks, or days using several built-in profiles:
+  - Even distribution
+  - Progressive (front-loaded or back-loaded)
+  - Sinusoidal (seasonal patterns)
+  - Custom parabolic or event-based adjustments
+- **Custom Period Allocations:** Override automatic splits by specifying custom percentages for each period (e.g., custom monthly weights).
+- **Event Adjustments:** Apply spikes, dips, or other adjustments to daily targets for specific events or periods.
+
+### 3. KPI Hierarchy & Templates
+
+- **Hierarchical Structure:** Organize KPIs into groups, subgroups, and indicators for clear management.
+- **Templates:** Define reusable templates for indicator sets, making it easy to apply standard KPIs across multiple subgroups.
+- **Master/Sub-KPI Linking:** Link KPIs in master/subordinate relationships, with support for weighted target distribution among sub-KPIs.
+
+### 4. Facility (Stabilimento) Management
+
+- **Facility List:** Manage a list of facilities for which KPI targets are tracked.
+- **Visibility Controls:** Mark facilities as visible or hidden for target entry.
+
+### 5. Data Export
+
+- **Export to CSV/Excel:** Export all entered and calculated target data in standard formats for use in external dashboards or reporting tools.
+- **ZIP Packaging:** Bundle all exports into a single ZIP file for easy sharing or backup.
+
+### 6. User Experience
+
+- **Desktop & Web UI:** Use either a Tkinter-based desktop app or a Streamlit web app for data entry.
+- **Validation & Guidance:** The UI guides users to ensure correct data entry, including validation of distribution percentages and logic.
+
+## What This Project Is **Not**
+
+- **No Dashboard/Visualization:** This tool does not provide KPI dashboards, charts, or analytics. It is focused solely on target entry and distribution.
+- **No Real-Time Data Tracking:** It does not track actual KPI performance or collect operational data—only target values are managed.
+
+## Data Sources & Storage
+
+- **SQLite Databases:** All KPI definitions, targets, and distribution logic are stored in local SQLite databases.
+- **CSV/Excel Export:** Data can be exported for use in other systems.
 
 ## Installation
 
 ### Prerequisites
 
-*   Python 3.7+
-*   Pip (Python package installer)
+- Python 3.7+
+- Pip (Python package installer)
 
 ### Steps
 
