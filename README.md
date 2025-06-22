@@ -21,6 +21,7 @@ This project provides a comprehensive dashboard solution for visualizing, analyz
 *   **KPI Hierarchy Management:** Provides tools to define and manage a hierarchical structure for KPIs (Groups, Subgroups, Indicators).
 *   **KPI Specification Management:** Allows defining detailed specifications for each KPI, including calculation types, units of measure, and visibility settings.
 *   **Stabilimento (Facility) Management:** Manages a list of facilities for which KPIs are tracked.
+*   **Master/Sub KPI Linking:** Allows linking KPIs to create master-subordinate relationships, enabling weighted target distribution.
 *   **User Authentication (Future):** (Planned) Secure access to the dashboard with user accounts and permission levels.
 
 ## Data Sources
@@ -58,6 +59,8 @@ Ensure that data is properly formatted with columns for date, operator, facility
 
 ### Tkinter Desktop Application
 
+The Tkinter desktop application provides a rich graphical interface for managing and visualizing data entry KPIs.
+
 1.  Navigate to the `src` directory:
 
     ```bash
@@ -70,7 +73,47 @@ Ensure that data is properly formatted with columns for date, operator, facility
     python app_tkinter.py
     ```
 
-3.  The application window will open, providing access to all features.
+3.  The application window will open, providing access to all features through a tabbed interface:
+
+    *   **🎯 Inserimento Target (Target Entry):**
+        *   Set annual targets for KPIs, specifying the year and facility.
+        *   Choose a distribution profile (e.g., annual progressive, even distribution) to allocate the annual target across different periods.
+        *   Define a repartition logic (monthly, quarterly, weekly) to further refine the target distribution.
+        *   Manually override target values for specific sub-KPIs in a master-subordinate relationship.
+
+    *   **🗂️ Gestione Gerarchia KPI (KPI Hierarchy Management):**
+        *   Define a hierarchical structure for KPIs by creating groups, subgroups, and individual indicators.
+        *   Add, edit, and delete KPI groups, subgroups, and indicators.
+        *   Assign indicators to specific subgroups to categorize and organize KPIs.
+
+    *   **📋 Gestione Template Indicatori (Indicator Template Management):**
+        *   Create reusable templates for KPI indicators to streamline the KPI creation process.
+        *   Define default calculation types, units of measure, and visibility settings for indicators within a template.
+        *   Apply templates to KPI subgroups to automatically create and configure indicators based on the template definition.
+
+    *   **⚙️ Gestione Specifiche KPI (KPI Specification Management):**
+        *   Define detailed specifications for each KPI, including a description, calculation type, unit of measure, and visibility setting.
+        *   Specify whether a KPI is visible for target entry, controlling its availability in the target setting section.
+        *   Link KPIs to specific indicators to associate them with the defined KPI hierarchy.
+
+    *   **🔗 Gestione Link Master/Sub (Master/Sub KPI Linking):**
+        *   Establish master-subordinate relationships between KPIs to enable weighted target distribution.
+        *   Define a distribution weight for each sub-KPI to control its share of the master KPI's target.
+        *   Easily manage and visualize the master-subordinate relationships between KPIs.
+
+    *   **🏭 Gestione Stabilimenti (Facility Management):**
+        *   Manage a list of facilities for which KPIs are tracked.
+        *   Add, edit, and delete facilities.
+        *   Specify whether a facility is visible for target entry, controlling its availability in the target setting section.
+
+    *   **📈 Visualizzazione Risultati (Results Visualization):**
+        *   Visualize KPI results using charts and graphs.
+        *   Filter data based on year, facility, KPI group, subgroup, and indicator.
+        *   View target values and actual results for different periods (monthly, quarterly, weekly).
+
+    *   **📦 Esportazione Dati (Data Export):**
+        *   Export KPI data and visualizations in various formats (CSV, Excel, ZIP).
+        *   Generate global CSV files containing all KPI data for external analysis and reporting.
 
 ### Streamlit Web Application
 
@@ -114,5 +157,5 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Contact
 
-For questions or feedback, please contact [Your Name] at [your.email@example.com].
+For questions or feedback, please contact Matteo Griot at matteo.griot@gmail.com.
 
