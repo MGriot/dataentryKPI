@@ -172,3 +172,6 @@ database
 # exported data files
 *.csv
 csv_exports
+
+# old backup files
+old
