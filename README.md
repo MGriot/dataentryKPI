@@ -79,7 +79,7 @@ See [docs/usage_tkinter.md](docs/usage_tkinter.md) and [docs/usage_streamlit.md]
   See [docs/target_generation.md](docs/target_generation.md) for a deep technical dive.
 
 - **Database-Driven:**  
-  All KPI structures, targets, and results are stored in SQLite databases, with modular CRUD logic.
+  All KPI structures, targets, and results are stored in SQLite databases, with modular CRUD (Create, Read, Update, Delete) logic.
 
 - **Flexible Export:**  
   Export all targets and dictionaries to CSV/ZIP for integration with external systems.
