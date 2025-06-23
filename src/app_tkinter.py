@@ -180,6 +180,7 @@ class KpiApp(tk.Tk):
         self.master_sub_link_frame = ttk.Frame(self.notebook, padding="10")
         self.stabilimenti_frame = ttk.Frame(self.notebook, padding="10")
         self.results_frame = ttk.Frame(self.notebook, padding="10")
+        self.dashboard_frame = ttk.Frame(self.notebook, padding="10")
         self.export_frame = ttk.Frame(self.notebook, padding="10")
 
         self.notebook.add(self.target_frame, text="🎯 Inserimento Target")
@@ -193,6 +194,7 @@ class KpiApp(tk.Tk):
         )
         self.notebook.add(self.stabilimenti_frame, text="🏭 Gestione Stabilimenti")
         self.notebook.add(self.results_frame, text="📈 Visualizzazione Risultati")
+        self.notebook.add(self.dashboard_frame, text="📊 Dashboard Globale KPI") # ADD NEW TAB
         self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
 
         self.distribution_profile_options_tk = [
@@ -221,6 +223,7 @@ class KpiApp(tk.Tk):
         self.create_master_sub_link_widgets()
         self.create_stabilimenti_widgets()
         self.create_results_widgets()
+        self.create_dashboard_widgets()
         self.create_export_widgets()
 
         self.refresh_all_relevant_data()
@@ -4373,6 +4376,241 @@ class KpiApp(tk.Tk):
                     parent=self,
                 )
 
+    def create_dashboard_widgets(self):
+        dashboard_main_container = ttk.Frame(self.dashboard_frame)
+        dashboard_main_container.pack(fill="both", expand=True)
+
+        # --- Filters Frame for Dashboard ---
+        dash_filter_frame_outer = ttk.Frame(dashboard_main_container)
+        dash_filter_frame_outer.pack(fill="x", pady=5)
+        dash_filter_frame_content = ttk.Frame(dash_filter_frame_outer)
+        dash_filter_frame_content.pack()  # Center the filter content
+
+        ttk.Label(dash_filter_frame_content, text="Anno:").pack(side="left")
+        self.dash_year_var = tk.StringVar(value=str(datetime.datetime.now().year))
+        self.dash_year_spinbox = ttk.Spinbox(
+            dash_filter_frame_content,
+            from_=2020,
+            to=2050,
+            textvariable=self.dash_year_var,
+            width=6,
+            command=self.refresh_dashboard_charts,  # Command to update charts
+        )
+        self.dash_year_spinbox.pack(side="left", padx=(2, 10))
+
+        ttk.Label(dash_filter_frame_content, text="Periodo:").pack(side="left")
+        self.dash_period_var = tk.StringVar(value="Mese")  # Default to Month
+        self.dash_period_combobox = ttk.Combobox(
+            dash_filter_frame_content,
+            textvariable=self.dash_period_var,
+            state="readonly",
+            values=["Giorno", "Settimana", "Mese", "Trimestre"],
+            width=10,
+        )
+        self.dash_period_combobox.current(2)  # Default to Mese
+        self.dash_period_combobox.pack(side="left", padx=(2, 10))
+        self.dash_period_combobox.bind(
+            "<<ComboboxSelected>>", self.refresh_dashboard_charts
+        )
+
+        ttk.Button(
+            dash_filter_frame_content,
+            text="Aggiorna Dashboard",
+            command=self.refresh_dashboard_charts,
+            style="Accent.TButton",
+        ).pack(side="left", padx=5)
+
+        # --- Scrollable Canvas for Multiple Charts ---
+        dash_canvas_container = ttk.Frame(dashboard_main_container)
+        dash_canvas_container.pack(fill="both", expand=True, pady=(10, 0))
+
+        self.dash_canvas = tk.Canvas(dash_canvas_container, highlightthickness=0)
+        dash_scrollbar_y = ttk.Scrollbar(
+            dash_canvas_container, orient="vertical", command=self.dash_canvas.yview
+        )
+        self.dash_scrollable_frame = ttk.Frame(
+            self.dash_canvas
+        )  # Frame to hold all chart widgets
+
+        self.dash_scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.dash_canvas.configure(
+                scrollregion=self.dash_canvas.bbox("all")
+            ),
+        )
+        self.dash_canvas.create_window(
+            (0, 0), window=self.dash_scrollable_frame, anchor="nw"
+        )
+        self.dash_canvas.configure(yscrollcommand=dash_scrollbar_y.set)
+
+        self.dash_canvas.pack(side="left", fill="both", expand=True)
+        dash_scrollbar_y.pack(side="right", fill="y")
+
+        # Bind mouse wheel scrolling to this canvas when the tab is active
+        self.dash_canvas.bind_all("<MouseWheel>", self._on_mousewheel_dashboard)
+        self.dash_canvas.bind(
+            "<Enter>", lambda e: self.dash_canvas.focus_set()
+        )  # For keyboard scrolling if needed
+
+        self.dashboard_chart_widgets = []  # To keep track of created chart canvases
+
+    def _on_mousewheel_dashboard(self, event):
+        active_tab_text = ""
+        try:
+            active_tab_text = self.notebook.tab(self.notebook.select(), "text")
+        except tk.TclError:
+            return  # No tab selected or notebook not ready
+
+        if active_tab_text == "📊 Dashboard Globale KPI":
+            # Check if mouse is over the dashboard canvas
+            canvas_x = self.dash_canvas.winfo_rootx()
+            canvas_y = self.dash_canvas.winfo_rooty()
+            canvas_w = self.dash_canvas.winfo_width()
+            canvas_h = self.dash_canvas.winfo_height()
+
+            if (
+                canvas_x <= event.x_root < canvas_x + canvas_w
+                and canvas_y <= event.y_root < canvas_y + canvas_h
+            ):
+                delta = 0
+                if sys.platform.startswith(("win", "darwin")):  # Windows or macOS
+                    delta = -1 * (
+                        event.delta // (120 if sys.platform.startswith("win") else 1)
+                    )
+                else:  # Linux
+                    delta = -1 if event.num == 4 else (1 if event.num == 5 else 0)
+                self.dash_canvas.yview_scroll(delta, "units")
+
+    def refresh_dashboard_charts(self, event=None):
+        func_name = "refresh_dashboard_charts"
+        print(f"DEBUG [{func_name}]: Refreshing dashboard charts...")
+
+        # Clear previous charts from the scrollable frame
+        for widget_info in self.dashboard_chart_widgets:
+            if widget_info['canvas_widget']:
+                widget_info['canvas_widget'].destroy()
+            if widget_info['toolbar_widget']: # If you add toolbars per chart
+                widget_info['toolbar_widget'].destroy()
+        self.dashboard_chart_widgets.clear()
+        # Also destroy any other stray widgets in scrollable_frame if any
+        for child in self.dash_scrollable_frame.winfo_children():
+            child.destroy()
+
+        try:
+            year_str = self.dash_year_var.get()
+            period_type = self.dash_period_var.get()
+
+            if not year_str:
+                messagebox.showwarning("Input Mancante", "Selezionare un anno.", parent=self)
+                return
+            year = int(year_str)
+
+        except ValueError:
+            messagebox.showerror("Errore Input", "Anno non valido.", parent=self)
+            return
+        except Exception as e:
+            messagebox.showerror("Errore Filtri", f"Errore nei filtri: {e}", parent=self)
+            return
+
+        all_stabilimenti = db_retriever.get_all_stabilimenti(only_visible=True) # Or all if you prefer
+        all_kpis_detailed = db_retriever.get_all_kpis_detailed(only_visible=True) # Or all
+
+        if not all_stabilimenti or not all_kpis_detailed:
+            ttk.Label(self.dash_scrollable_frame, text="Nessun stabilimento o KPI definito/visibile.").pack(pady=20)
+            self.dash_scrollable_frame.update_idletasks()
+            self.dash_canvas.config(scrollregion=self.dash_canvas.bbox("all"))
+            return
+
+        num_charts_created = 0
+        chart_height_per_plot = 350 # Adjust as needed
+        chart_width = 7.5 # inches for figsize for matplotlib
+
+        for stab in all_stabilimenti:
+            stabilimento_id = stab["id"]
+            stabilimento_name = stab["name"]
+
+            stab_frame = ttk.LabelFrame(self.dash_scrollable_frame, text=f"Stabilimento: {stabilimento_name}", padding=10)
+            stab_frame.pack(fill="x", expand=True, pady=10, padx=5)
+
+            charts_in_stab = 0
+            for kpi_spec in all_kpis_detailed:
+                kpi_spec_id = kpi_spec["id"]
+                kpi_display_name = get_kpi_display_name(kpi_spec)
+                kpi_unit = ""  # Default value
+                if (
+                    "unit_of_measure" in kpi_spec.keys()
+                    and kpi_spec["unit_of_measure"] is not None
+                ):
+                    kpi_unit = kpi_spec["unit_of_measure"]
+
+                data_t1 = db_retriever.get_periodic_targets_for_kpi(year, stabilimento_id, kpi_spec_id, period_type, 1)
+                data_t2 = db_retriever.get_periodic_targets_for_kpi(year, stabilimento_id, kpi_spec_id, period_type, 2)
+
+                if not data_t1 and not data_t2:
+                    continue # Skip if no data for this KPI/Stabilimento/Period
+
+                charts_in_stab +=1
+                num_charts_created += 1
+
+                map_t1 = {row["Periodo"]: row["Target"] for row in data_t1} if data_t1 else {}
+                map_t2 = {row["Periodo"]: row["Target"] for row in data_t2} if data_t2 else {}
+                ordered_periods = [row["Periodo"] for row in data_t1] if data_t1 else ([row["Periodo"] for row in data_t2] if data_t2 else [])
+
+                plot_target1_values = [float(map_t1.get(p)) if isinstance(map_t1.get(p), (int, float)) else None for p in ordered_periods]
+                plot_target2_values = [float(map_t2.get(p)) if isinstance(map_t2.get(p), (int, float)) else None for p in ordered_periods]
+
+                # Create a frame for each chart
+                chart_frame = ttk.Frame(stab_frame, relief="sunken", borderwidth=1)
+                chart_frame.pack(fill="x", expand=True, pady=5)
+
+                fig = Figure(figsize=(chart_width, chart_height_per_plot / 100), dpi=100) # individual figure for each
+                ax = fig.add_subplot(111)
+
+                x_indices_t1 = [i for i, v in enumerate(plot_target1_values) if v is not None]
+                y_values_t1  = [v for v in plot_target1_values if v is not None]
+                x_indices_t2 = [i for i, v in enumerate(plot_target2_values) if v is not None]
+                y_values_t2  = [v for v in plot_target2_values if v is not None]
+
+                plot_successful = False
+                if x_indices_t1:
+                    ax.plot(x_indices_t1, y_values_t1, marker='o', linestyle='-', label='Target 1')
+                    plot_successful = True
+                if x_indices_t2:
+                    ax.plot(x_indices_t2, y_values_t2, marker='x', linestyle='--', label='Target 2')
+                    plot_successful = True
+
+                ax.set_title(f"{kpi_display_name}\nUnità: {kpi_unit}", fontsize=10)
+                if ordered_periods:
+                    ax.set_xticks(range(len(ordered_periods)))
+                    ax.set_xticklabels(ordered_periods, rotation=30, ha="right", fontsize=8)
+                else:
+                    ax.set_xticks([])
+                    ax.set_xticklabels([])
+
+                if plot_successful:
+                    ax.legend(fontsize=8)
+                ax.grid(True, linestyle='--', alpha=0.6)
+                fig.tight_layout(pad=1.5)
+
+                canvas_widget = FigureCanvasTkAgg(fig, master=chart_frame)
+                canvas_widget.draw()
+                canvas_widget.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+                # Store references to destroy them later (toolbar is optional here)
+                self.dashboard_chart_widgets.append({'figure': fig, 'canvas_widget': canvas_widget.get_tk_widget(), 'toolbar_widget': None})
+
+            if charts_in_stab == 0: # If no charts were added for this stabilimento, remove the frame
+                stab_frame.destroy()
+
+        if num_charts_created == 0:
+            ttk.Label(self.dash_scrollable_frame, text=f"Nessun target trovato per Anno {year}, Periodo {period_type}.").pack(pady=20)
+
+        self.dash_scrollable_frame.update_idletasks() # Important to update scrollregion
+        self.dash_canvas.config(scrollregion=self.dash_canvas.bbox("all"))
+        print(f"DEBUG [{func_name}]: Dashboard refresh complete. {num_charts_created} charts created.")
+
+    # Ensure this is called in __init__ if you want the dashboard to load on startup
+    # or when the tab is first selected. For now, it's called by filter changes.
 
 # --- Dialog Classes ---
 # ... (SubgroupEditorDialog and TemplateDefinitionEditorDialog remain unchanged) ...

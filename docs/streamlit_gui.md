@@ -6,7 +6,7 @@ The Streamlit web application provides a browser-based interface for entering, m
 
 ## How to Launch
 
-1. Navigate to the project directory containing the source code (e.g., `src` or `ora`).
+1. Navigate to the project directory containing the source code (e.g., `src`).
 2. Run the application:
 
     ```bash

@@ -29,6 +29,7 @@ from app_config import (
     PROFILE_QUARTERLY_PROGRESSIVE,
     PROFILE_QUARTERLY_SINUSOIDAL,
     CSV_EXPORT_BASE_PATH,
+    PERIOD_TYPES_RESULTS,
 )
 
 
@@ -51,6 +52,20 @@ def get_kpi_display_name(kpi_data_dict):  # Consistently expect a dictionary
     except Exception as ex_general:
         # st.error(f"DEBUG: Errore in get_kpi_display_name con dati: {kpi_data_dict}, Errore: {ex_general}") # Debug
         return "N/D (Errore Display Nome Imprevisto)"
+
+
+# Make sure PERIOD_TYPES_RESULTS is defined, e.g.:
+if "PERIOD_TYPES_RESULTS" not in globals():
+    PERIOD_TYPES_RESULTS = ["Giorno", "Settimana", "Mese", "Trimestre"]
+
+
+def get_kpi_display_name_st(kpi_data_row):  # Simplified version for Streamlit if needed
+    if not kpi_data_row or not isinstance(kpi_data_row, dict):
+        return "N/D (KPI Data Mancante)"
+    g_name = kpi_data_row.get("group_name", "N/G")
+    sg_name = kpi_data_row.get("subgroup_name", "N/S")
+    i_name = kpi_data_row.get("indicator_name", "N/I")
+    return f"{g_name} > {sg_name} > {i_name}"
 
 
 # --- Streamlit Page Configuration ---
@@ -143,6 +158,7 @@ tab_titles = [
     "🔗 Link Master/Sub",
     "🏭 Stabilimenti",
     "📈 Risultati",
+    "🌍 Dashboard Globale KPI",
     "📦 Esportazione",
 ]
 (
@@ -153,6 +169,7 @@ tab_titles = [
     tab_links,
     tab_stabilimenti,
     tab_results,
+    tab_global_dashboard,  # Add variable for the new dashboard tab
     tab_export,
 ) = st.tabs(tab_titles)
 
@@ -2325,4 +2342,218 @@ with tab_export:
         except Exception as e:
             st.error(
                 f"Impossibile eseguire il comando per aprire la cartella: {e}. Percorso: `{export_path_obj}`"
+            )
+# --- 🌍 Dashboard Globale KPI ---
+with tab_global_dashboard:
+    # We will implement this section below
+    st.header("🌍 Dashboard Globale Target KPI")
+    st.markdown(
+        "Visualizza l'andamento dei target per tutti i KPI e stabilimenti, filtrato per anno e tipo di periodo."
+    )
+
+    # --- Filters ---
+    dash_filter_col1, dash_filter_col2 = st.columns(2)
+
+    with dash_filter_col1:
+        if "dashboard_year" not in st.session_state:
+            st.session_state.dashboard_year = str(datetime.datetime.now().year)
+
+        year_options_dash = [
+            str(y)
+            for y in range(
+                datetime.datetime.now().year - 5, datetime.datetime.now().year + 6
+            )
+        ]
+        # Ensure current session state value is in options, or reset
+        if st.session_state.dashboard_year not in year_options_dash:
+            st.session_state.dashboard_year = str(datetime.datetime.now().year)
+
+        try:
+            default_year_index_dash = year_options_dash.index(
+                st.session_state.dashboard_year
+            )
+        except (
+            ValueError
+        ):  # Fallback if current year somehow not in list (should not happen)
+            default_year_index_dash = year_options_dash.index(
+                str(datetime.datetime.now().year)
+            )
+
+        selected_year_dash = st.selectbox(
+            "Seleziona Anno",
+            options=year_options_dash,
+            index=default_year_index_dash,
+            key="dashboard_year_sb",  # session_state will be updated automatically by Streamlit
+        )
+        # st.session_state.dashboard_year = selected_year_dash # No need to set it again here, key does it
+
+    with dash_filter_col2:
+        if "dashboard_period_type" not in st.session_state:
+            st.session_state.dashboard_period_type = "Mese"
+
+        # Ensure current session state value is in options, or reset
+        if st.session_state.dashboard_period_type not in PERIOD_TYPES_RESULTS:
+            st.session_state.dashboard_period_type = "Mese"
+
+        try:
+            period_idx_dash = PERIOD_TYPES_RESULTS.index(
+                st.session_state.dashboard_period_type
+            )
+        except ValueError:
+            period_idx_dash = PERIOD_TYPES_RESULTS.index("Mese")  # Fallback
+
+        selected_period_dash = st.selectbox(
+            "Tipo Periodo di Visualizzazione",
+            PERIOD_TYPES_RESULTS,
+            index=period_idx_dash,
+            key="dashboard_period_sb",  # session_state will be updated automatically
+        )
+        # st.session_state.dashboard_period_type = selected_period_dash # No need to set it again
+
+    st.markdown("---")
+
+    # --- Data Fetching and Chart Display based on current session state values ---
+    try:
+        year_to_fetch = int(st.session_state.dashboard_year)
+        period_type_to_fetch = st.session_state.dashboard_period_type
+    except ValueError:
+        st.error("Anno selezionato non valido.")
+        st.stop()
+    except AttributeError:  # Handles if session_state keys are not set
+        st.error(
+            "Errore: Filtri non inizializzati correttamente. Ricarica la pagina o seleziona i filtri."
+        )
+        st.stop()
+
+    with st.spinner(
+        f"Caricamento dati dashboard per l'anno {year_to_fetch}, periodo {period_type_to_fetch}..."
+    ):
+        all_stabilimenti_dash = dr.get_all_stabilimenti(only_visible=True)
+        all_kpis_dash = dr.get_all_kpis_detailed(only_visible=True)
+
+        if not all_stabilimenti_dash:
+            st.warning("Nessun stabilimento trovato (o visibile).")
+            st.stop()
+        if not all_kpis_dash:
+            st.warning("Nessun KPI (con specifiche) trovato (o visibile).")
+            st.stop()
+
+        charts_rendered_count = 0
+        for stab_row in all_stabilimenti_dash:
+            stabilimento_id = stab_row["id"]
+            stabilimento_name = stab_row["name"]
+
+            with st.expander(f"🏢 Stabilimento: {stabilimento_name}", expanded=False):
+                stab_has_charts = False
+                for (
+                    kpi_spec_row_sqlite
+                ) in all_kpis_dash:  # kpi_spec_row_sqlite is sqlite3.Row
+                    kpi_spec_row = dict(
+                        kpi_spec_row_sqlite
+                    )  # Convert to dict for easier/safer access
+
+                    kpi_spec_id = kpi_spec_row.get("id")
+                    if kpi_spec_id is None:
+                        continue  # Should not happen if data is clean
+
+                    kpi_display_name = get_kpi_display_name_st(kpi_spec_row)
+                    kpi_unit_val = kpi_spec_row.get("unit_of_measure", "")
+
+                    data_t1_dash = dr.get_periodic_targets_for_kpi(
+                        year_to_fetch,
+                        stabilimento_id,
+                        kpi_spec_id,
+                        period_type_to_fetch,
+                        1,
+                    )
+                    data_t2_dash = dr.get_periodic_targets_for_kpi(
+                        year_to_fetch,
+                        stabilimento_id,
+                        kpi_spec_id,
+                        period_type_to_fetch,
+                        2,
+                    )
+
+                    if not data_t1_dash and not data_t2_dash:
+                        continue
+
+                    stab_has_charts = True
+                    charts_rendered_count += 1
+
+                    chart_data_list = []
+                    if data_t1_dash:
+                        for row_t1 in data_t1_dash:
+                            chart_data_list.append(
+                                {
+                                    "Periodo": row_t1["Periodo"],
+                                    "Target": row_t1["Target"],
+                                    "Target Number": "Target 1",
+                                }
+                            )
+                    if data_t2_dash:
+                        for row_t2 in data_t2_dash:
+                            chart_data_list.append(
+                                {
+                                    "Periodo": row_t2["Periodo"],
+                                    "Target": row_t2["Target"],
+                                    "Target Number": "Target 2",
+                                }
+                            )
+
+                    if not chart_data_list:
+                        continue
+
+                    df_chart = pd.DataFrame(chart_data_list)
+                    df_chart["Target"] = pd.to_numeric(
+                        df_chart["Target"], errors="coerce"
+                    )
+                    df_chart.dropna(subset=["Target"], inplace=True)
+
+                    if df_chart.empty:
+                        continue
+
+                    if period_type_to_fetch == "Mese":
+                        month_sorter = calendar.month_name[1:]
+                        df_chart["Periodo"] = pd.Categorical(
+                            df_chart["Periodo"], categories=month_sorter, ordered=True
+                        )
+                    elif period_type_to_fetch == "Trimestre":
+                        q_sorter = ["Q1", "Q2", "Q3", "Q4"]
+                        df_chart["Periodo"] = pd.Categorical(
+                            df_chart["Periodo"], categories=q_sorter, ordered=True
+                        )
+
+                    df_chart.sort_values(["Periodo", "Target Number"], inplace=True)
+
+                    st.markdown(
+                        f"<h6>{kpi_display_name} ({kpi_unit_val if kpi_unit_val else 'N/D Unità'})</h6>",
+                        unsafe_allow_html=True,
+                    )
+                    try:
+                        st.line_chart(
+                            df_chart,
+                            x="Periodo",
+                            y="Target",
+                            color="Target Number",
+                            height=250,
+                        )
+                    except (
+                        Exception
+                    ) as e_chart:  # Catch errors specific to charting this df
+                        st.error(
+                            f"Errore durante la creazione del grafico per {kpi_display_name}: {e_chart}"
+                        )
+                        print(
+                            f"Plotting error for {kpi_display_name} (Stab: {stabilimento_name}, KPI ID: {kpi_spec_id}): {e_chart}"
+                        )
+                        # st.dataframe(df_chart) # Debug: show data if chart fails
+
+                if not stab_has_charts:
+                    st.caption(
+                        f"Nessun dato target trovato per questo stabilimento per i filtri selezionati."
+                    )
+
+        if charts_rendered_count == 0:
+            st.info(
+                f"Nessun dato target trovato per l'anno {year_to_fetch} e periodo {period_type_to_fetch} per nessun KPI/Stabilimento."
             )

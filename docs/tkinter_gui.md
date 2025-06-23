@@ -6,7 +6,7 @@ The Tkinter desktop application provides a graphical interface for entering, man
 
 ## How to Launch
 
-1. Navigate to the project directory containing the source code (e.g., `src` or `ora`).
+1. Navigate to the project directory containing the source code (e.g., `src`).
 2. Run the application:
 
     ```bash
@@ -56,4 +56,6 @@ The Tkinter desktop application provides a graphical interface for entering, man
 - The application does **not** provide charts, dashboards, or analytics. It is strictly for data entry and target repartition.
 - All data is stored locally in SQLite databases.
 - For troubleshooting, check the application logs or contact the maintainer.
+
+# [DEPRECATED] See [Usage Guide: Tkinter Desktop Application](usage_tkinter.md)
 

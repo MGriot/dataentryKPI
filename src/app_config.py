@@ -4,23 +4,18 @@ from pathlib import Path
 import numpy as np
 
 # --- FILE PATHS CONFIGURATION ---
-# APP_BASE_DIR is the directory where app_config.py resides (e.g., your_project_root/src2/)
+# APP_BASE_DIR is the directory where app_config.py resides
 APP_BASE_DIR = Path(__file__).resolve().parent
 
 # PROJECT_ROOT_DIR is one level above APP_BASE_DIR
 PROJECT_ROOT_DIR = APP_BASE_DIR.parent
 
-CONFIG_FILE_PATH = (
-    APP_BASE_DIR / "config.ini"
-)  # config.ini is still within src2/ with app_config.py
+CONFIG_FILE_PATH = APP_BASE_DIR / "config.ini"
 
 config_parser = configparser.ConfigParser()
 
-if not CONFIG_FILE_PATH.exists():
-    print(
-        f"WARNING: Configuration file {CONFIG_FILE_PATH} not found. Creating a default one."
-    )
-    default_config_content = f"""
+# Default content for config.ini if it doesn't exist
+DEFAULT_CONFIG_CONTENT = f"""
 [ProjectStructure]
 DATABASE_SUBFOLDER = databases
 CSV_EXPORT_SUBFOLDER = csv_exports
@@ -34,13 +29,41 @@ DB_KPI_DAYS = db_kpi_days.db
 DB_KPI_WEEKS = db_kpi_weeks.db
 DB_KPI_MONTHS = db_kpi_months.db
 DB_KPI_QUARTERS = db_kpi_quarters.db
+
+[GeneralPaths]
+LOG_DIR_NAME = logs
+
+[Interface.Streamlit]
+SCRIPT_NAME = app_streamlit.py
+COMMAND_MODULE_ARGS = streamlit run
+APP_NAME = Streamlit
+
+[Interface.Tkinter]
+SCRIPT_NAME = app_tkinter.py
+COMMAND_MODULE_ARGS =
+APP_NAME = Tkinter
 """
-    with open(CONFIG_FILE_PATH, "w") as f_cfg:
-        f_cfg.write(default_config_content.strip())
 
-config_parser.read(CONFIG_FILE_PATH)
+if not CONFIG_FILE_PATH.exists():
+    print(
+        f"WARNING: Configuration file {CONFIG_FILE_PATH} not found. Creating a default one."
+    )
+    with open(CONFIG_FILE_PATH, "w", encoding="utf-8") as f_cfg:
+        f_cfg.write(DEFAULT_CONFIG_CONTENT.strip())
 
-# --- Project Structure (Subfolders) ---
+config_parser.read(CONFIG_FILE_PATH, encoding="utf-8")
+
+# --- General Paths (Loaded from config.ini) ---
+try:
+    general_paths_config = config_parser["GeneralPaths"]
+    LOG_DIR_NAME_FROM_CONFIG = general_paths_config.get("LOG_DIR_NAME", "logs")
+except (KeyError, configparser.NoSectionError) as e:
+    print(
+        f"Warning: Missing [GeneralPaths] section or LOG_DIR_NAME key in {CONFIG_FILE_PATH}. Using default 'logs'. Error: {e}"
+    )
+    LOG_DIR_NAME_FROM_CONFIG = "logs"  # Fallback
+
+# --- Project Structure (Subfolders and Paths relative to PROJECT_ROOT_DIR) ---
 try:
     project_struct_config = config_parser["ProjectStructure"]
     DATABASE_SUBFOLDER_NAME = project_struct_config.get(
@@ -54,13 +77,16 @@ except (KeyError, configparser.NoSectionError) as e:
         f"Critical error: Missing [ProjectStructure] section or keys in {CONFIG_FILE_PATH}. Error: {e}"
     )
 
-# Paths are now relative to PROJECT_ROOT_DIR
 DATABASE_DIR = PROJECT_ROOT_DIR / DATABASE_SUBFOLDER_NAME
 CSV_EXPORT_BASE_PATH = PROJECT_ROOT_DIR / CSV_EXPORT_SUBFOLDER_NAME
+LOG_DIR_PATH = (
+    PROJECT_ROOT_DIR / LOG_DIR_NAME_FROM_CONFIG
+)  # Log directory at project root level
 
 # Ensure these directories exist
 DATABASE_DIR.mkdir(parents=True, exist_ok=True)
 CSV_EXPORT_BASE_PATH.mkdir(parents=True, exist_ok=True)
+LOG_DIR_PATH.mkdir(parents=True, exist_ok=True)  # Create log directory here
 
 
 # --- Database File Paths (Loaded from config.ini, using the subfolder relative to project root) ---
@@ -93,31 +119,41 @@ except (KeyError, configparser.NoSectionError) as e:
         f"Critical error: Missing [DatabaseFileNames] section or key in {CONFIG_FILE_PATH}. Error: {e}"
     )
 
+# --- Interface Configurations (Loaded from config.ini) ---
+INTERFACE_CONFIGURATIONS = {}
+for section_name in config_parser.sections():
+    if section_name.startswith("Interface."):
+        interface_key = section_name.split(".", 1)[1].lower()  # e.g., "streamlit"
+        try:
+            config = config_parser[section_name]
+            INTERFACE_CONFIGURATIONS[interface_key] = {
+                "script_name": config.get("SCRIPT_NAME", f"app_{interface_key}.py"),
+                "command_module_args": config.get("COMMAND_MODULE_ARGS", "").strip(),
+                "app_name": config.get("APP_NAME", interface_key.capitalize()),
+            }
+        except (KeyError, configparser.NoOptionError) as e:
+            print(
+                f"Warning: Incomplete configuration for interface section {section_name} in {CONFIG_FILE_PATH}. Error: {e}"
+            )
+            INTERFACE_CONFIGURATIONS[interface_key] = {  # Minimal fallback
+                "script_name": f"app_{interface_key}.py",
+                "command_module_args": "",
+                "app_name": interface_key.capitalize(),
+            }
 
 # --- REPARTITION PARAMETERS (Python Constants) ---
 WEIGHT_INITIAL_FACTOR_INC = 1.5
-WEIGHT_FINAL_FACTOR_INC = 0.5
-# ... (rest of the repartition and string constants remain the same) ...
-WEIGHT_INITIAL_FACTOR_AVG = 1.2
-WEIGHT_FINAL_FACTOR_AVG = 0.8
-DEVIATION_SCALE_FACTOR_AVG = 0.2
-
-SINE_AMPLITUDE_INCREMENTAL = 0.5
-SINE_AMPLITUDE_MEDIA = 0.1
+# ... (rest of your repartition and string constants remain the same) ...
 SINE_PHASE_OFFSET = -np.pi / 2
-
-WEEKDAY_BIAS_FACTOR_INCREMENTAL = 0.5
 WEEKDAY_BIAS_FACTOR_MEDIA = 0.8
 
 # --- STRING CONSTANTS (Python Constants, critical for DB and logic) ---
 CALC_TYPE_INCREMENTALE = "Incrementale"
 CALC_TYPE_MEDIA = "Media"
-
 REPARTITION_LOGIC_ANNO = "Anno"
 REPARTITION_LOGIC_MESE = "Mese"
 REPARTITION_LOGIC_TRIMESTRE = "Trimestre"
 REPARTITION_LOGIC_SETTIMANA = "Settimana"
-
 PROFILE_EVEN = "even_distribution"
 PROFILE_ANNUAL_PROGRESSIVE = "annual_progressive"
 PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS = "annual_progressive_weekday_bias"
@@ -126,13 +162,18 @@ PROFILE_MONTHLY_SINUSOIDAL = "monthly_sinusoidal"
 PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE = "legacy_intra_period_progressive"
 PROFILE_QUARTERLY_PROGRESSIVE = "quarterly_progressive"
 PROFILE_QUARTERLY_SINUSOIDAL = "quarterly_sinusoidal"
+PERIOD_TYPES_RESULTS = ["Giorno", "Settimana", "Mese", "Trimestre"]
 
 
 if __name__ == "__main__":
-    print("Loaded Configuration from app_config.py:")
+    print("Loaded Configuration from app_config.py (reading from config.ini):")
     print(f"APP_BASE_DIR (where app_config.py is): {APP_BASE_DIR}")
     print(f"PROJECT_ROOT_DIR: {PROJECT_ROOT_DIR}")
+    print(f"CONFIG_FILE_PATH: {CONFIG_FILE_PATH}")
+    print(f"LOG_DIR_NAME from config: {LOG_DIR_NAME_FROM_CONFIG}")
+    print(f"LOG_DIR_PATH (created at project root level): {LOG_DIR_PATH}")  # New print
     print(f"DATABASE_DIR: {DATABASE_DIR}")
-    print(f"DB_KPIS: {DB_KPIS}")
-    # ... print other DB paths ...
     print(f"CSV_EXPORT_BASE_PATH: {CSV_EXPORT_BASE_PATH}")
+    print("\nInterface Configurations:")
+    for key, value in INTERFACE_CONFIGURATIONS.items():
+        print(f"  {key}: {value}")
