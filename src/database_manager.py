@@ -109,18 +109,24 @@ def get_date_ranges_for_quarters(year):
 # --- Setup Database ---
 def setup_databases():
     print("Inizio setup_databases...")
-    CSV_EXPORT_BASE_PATH.mkdir(parents=True, exist_ok=True)
+    if CSV_EXPORT_BASE_PATH:  # Ensure CSV_EXPORT_BASE_PATH is not None before using
+        try:
+            CSV_EXPORT_BASE_PATH.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(
+                f"WARN: Could not create CSV_EXPORT_BASE_PATH directory {CSV_EXPORT_BASE_PATH}: {e}"
+            )
 
     # --- DB_KPIS Setup ---
     with sqlite3.connect(DB_KPIS) as conn:
-        cursor = conn.cursor()
+        cursor = conn.cursor()  # Get cursor
         print(f"Setup tabelle in {DB_KPIS}...")
-        cursor.execute(
+        cursor.execute(  # Use cursor
             """CREATE TABLE IF NOT EXISTS kpi_groups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE )"""
         )
-        cursor.execute(
+        cursor.execute(  # Use cursor
             """CREATE TABLE IF NOT EXISTS kpi_subgroups (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -130,12 +136,12 @@ def setup_databases():
                 FOREIGN KEY (indicator_template_id) REFERENCES kpi_indicator_templates(id) ON DELETE SET NULL,
                 UNIQUE (name, group_id) )"""
         )
-        cursor.execute(
+        cursor.execute(  # Use cursor
             """CREATE TABLE IF NOT EXISTS kpi_indicators (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
                 FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id) )"""
         )
-        cursor.execute(
+        cursor.execute(  # Use cursor
             f"""CREATE TABLE IF NOT EXISTS kpis (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL, description TEXT,
                 calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
@@ -144,11 +150,11 @@ def setup_databases():
                 UNIQUE (indicator_id) )"""
         )
 
-        cursor.execute("PRAGMA table_info(kpi_subgroups)")
+        cursor.execute("PRAGMA table_info(kpi_subgroups)")  # Use cursor
         subgroup_columns = {col[1] for col in cursor.fetchall()}
         if "indicator_template_id" not in subgroup_columns:
             try:
-                cursor.execute(
+                cursor.execute(  # Use cursor
                     "ALTER TABLE kpi_subgroups ADD COLUMN indicator_template_id INTEGER REFERENCES kpi_indicator_templates(id) ON DELETE SET NULL"
                 )
                 print("Aggiunta colonna 'indicator_template_id' a 'kpi_subgroups'.")
@@ -157,33 +163,33 @@ def setup_databases():
                     f"WARN: Could not add 'indicator_template_id' to 'kpi_subgroups', might exist or other issue: {e}"
                 )
 
-        cursor.execute("PRAGMA table_info(kpis)")
+        cursor.execute("PRAGMA table_info(kpis)")  # Use cursor
         kpi_columns_set = {col[1] for col in cursor.fetchall()}
         if "unit_of_measure" not in kpi_columns_set:
             try:
-                cursor.execute("ALTER TABLE kpis ADD COLUMN unit_of_measure TEXT")
+                cursor.execute(
+                    "ALTER TABLE kpis ADD COLUMN unit_of_measure TEXT"
+                )  # Use cursor
                 print("Aggiunta colonna 'unit_of_measure' a 'kpis'.")
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError:  # Usually means it already exists
                 pass
 
-        # kpi_master_sub_links table
-        cursor.execute(
+        cursor.execute(  # Use cursor
             """CREATE TABLE IF NOT EXISTS kpi_master_sub_links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                master_kpi_spec_id INTEGER NOT NULL, -- Refers to kpis.id
-                sub_kpi_spec_id INTEGER NOT NULL,    -- Refers to kpis.id
-                distribution_weight REAL NOT NULL DEFAULT 1.0, -- NEW COLUMN
+                master_kpi_spec_id INTEGER NOT NULL,
+                sub_kpi_spec_id INTEGER NOT NULL,
+                distribution_weight REAL NOT NULL DEFAULT 1.0,
                 FOREIGN KEY (master_kpi_spec_id) REFERENCES kpis(id) ON DELETE CASCADE,
                 FOREIGN KEY (sub_kpi_spec_id) REFERENCES kpis(id) ON DELETE CASCADE,
                 UNIQUE (master_kpi_spec_id, sub_kpi_spec_id)
             )"""
         )
-        # Add 'distribution_weight' to 'kpi_master_sub_links' if not exists
-        cursor.execute("PRAGMA table_info(kpi_master_sub_links)")
+        cursor.execute("PRAGMA table_info(kpi_master_sub_links)")  # Use cursor
         link_columns = {col[1] for col in cursor.fetchall()}
         if "distribution_weight" not in link_columns:
             try:
-                cursor.execute(
+                cursor.execute(  # Use cursor
                     "ALTER TABLE kpi_master_sub_links ADD COLUMN distribution_weight REAL NOT NULL DEFAULT 1.0"
                 )
                 print(
@@ -193,22 +199,21 @@ def setup_databases():
                 print(
                     f"WARN: Could not add 'distribution_weight' to 'kpi_master_sub_links', might exist or other issue: {e}"
                 )
-
         conn.commit()
         print(f"Setup tabelle in {DB_KPIS} completato.")
 
     # --- DB_KPI_TEMPLATES Setup ---
     with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
-        cursor = conn.cursor()
+        cursor = conn.cursor()  # Get cursor
         print(f"Setup tabelle in {DB_KPI_TEMPLATES}...")
-        cursor.execute(
+        cursor.execute(  # Use cursor
             """CREATE TABLE IF NOT EXISTS kpi_indicator_templates (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT
             )"""
         )
-        cursor.execute(
+        cursor.execute(  # Use cursor
             f"""CREATE TABLE IF NOT EXISTS template_defined_indicators (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 template_id INTEGER NOT NULL,
@@ -226,12 +231,26 @@ def setup_databases():
 
     # --- DB_STABILIMENTI Setup ---
     with sqlite3.connect(DB_STABILIMENTI) as conn:
+        cursor = conn.cursor()
         print(f"Setup tabelle in {DB_STABILIMENTI}...")
-        conn.cursor().execute(
+        cursor.execute(
             """CREATE TABLE IF NOT EXISTS stabilimenti (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
-                visible BOOLEAN NOT NULL DEFAULT 1 )"""
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                visible BOOLEAN NOT NULL DEFAULT 1
+            )"""
         )
+        cursor.execute("PRAGMA table_info(stabilimenti)")
+        stabilimenti_cols = {col[1] for col in cursor.fetchall()}
+        if "description" not in stabilimenti_cols:
+            try:
+                cursor.execute("ALTER TABLE stabilimenti ADD COLUMN description TEXT")
+                print("Aggiunta colonna 'description' a 'stabilimenti'.")
+            except sqlite3.OperationalError as e:
+                print(
+                    f"WARN: Could not add 'description' to 'stabilimenti', might exist or other issue: {e}"
+                )
         conn.commit()
         print(f"Setup tabelle in {DB_STABILIMENTI} completato.")
 
@@ -294,9 +313,9 @@ def setup_databases():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     year INTEGER NOT NULL,
                     stabilimento_id INTEGER NOT NULL,
-                    kpi_id INTEGER NOT NULL, 
+                    kpi_id INTEGER NOT NULL,
                     target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
-                    {period_col_def.replace(' UNIQUE', '')}, 
+                    {period_col_def.replace(' UNIQUE', '')},
                     target_value REAL NOT NULL,
                     UNIQUE(year, stabilimento_id, kpi_id, target_number, {period_col_name_for_unique})
                 )"""
@@ -881,12 +900,13 @@ def update_kpi_spec(
 
 
 # --- Gestione Stabilimenti (CRUD) ---
-def add_stabilimento(name, visible):
+def add_stabilimento(name, description, visible):
     with sqlite3.connect(DB_STABILIMENTI) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO stabilimenti (name,visible) VALUES (?,?)", (name, visible)
+                "INSERT INTO stabilimenti (name, description, visible) VALUES (?,?,?)", # ADDED description
+                (name, description, visible)
             )
             conn.commit()
             return cursor.lastrowid
@@ -1336,13 +1356,13 @@ def save_annual_targets(
         calculate_and_save_all_repartitions(year, stabilimento_id, kpi_id_recalc, 1)
         calculate_and_save_all_repartitions(year, stabilimento_id, kpi_id_recalc, 2)
 
-    try:
-        if hasattr(export_manager, "export_all_data_to_global_csvs"):
-            export_manager.export_all_data_to_global_csvs(str(CSV_EXPORT_BASE_PATH))
-        else:
-            print("Funzione export_manager.export_all_data_to_global_csvs non trovata.")
-    except Exception as e:
-        print(f"ERRORE CRITICO durante la generazione dei CSV globali: {e}")
+    #try:
+    #    if hasattr(export_manager, "export_all_data_to_global_csvs"):
+    #        export_manager.export_all_data_to_global_csvs(str(CSV_EXPORT_BASE_PATH))
+    #    else:
+    #        print("Funzione export_manager.export_all_data_to_global_csvs non trovata.")
+    #except Exception as e:
+    #    print(f"ERRORE CRITICO durante la generazione dei CSV globali: {e}")
     print(f"Fine save_annual_targets per Anno: {year}, Stab: {stabilimento_id}")
 
 

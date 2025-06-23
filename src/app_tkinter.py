@@ -16,6 +16,9 @@ import subprocess
 import traceback
 from app_config import *
 
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import matplotlib.dates as mdates  # For better date formatting if needed later
 
 # --- Helper Function ---
 def get_kpi_display_name(
@@ -85,7 +88,7 @@ def _set_kpi_spec_fields_from_data(self, kpi_data_row):
 class KpiApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Gestione Target KPI - Desktop v2.3 (Weighted Links)")
+        self.title("Gestione Target KPI (TKinter version)")
         self.geometry("1600x950")
 
         self._populating_kpi_spec_combos = False
@@ -1828,14 +1831,21 @@ class KpiApp(tk.Tk):
     # --- Scheda Gestione Stabilimenti ---
     # ... (code for this tab remains unchanged) ...
     def create_stabilimenti_widgets(self):
+        # Update Treeview columns to include Description
         self.st_tree = ttk.Treeview(
-            self.stabilimenti_frame, columns=("ID", "Nome", "Visibile"), show="headings"
+            self.stabilimenti_frame,
+            columns=("ID", "Nome", "Descrizione", "Visibile"),
+            show="headings",
         )
-        for col in self.st_tree["columns"]:
-            self.st_tree.heading(col, text=col)
+        self.st_tree.heading("ID", text="ID")
         self.st_tree.column("ID", width=50, anchor="center", stretch=tk.NO)
-        self.st_tree.column("Nome", width=300, stretch=tk.YES)
-        self.st_tree.column("Visibile", width=100, anchor="center", stretch=tk.NO)
+        self.st_tree.heading("Nome", text="Nome")
+        self.st_tree.column("Nome", width=250, stretch=tk.YES)
+        self.st_tree.heading("Descrizione", text="Descrizione")  # New Column
+        self.st_tree.column("Descrizione", width=300, stretch=tk.YES)  # New Column
+        self.st_tree.heading("Visibile", text="Visibile")
+        self.st_tree.column("Visibile", width=80, anchor="center", stretch=tk.NO)
+
         self.st_tree.pack(expand=True, fill="both", padx=5, pady=5)
         bf_container = ttk.Frame(self.stabilimenti_frame)
         bf_container.pack(fill="x", pady=10)
@@ -1851,19 +1861,42 @@ class KpiApp(tk.Tk):
     def refresh_stabilimenti_tree(self):
         for i in self.st_tree.get_children():
             self.st_tree.delete(i)
-        for r_dict in db_retriever.get_all_stabilimenti():
+
+        stabilimenti_data = db_retriever.get_all_stabilimenti() # Fetch data once
+        if not stabilimenti_data: # Handle case where no stabilimenti exist
+            return
+
+        for r_row in stabilimenti_data: # Iterate over sqlite3.Row objects
+            stabilimento_id = r_row["id"]
+            stabilimento_name = r_row["name"]
+
+            # Safely get description
+            stabilimento_description = "" # Default to empty string
+            try:
+                # Check if 'description' column exists in the row keys (good practice)
+                # and if it's not None.
+                if "description" in r_row.keys() and r_row["description"] is not None:
+                    stabilimento_description = r_row["description"]
+            except KeyError:
+                # This case should be rare if the schema is correct and query fetches all
+                print(f"WARN: 'description' key not found in stabilimento row with id {stabilimento_id}")
+                pass # Keep default empty string
+
+            stabilimento_visible_str = "Sì" if r_row["visible"] else "No"
+
             self.st_tree.insert(
-                "",
-                "end",
-                values=(
-                    r_dict["id"],
-                    r_dict["name"],
-                    "Sì" if r_dict["visible"] else "No",
-                ),
-            )
+                    "",
+                    "end",
+                    values=(
+                        stabilimento_id,
+                        stabilimento_name,
+                        stabilimento_description,
+                        stabilimento_visible_str,
+                    ),
+                )
 
     def add_stabilimento_window(self):
-        self.stabilimento_editor_window()
+        self.stabilimento_editor_window() # Calls editor without data_tuple for new entry
 
     def edit_stabilimento_window(self):
         sel_iid = self.st_tree.focus()
@@ -1871,15 +1904,17 @@ class KpiApp(tk.Tk):
             messagebox.showwarning("Attenzione", "Seleziona uno stabilimento.")
             return
         item_vals = self.st_tree.item(sel_iid)["values"]
-        if not item_vals or len(item_vals) < 3:
-            messagebox.showerror("Errore", "Dati stabilimento non validi.")
+        # Now expecting 4 values: ID, Nome, Descrizione, Visibile
+        if not item_vals or len(item_vals) < 4: # Adjusted length check
+            messagebox.showerror("Errore", "Dati stabilimento non validi o incompleti per la modifica.")
             return
         try:
+            # Pass all 4 values to the editor
             self.stabilimento_editor_window(
-                data_tuple=(int(item_vals[0]), item_vals[1], item_vals[2])
+                data_tuple=(int(item_vals[0]), item_vals[1], item_vals[2], item_vals[3])
             )
-        except (TypeError, ValueError):
-            messagebox.showerror("Errore", "ID stabilimento non valido.")
+        except (TypeError, ValueError, IndexError) as e: # Added IndexError
+            messagebox.showerror("Errore", f"ID o dati stabilimento non validi: {e}")
             return
 
     def stabilimento_editor_window(self, data_tuple=None):
@@ -1887,39 +1922,63 @@ class KpiApp(tk.Tk):
         win.title("Editor Stabilimento" if data_tuple else "Nuovo Stabilimento")
         win.transient(self)
         win.grab_set()
-        win.geometry("400x180")
-        s_id, s_name, s_vis_str = (
-            (data_tuple[0], data_tuple[1], data_tuple[2])
+        win.geometry("450x220")  # Adjusted geometry for the new field
+
+        s_id, s_name, s_desc, s_vis_str = (  # Unpack 4 items
+            (data_tuple[0], data_tuple[1], data_tuple[2], data_tuple[3])
             if data_tuple
-            else (None, "", "Sì")
+            else (None, "", "", "Sì")  # Default empty description
         )
+
         form_frame = ttk.Frame(win, padding=15)
         form_frame.pack(expand=True, fill="both")
+
         ttk.Label(form_frame, text="Nome Stabilimento:").grid(
             row=0, column=0, sticky="w", padx=5, pady=5
         )
         name_var = tk.StringVar(value=s_name)
-        name_entry = ttk.Entry(form_frame, textvariable=name_var, width=35)
+        name_entry = ttk.Entry(
+            form_frame, textvariable=name_var, width=40
+        )  # Adjusted width
         name_entry.grid(row=0, column=1, padx=5, pady=5)
         name_entry.focus_set()
+
+        # New Description Field
+        ttk.Label(form_frame, text="Descrizione:").grid(
+            row=1, column=0, sticky="w", padx=5, pady=5
+        )
+        desc_var = tk.StringVar(value=s_desc)
+        desc_entry = ttk.Entry(
+            form_frame, textvariable=desc_var, width=40
+        )  # Adjusted width
+        desc_entry.grid(row=1, column=1, padx=5, pady=5)
+
         visible_var = tk.BooleanVar(value=(s_vis_str == "Sì"))
         ttk.Checkbutton(
             form_frame, text="Visibile per Inserimento Target", variable=visible_var
-        ).grid(row=1, column=1, sticky="w", padx=5, pady=10)
+        ).grid(
+            row=2, column=1, sticky="w", padx=5, pady=10
+        )  # Adjusted row
+
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=2, columnspan=2, pady=15)
+        btn_frame.grid(row=3, columnspan=2, pady=15)  # Adjusted row
 
         def save_action():
             nome_val = name_var.get().strip()
+            desc_val = desc_var.get().strip()  # Get description value
             if not nome_val:
                 messagebox.showerror("Errore", "Nome obbligatorio.", parent=win)
                 return
             try:
                 if s_id is not None:
-                    db_manager.update_stabilimento(s_id, nome_val, visible_var.get())
+                    # Call db_manager.update_stabilimento with description
+                    db_manager.update_stabilimento(
+                        s_id, nome_val, desc_val, visible_var.get()
+                    )
                 else:
-                    db_manager.add_stabilimento(nome_val, visible_var.get())
-                self.refresh_all_relevant_data()
+                    # Call db_manager.add_stabilimento with description
+                    db_manager.add_stabilimento(nome_val, desc_val, visible_var.get())
+                self.refresh_all_relevant_data()  # This will call refresh_stabilimenti_tree
                 win.destroy()
             except sqlite3.IntegrityError:
                 messagebox.showerror(
@@ -2771,10 +2830,16 @@ class KpiApp(tk.Tk):
     # --- Scheda Visualizzazione Risultati ---
     # ... (code for this tab remains unchanged) ...
     def create_results_widgets(self):
-        filter_frame_outer_res = ttk.Frame(self.results_frame)
+        # Main container for filters, table, and chart
+        results_main_container = ttk.Frame(self.results_frame)
+        results_main_container.pack(fill="both", expand=True)
+
+        # --- Filters Frame ---
+        filter_frame_outer_res = ttk.Frame(results_main_container)
         filter_frame_outer_res.pack(fill="x", pady=5)
         filter_frame_res = ttk.Frame(filter_frame_outer_res)
-        filter_frame_res.pack()
+        filter_frame_res.pack()  # Center the filter content
+
         row1_filters = ttk.Frame(filter_frame_res)
         row1_filters.pack(fill="x", pady=2)
         ttk.Label(row1_filters, text="Anno:").pack(side="left")
@@ -2811,6 +2876,7 @@ class KpiApp(tk.Tk):
         self.res_period_cb_vis.current(2)
         self.res_period_cb_vis.pack(side="left", padx=(2, 10))
         self.res_period_cb_vis.bind("<<ComboboxSelected>>", self.show_results_data)
+
         row2_filters = ttk.Frame(filter_frame_res)
         row2_filters.pack(fill="x", pady=2)
         ttk.Label(row2_filters, text="Gruppo:").pack(side="left")
@@ -2847,10 +2913,22 @@ class KpiApp(tk.Tk):
             command=self.show_results_data,
             style="Accent.TButton",
         ).pack(side="left", padx=5)
+
+        # --- PanedWindow for Table and Chart ---
+        # Using a PanedWindow to allow resizing between table and chart
+        self.results_paned_window = ttk.PanedWindow(
+            results_main_container, orient=tk.VERTICAL
+        )
+        self.results_paned_window.pack(fill="both", expand=True, pady=(10, 0))
+
+        # --- Table Frame (Top Pane) ---
+        table_frame = ttk.Frame(self.results_paned_window, height=200)  # Initial height
+        self.results_paned_window.add(
+            table_frame, weight=1
+        )  # weight makes it resizable
+
         self.results_data_tree = ttk.Treeview(
-            self.results_frame,
-            columns=("Periodo", "Target 1", "Target 2"),
-            show="headings",
+            table_frame, columns=("Periodo", "Target 1", "Target 2"), show="headings"
         )
         self.results_data_tree.heading("Periodo", text="Periodo")
         self.results_data_tree.heading("Target 1", text="Valore Target 1")
@@ -2858,10 +2936,45 @@ class KpiApp(tk.Tk):
         self.results_data_tree.column("Periodo", width=250, anchor="w", stretch=tk.YES)
         self.results_data_tree.column("Target 1", width=150, anchor="e", stretch=tk.YES)
         self.results_data_tree.column("Target 2", width=150, anchor="e", stretch=tk.YES)
-        self.results_data_tree.pack(fill="both", expand=True, pady=(10, 0))
+
+        # Add scrollbar to the Treeview
+        tree_scrollbar_y = ttk.Scrollbar(
+            table_frame, orient="vertical", command=self.results_data_tree.yview
+        )
+        self.results_data_tree.configure(yscrollcommand=tree_scrollbar_y.set)
+        tree_scrollbar_y.pack(side="right", fill="y")
+        self.results_data_tree.pack(side="left", fill="both", expand=True)
+
+        # --- Chart Frame (Bottom Pane) ---
+        chart_outer_frame = ttk.Frame(
+            self.results_paned_window, height=300
+        )  # Initial height
+        self.results_paned_window.add(
+            chart_outer_frame, weight=2
+        )  # weight makes it resizable
+
+        self.fig_results = Figure(figsize=(8, 4), dpi=100)  # Adjusted figsize
+        self.ax_results = self.fig_results.add_subplot(111)
+
+        self.canvas_results_plot = FigureCanvasTkAgg(
+            self.fig_results, master=chart_outer_frame
+        )
+        self.canvas_results_plot.get_tk_widget().pack(
+            side=tk.TOP, fill=tk.BOTH, expand=True
+        )
+
+        # Add Matplotlib Toolbar (optional, but useful)
+        toolbar_frame = ttk.Frame(chart_outer_frame)
+        toolbar_frame.pack(side=tk.TOP, fill=tk.X)
+        self.toolbar_results = NavigationToolbar2Tk(
+            self.canvas_results_plot, toolbar_frame
+        )
+        self.toolbar_results.update()
+
+        # --- Summary Label ---
         self.summary_label_var_vis = tk.StringVar()
         ttk.Label(
-            self.results_frame,
+            results_main_container,  # Place it below the PanedWindow
             textvariable=self.summary_label_var_vis,
             font=("Calibri", 10, "italic"),
         ).pack(pady=5, anchor="e", padx=10)
@@ -3020,31 +3133,60 @@ class KpiApp(tk.Tk):
         self.show_results_data()
 
     def show_results_data(self, event=None):
+        func_name = "show_results_data"
+        print(f"DEBUG [{func_name}]: Function called.")
+
         for i in self.results_data_tree.get_children():
             self.results_data_tree.delete(i)
+
+        if hasattr(self, "ax_results"):
+            self.ax_results.clear()
+        else:
+            print(f"CRITICAL DEBUG [{func_name}]: self.ax_results not initialized!")
+            self.summary_label_var_vis.set("Errore: Grafico non inizializzato.")
+            if hasattr(self, "canvas_results_plot"):
+                self.canvas_results_plot.draw()
+            return
+
         self.summary_label_var_vis.set("")
+        plot_periods_for_xaxis = []
+
         try:
             year_val_res_str = self.res_year_var_vis.get()
             if not year_val_res_str:
                 self.summary_label_var_vis.set("Selezionare un anno.")
+                if hasattr(self, "canvas_results_plot"):
+                    self.canvas_results_plot.draw()
                 return
             year_val_res = int(year_val_res_str)
+
             stabilimento_name_res = self.res_stabilimento_var_vis.get()
             indicator_name_res = self.res_indicator_var.get()
             period_type_res = self.res_period_var_vis.get()
+
             if not all([stabilimento_name_res, indicator_name_res, period_type_res]):
                 self.summary_label_var_vis.set(
                     "Selezionare Anno, Stabilimento, Indicatore e Periodo."
                 )
+                if hasattr(self, "canvas_results_plot"):
+                    self.canvas_results_plot.draw()
                 return
+
             stabilimento_id_res = self.res_stabilimenti_map_vis.get(
                 stabilimento_name_res
             )
             if stabilimento_id_res is None:
                 self.summary_label_var_vis.set("Stabilimento selezionato non valido.")
+                if hasattr(self, "canvas_results_plot"):
+                    self.canvas_results_plot.draw()
                 return
-            selected_indicator_details_obj = (
-                next(
+
+            selected_indicator_details_obj = None
+            if (
+                hasattr(self, "res_indicators_list_filtered_details")
+                and self.res_indicators_list_filtered_details
+            ):
+                selected_indicator_details_obj = next(
                     (
                         ind
                         for ind in self.res_indicators_list_filtered_details
@@ -3052,109 +3194,237 @@ class KpiApp(tk.Tk):
                     ),
                     None,
                 )
-                if hasattr(self, "res_indicators_list_filtered_details")
-                and self.res_indicators_list_filtered_details
-                else None
-            )
+
             if not selected_indicator_details_obj:
                 self.summary_label_var_vis.set(
-                    f"Indicatore '{indicator_name_res}' non trovato o senza specifica KPI."
+                    f"Indicatore '{indicator_name_res}' non trovato o senza specifica KPI attiva."
                 )
+                if hasattr(self, "canvas_results_plot"):
+                    self.canvas_results_plot.draw()
                 return
+
             indicator_actual_id = selected_indicator_details_obj["id"]
             kpi_spec_obj = next(
                 (
                     spec
-                    for spec in db_retriever.get_all_kpis_detailed()
+                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False)
                     if spec["actual_indicator_id"] == indicator_actual_id
                 ),
                 None,
             )
-            if not kpi_spec_obj:
+
+            if not kpi_spec_obj:  # kpi_spec_obj is an sqlite3.Row or None
                 self.summary_label_var_vis.set(
                     f"Specifica KPI non trovata per Indicatore ID {indicator_actual_id}."
                 )
+                if hasattr(self, "canvas_results_plot"):
+                    self.canvas_results_plot.draw()
                 return
-            kpi_spec_id_res = kpi_spec_obj["id"]
+
+            kpi_spec_id_res = kpi_spec_obj[
+                "id"
+            ]  # Direct access is fine after checking kpi_spec_obj is not None
             calc_type_res = kpi_spec_obj["calculation_type"]
-            kpi_unit_res = kpi_spec_obj["unit_of_measure"] or ""
-            kpi_display_name_res_str = get_kpi_display_name(kpi_spec_obj)
+
+            # CORRECTED ACCESS for kpi_unit_res
+            kpi_unit_res = ""
+            if (
+                "unit_of_measure" in kpi_spec_obj.keys()
+                and kpi_spec_obj["unit_of_measure"] is not None
+            ):
+                kpi_unit_res = kpi_spec_obj["unit_of_measure"]
+
+            kpi_display_name_res_str = get_kpi_display_name(
+                kpi_spec_obj
+            )  # Pass the sqlite3.Row
+
             target_ann_info_res = db_retriever.get_annual_target_entry(
                 year_val_res, stabilimento_id_res, kpi_spec_id_res
             )
             profile_disp_res = "N/D"
-            if target_ann_info_res:
-                if "distribution_profile" in target_ann_info_res.keys():
-                    profile_disp_res = (
-                        target_ann_info_res["distribution_profile"] or "N/D"
-                    )
+            if (
+                target_ann_info_res
+                and "distribution_profile" in target_ann_info_res.keys()
+            ):
+                profile_disp_res = target_ann_info_res["distribution_profile"] or "N/D"
+
             data_t1 = db_retriever.get_periodic_targets_for_kpi(
                 year_val_res, stabilimento_id_res, kpi_spec_id_res, period_type_res, 1
             )
             data_t2 = db_retriever.get_periodic_targets_for_kpi(
                 year_val_res, stabilimento_id_res, kpi_spec_id_res, period_type_res, 2
             )
+
             map_t1 = (
                 {row["Periodo"]: row["Target"] for row in data_t1} if data_t1 else {}
             )
             map_t2 = (
                 {row["Periodo"]: row["Target"] for row in data_t2} if data_t2 else {}
             )
+
             ordered_periods = (
                 [row["Periodo"] for row in data_t1]
                 if data_t1
                 else ([row["Periodo"] for row in data_t2] if data_t2 else [])
             )
-            display_rows_added = False
-            total_sum_t1, count_t1 = 0.0, 0
-            total_sum_t2, count_t2 = 0.0, 0
-            for period_name in ordered_periods:
-                val_t1 = map_t1.get(period_name)
-                val_t2 = map_t2.get(period_name)
-                t1_disp = f"{val_t1:.2f}" if isinstance(val_t1, (int, float)) else "N/A"
-                t2_disp = f"{val_t2:.2f}" if isinstance(val_t2, (int, float)) else "N/A"
-                self.results_data_tree.insert(
-                    "", "end", values=(period_name, t1_disp, t2_disp)
-                )
-                display_rows_added = True
-                if isinstance(val_t1, (int, float)):
-                    total_sum_t1 += val_t1
-                    count_t1 += 1
-                if isinstance(val_t2, (int, float)):
-                    total_sum_t2 += val_t2
-                    count_t2 += 1
-            if not display_rows_added:
+            plot_periods_for_xaxis = list(ordered_periods)
+
+            if not ordered_periods:
                 self.summary_label_var_vis.set(
                     f"Nessun dato ripartito per {kpi_display_name_res_str} (Profilo: {profile_disp_res})."
                 )
+                self.ax_results.set_title(f"Nessun dato per {kpi_display_name_res_str}")
+                self.ax_results.set_xticks([])
+                self.ax_results.set_xticklabels([])
+                if hasattr(self, "canvas_results_plot"):
+                    self.canvas_results_plot.draw()
                 return
+
+            # --- TABLE POPULATION ---
+            display_rows_added_to_table = False
+            total_sum_t1_table, count_t1_table = 0.0, 0
+            total_sum_t2_table, count_t2_table = 0.0, 0
+            for period_name in ordered_periods:
+                val_t1_table = map_t1.get(period_name)
+                val_t2_table = map_t2.get(period_name)
+                t1_disp_table = (
+                    f"{val_t1_table:.2f}"
+                    if isinstance(val_t1_table, (int, float))
+                    else "N/A"
+                )
+                t2_disp_table = (
+                    f"{val_t2_table:.2f}"
+                    if isinstance(val_t2_table, (int, float))
+                    else "N/A"
+                )
+                self.results_data_tree.insert(
+                    "", "end", values=(period_name, t1_disp_table, t2_disp_table)
+                )
+                display_rows_added_to_table = True
+                if isinstance(val_t1_table, (int, float)):
+                    total_sum_t1_table += val_t1_table
+                    count_t1_table += 1
+                if isinstance(val_t2_table, (int, float)):
+                    total_sum_t2_table += val_t2_table
+                    count_t2_table += 1
+
+            if (
+                not display_rows_added_to_table
+            ):  # Redundant if ordered_periods check works
+                # ... (error handling as before) ...
+                return
+
+            # --- Data Preparation for PLOTTING ---
+            plot_target1_values = []
+            plot_target2_values = []
+            for period_name in ordered_periods:
+                val_t1_plot = map_t1.get(period_name)
+                val_t2_plot = map_t2.get(period_name)
+                plot_target1_values.append(
+                    float(val_t1_plot)
+                    if isinstance(val_t1_plot, (int, float))
+                    else None
+                )
+                plot_target2_values.append(
+                    float(val_t2_plot)
+                    if isinstance(val_t2_plot, (int, float))
+                    else None
+                )
+
+            # --- Plotting ---
+            self.ax_results.clear()
+            x_indices_t1 = [
+                i for i, v in enumerate(plot_target1_values) if v is not None
+            ]
+            y_values_t1 = [v for v in plot_target1_values if v is not None]
+            x_indices_t2 = [
+                i for i, v in enumerate(plot_target2_values) if v is not None
+            ]
+            y_values_t2 = [v for v in plot_target2_values if v is not None]
+
+            plot_successful = False
+            if x_indices_t1:
+                self.ax_results.plot(
+                    x_indices_t1,
+                    y_values_t1,
+                    marker="o",
+                    linestyle="-",
+                    label="Target 1",
+                )
+                plot_successful = True
+            if x_indices_t2:
+                self.ax_results.plot(
+                    x_indices_t2,
+                    y_values_t2,
+                    marker="x",
+                    linestyle="--",
+                    label="Target 2",
+                )
+                plot_successful = True
+
+            self.ax_results.set_xlabel(f"Periodo ({period_type_res})")
+            self.ax_results.set_ylabel(f"Valore Target ({kpi_unit_res})")
+            self.ax_results.set_title(
+                f"Andamento Target: {kpi_display_name_res_str}\n{year_val_res} - {stabilimento_name_res}"
+            )
+
+            if plot_periods_for_xaxis:
+                self.ax_results.set_xticks(range(len(plot_periods_for_xaxis)))
+                self.ax_results.set_xticklabels(
+                    plot_periods_for_xaxis, rotation=45, ha="right"
+                )
+            else:
+                self.ax_results.set_xticks([])
+                self.ax_results.set_xticklabels([])
+
+            self.fig_results.tight_layout()
+            if plot_successful:
+                self.ax_results.legend()
+            self.ax_results.grid(True, linestyle="--", alpha=0.7)
+            if hasattr(self, "canvas_results_plot"):
+                self.canvas_results_plot.draw()
+
+            # --- Summary Label Update ---
             summary_parts = [
                 f"KPI: {kpi_display_name_res_str}",
-                f"Profilo: {profile_disp_res}",
+                f"Profilo Annuale: {profile_disp_res}",
             ]
-            if count_t1 > 0:
+            if count_t1_table > 0:
                 agg_t1 = (
-                    total_sum_t1
+                    total_sum_t1_table
                     if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE
-                    else (total_sum_t1 / count_t1)
+                    else (total_sum_t1_table / count_t1_table)
                 )
                 summary_parts.append(
-                    f"{'Totale T1' if calc_type_res==db_manager.CALC_TYPE_INCREMENTALE else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}"
+                    f"{'Tot T1' if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}"
                 )
-            if count_t2 > 0:
+            if count_t2_table > 0:
                 agg_t2 = (
-                    total_sum_t2
+                    total_sum_t2_table
                     if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE
-                    else (total_sum_t2 / count_t2)
+                    else (total_sum_t2_table / count_t2_table)
                 )
                 summary_parts.append(
-                    f"{'Totale T2' if calc_type_res==db_manager.CALC_TYPE_INCREMENTALE else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}"
+                    f"{'Tot T2' if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}"
                 )
             self.summary_label_var_vis.set(" | ".join(summary_parts))
+
         except ValueError as ve:
             self.summary_label_var_vis.set(f"Errore Input: {ve}")
+            if hasattr(self, "ax_results"):
+                self.ax_results.clear()
+                self.ax_results.set_title("Errore nei dati di input")
+            if hasattr(self, "canvas_results_plot"):
+                self.canvas_results_plot.draw()
+            print(f"ERROR [{func_name}] ValueError: {ve}")
         except Exception as e:
-            self.summary_label_var_vis.set(f"Errore: {e}")
+            self.summary_label_var_vis.set(f"Errore visualizzazione: {e}")
+            if hasattr(self, "ax_results"):
+                self.ax_results.clear()
+                self.ax_results.set_title("Errore durante la visualizzazione")
+            if hasattr(self, "canvas_results_plot"):
+                self.canvas_results_plot.draw()
+            print(f"CRITICAL ERROR [{func_name}]: {e}")
             traceback.print_exc()
 
     # --- Scheda Esportazione Dati ---
@@ -3162,37 +3432,242 @@ class KpiApp(tk.Tk):
     def create_export_widgets(self):
         export_main_frame = ttk.Frame(self.export_frame, padding=20)
         export_main_frame.pack(expand=True, fill="both")
+
         export_info_label_frame = ttk.Frame(export_main_frame)
         export_info_label_frame.pack(pady=10, anchor="center")
-        resolved_path_str = (
-            str(Path(db_manager.CSV_EXPORT_BASE_PATH).resolve())
-            if hasattr(db_manager, "CSV_EXPORT_BASE_PATH")
-            else "N/D"
-        )
+
+        # Ensure CSV_EXPORT_BASE_PATH is accessible
+        # It might be better to get this from app_config directly if db_manager doesn't expose it
+        try:
+            # Try to get it via db_manager if it's an attribute there (e.g., imported from app_config)
+            if (
+                hasattr(db_manager, "CSV_EXPORT_BASE_PATH")
+                and db_manager.CSV_EXPORT_BASE_PATH
+            ):
+                csv_export_path_obj = Path(db_manager.CSV_EXPORT_BASE_PATH)
+            else:  # Fallback to importing directly from app_config
+                from app_config import (
+                    CSV_EXPORT_BASE_PATH as APP_CONFIG_CSV_EXPORT_BASE_PATH,
+                )
+
+                csv_export_path_obj = Path(APP_CONFIG_CSV_EXPORT_BASE_PATH)
+            resolved_path_str = str(csv_export_path_obj.resolve())
+        except (ImportError, AttributeError, TypeError) as e:
+            resolved_path_str = (
+                "ERRORE: CSV_EXPORT_BASE_PATH non configurato correttamente."
+            )
+            print(f"Error resolving CSV_EXPORT_BASE_PATH: {e}")
+
         ttk.Label(
             export_info_label_frame,
             text=(
-                f"CSV globali generati/sovrascritti al salvataggio dei target.\nSalvati in:\n{resolved_path_str}"
+                f"I file CSV globali e gli archivi ZIP vengono generati in:\n{resolved_path_str}"
             ),
             wraplength=700,
             justify="center",
             font=("Calibri", 11),
         ).pack()
+
         export_button_frame = ttk.Frame(export_main_frame)
-        export_button_frame.pack(pady=30, anchor="center")
+        export_button_frame.pack(pady=20, anchor="center")  # Increased pady for spacing
+
+        # NEW BUTTON to generate individual CSVs
         ttk.Button(
             export_button_frame,
-            text="Esporta CSV Globali in ZIP...",
-            command=self.export_all_data_to_zip,
+            text="Genera/Aggiorna Tutti i File CSV",
+            command=self.generate_all_csv_files,  # New command
+            # style="Accent.TButton", # You can style it if you want
+        ).pack(
+            pady=(0, 10)
+        )  # Add some padding below this button
+
+        ttk.Button(
+            export_button_frame,
+            text="Crea e Scarica Archivio ZIP...",
+            command=self.export_all_data_to_zip_interactive,  # Renamed for clarity
             style="Accent.TButton",
         ).pack()
+
         open_folder_button_frame = ttk.Frame(export_main_frame)
         open_folder_button_frame.pack(pady=10, anchor="center")
         ttk.Button(
             open_folder_button_frame,
-            text="Apri Cartella Esportazioni CSV",
-            command=self.open_export_folder,
-        ).pack()
+            text="Apri Cartella Esportazioni Locale",
+            command=self.open_export_folder_local,  # Renamed for clarity
+        ).pack()    
+
+    def _get_csv_export_base_path_obj(self):
+        """Helper to safely get the CSV_EXPORT_BASE_PATH as a Path object."""
+        try:
+            if hasattr(db_manager, "CSV_EXPORT_BASE_PATH") and db_manager.CSV_EXPORT_BASE_PATH:
+                return Path(db_manager.CSV_EXPORT_BASE_PATH)
+            else:
+                from app_config import CSV_EXPORT_BASE_PATH as APP_CONFIG_CSV_EXPORT_BASE_PATH
+                return Path(APP_CONFIG_CSV_EXPORT_BASE_PATH)
+        except (ImportError, AttributeError, TypeError) as e:
+            messagebox.showerror(
+                "Errore Configurazione",
+                f"CSV_EXPORT_BASE_PATH non configurato correttamente: {e}",
+                parent=self,
+            )
+            return None
+    def generate_all_csv_files(self):
+        """Generates/Overwrites all individual CSV files."""
+        export_base_path_obj = self._get_csv_export_base_path_obj()
+        if not export_base_path_obj:
+            return
+
+        try:
+            export_base_path_obj.mkdir(parents=True, exist_ok=True) # Ensure directory exists
+            export_manager.export_all_data_to_global_csvs(str(export_base_path_obj))
+            messagebox.showinfo(
+                "Esportazione CSV Completata",
+                f"Tutti i file CSV sono stati generati/aggiornati in:\n{export_base_path_obj.resolve()}",
+                parent=self
+            )
+        except AttributeError as ae:
+            messagebox.showerror(
+                "Errore Funzione",
+                f"'export_all_data_to_global_csvs' non trovata o errore in export_manager: {ae}",
+                parent=self,
+            )
+        except Exception as e:
+            messagebox.showerror(
+                "Errore Critico Esportazione CSV",
+                f"Errore imprevisto durante la generazione dei CSV:\n{e}\n{traceback.format_exc()}",
+                parent=self,
+            )
+
+    def open_export_folder_local(self):  # Renamed from open_export_folder
+        export_path = self._get_csv_export_base_path_obj()
+        if not export_path:
+            return
+
+        if not export_path.exists():
+            try:
+                export_path.mkdir(parents=True, exist_ok=True)
+                messagebox.showinfo(
+                    "Cartella Creata",
+                    f"Cartella esportazioni creata:\n{export_path.resolve()}\n"
+                    "Genera i CSV per popolarla.",
+                    parent=self,
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore Creazione Cartella",
+                    f"Impossibile creare la cartella {export_path.resolve()}: {e}",
+                    parent=self,
+                )
+                return
+
+        # Attempt to open the folder
+        try:
+            if sys.platform == "win32":
+                os.startfile(export_path)  # More reliable on Windows for folders
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(export_path)])
+            else:
+                subprocess.Popen(["xdg-open", str(export_path)])
+        except Exception as e:
+            messagebox.showerror(
+                "Errore Apertura Cartella",
+                f"Impossibile aprire la cartella:\n{export_path.resolve()}\nErrore: {e}",
+                parent=self,
+            )
+
+    def export_all_data_to_zip_interactive(self):  # Renamed from export_all_data_to_zip
+        export_base_path = self._get_csv_export_base_path_obj()
+        if not export_base_path:
+            return
+
+        # Check if CSVs exist, prompt to generate if not
+        expected_csv_files_dict = getattr(export_manager, "GLOBAL_CSV_FILES", None)
+        if not expected_csv_files_dict:
+            messagebox.showerror(
+                "Errore Configurazione",
+                "GLOBAL_CSV_FILES non definito in export_manager.",
+                parent=self,
+            )
+            return
+
+        # Ensure the directory exists before checking its contents
+        export_base_path.mkdir(parents=True, exist_ok=True)
+
+        csvs_exist = any(
+            (export_base_path / fname).exists()
+            for fname in expected_csv_files_dict.values()
+        )
+
+        if not csvs_exist:
+            if messagebox.askyesno(
+                "File CSV Mancanti",
+                f"La cartella {export_base_path.resolve()} non sembra contenere i file CSV.\n"
+                "Vuoi generarli adesso prima di creare lo ZIP?",
+                parent=self,
+            ):
+                self.generate_all_csv_files()  # Call the new function
+                # After generation, re-check if they exist
+                csvs_exist = any(
+                    (export_base_path / fname).exists()
+                    for fname in expected_csv_files_dict.values()
+                )
+                if not csvs_exist:
+                    messagebox.showwarning(
+                        "Nessun Dato",
+                        f"Generazione CSV fallita o nessun dato da esportare.\n"
+                        f"Controllare la console per errori e riprovare.",
+                        parent=self,
+                    )
+                    return
+            else:
+                messagebox.showwarning(
+                    "Operazione Annullata",
+                    "Creazione ZIP annullata perché i file CSV non sono presenti.",
+                    parent=self,
+                )
+                return
+
+        default_zip_name = f"kpi_global_data_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        zip_filepath = filedialog.asksaveasfilename(
+            title="Salva archivio ZIP",
+            initialfile=default_zip_name,
+            defaultextension=".zip",
+            filetypes=[("File ZIP", "*.zip"), ("Tutti i file", "*.*")],
+            parent=self,
+        )
+        if not zip_filepath:
+            return  # User cancelled
+
+        try:
+            if not hasattr(export_manager, "package_all_csvs_as_zip"):
+                messagebox.showerror(
+                    "Errore Funzione",
+                    "'package_all_csvs_as_zip' non è definito in export_manager.",
+                    parent=self,
+                )
+                return
+
+            # Call package_all_csvs_as_zip to write the file directly
+            success, message_or_data = export_manager.package_all_csvs_as_zip(
+                str(export_base_path),
+                zip_filepath,  # output_zip_filepath_str
+                return_bytes_for_streamlit=False,  # We want it to write the file
+            )
+
+            if success:
+                messagebox.showinfo(
+                    "Esportazione ZIP Completata", message_or_data, parent=self
+                )
+            else:
+                messagebox.showerror(
+                    "Errore Esportazione ZIP", message_or_data, parent=self
+                )
+        except Exception as e:
+            messagebox.showerror(
+                "Errore Critico Esportazione ZIP",
+                f"Errore imprevisto durante la creazione dello ZIP:\n{e}\n{traceback.format_exc()}",
+                parent=self,
+            )
 
     def open_export_folder(self):
         try:

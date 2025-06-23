@@ -169,11 +169,11 @@ cython_debug/
 
 # database files
 *.db
-database
+database/
 
 # exported data files
 *.csv
-csv_exports
+csv_exports/
 
 # old backup files
-old
+old/

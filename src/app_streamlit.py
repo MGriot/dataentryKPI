@@ -2138,74 +2138,191 @@ with tab_results:
 # --- 📦 Esportazione Dati ---
 with tab_export:
     st.header("Esportazione Dati Globali")
-    resolved_path_str = str(Path(CSV_EXPORT_BASE_PATH).resolve())
-    st.markdown(f"I file CSV globali sono generati/sovrascritti quando i target annuali vengono salvati.\nCartella: `{resolved_path_str}`")
 
-    if st.button("Apri Cartella Esportazioni CSV", key="open_export_folder"):
-        export_path_obj = Path(CSV_EXPORT_BASE_PATH).resolve()
-        if not export_path_obj.exists():
-            export_path_obj.mkdir(parents=True, exist_ok=True)
-            st.info(f"Cartella creata: {export_path_obj}.")
-        else:
+    # Ensure necessary modules are imported at the top of your Streamlit script
+    # import streamlit as st
+    # from pathlib import Path
+    # import datetime
+    # import sys
+    # import subprocess
+    # import export_manager # Your module
+    # from app_config import CSV_EXPORT_BASE_PATH # Your config
+    # import traceback
+
+    if (
+        "CSV_EXPORT_BASE_PATH" not in globals()
+        and "CSV_EXPORT_BASE_PATH" not in locals()
+    ):
+        # Attempt to import if not found - this is a fallback, ideally it's imported at script top
+        try:
+            from app_config import CSV_EXPORT_BASE_PATH
+
+            if (
+                "CSV_EXPORT_BASE_PATH" not in globals()
+                and "CSV_EXPORT_BASE_PATH" not in locals()
+            ):  # Check again after import
+                raise ImportError(
+                    "CSV_EXPORT_BASE_PATH still not defined after import attempt."
+                )
+        except ImportError:
+            st.error(
+                "CRITICO: CSV_EXPORT_BASE_PATH non è definito. Controlla app_config.py e le importazioni."
+            )
+            st.stop()  # Stop rendering this tab if config is missing
+
+    resolved_path_str = str(Path(CSV_EXPORT_BASE_PATH).resolve())
+    st.markdown(
+        f"I file CSV globali e l'archivio ZIP saranno generati/aggiornati in:\n`{resolved_path_str}`"
+    )
+    st.markdown("---")
+
+    st.subheader("Azioni di Esportazione")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button(
+            "🔄 Genera/Aggiorna Tutti i File CSV",
+            key="generate_all_csv_files_streamlit",
+        ):
+            export_base_path = Path(CSV_EXPORT_BASE_PATH)
+            export_base_path.mkdir(
+                parents=True, exist_ok=True
+            )  # Ensure directory exists
             try:
-                if sys.platform == "win32": subprocess.Popen(f'explorer "{export_path_obj}"')
-                elif sys.platform == "darwin": subprocess.Popen(["open", str(export_path_obj)])
-                else: subprocess.Popen(["xdg-open", str(export_path_obj)])
-                st.success(f"Tentativo di aprire: {export_path_obj}")
+                with st.spinner("Generazione dei file CSV in corso..."):
+                    export_manager.export_all_data_to_global_csvs(str(export_base_path))
+                st.success(
+                    f"Tutti i file CSV sono stati generati/aggiornati in:\n`{export_base_path.resolve()}`"
+                )
+                st.info(
+                    "Puoi ora aprire la cartella esportazioni o creare un archivio ZIP."
+                )
+            except AttributeError as ae:
+                st.error(
+                    f"Errore: Funzionalità di esportazione non trovata ({ae}). Controllare 'export_manager.py'."
+                )
+                st.error(traceback.format_exc())
             except Exception as e:
-                st.error(f"Impossibile aprire cartella: {e}. Percorso: {export_path_obj}")
+                st.error(f"Errore critico durante la generazione dei CSV: {e}")
+                st.error(traceback.format_exc())
+
+    with col2:
+        if st.button(
+            "📦 Crea e Scarica Archivio ZIP",
+            type="primary",
+            key="generate_csv_and_zip_streamlit",
+        ):
+            export_base_path = Path(CSV_EXPORT_BASE_PATH)
+            export_base_path.mkdir(parents=True, exist_ok=True)
+
+            # Step 1: Ensure CSVs are generated or already exist
+            try:
+                with st.spinner(
+                    "Verifica e generazione dei file CSV (se necessario)..."
+                ):
+                    # Check if any CSVs are missing. If so, regenerate all.
+                    # This is a simple check; for more granular, one might list expected files.
+                    # A more robust check would be to see if the key files from export_manager.GLOBAL_CSV_FILES exist.
+                    expected_files = getattr(export_manager, "GLOBAL_CSV_FILES", None)
+                    files_present = False
+                    if expected_files:
+                        files_present = all(
+                            (export_base_path / fname).exists()
+                            for fname in expected_files.values()
+                        )
+
+                    if not files_present:
+                        st.write(
+                            "Alcuni file CSV non trovati o cartella vuota. Rigenerazione di tutti i CSV..."
+                        )
+                        export_manager.export_all_data_to_global_csvs(
+                            str(export_base_path)
+                        )
+                        st.write("Generazione CSV completata.")
+                    else:
+                        st.write("File CSV trovati.")
+                st.success(f"File CSV pronti in `{export_base_path.resolve()}`.")
+
+                # Step 2: Prepare the ZIP for download
+                default_zip_name = f"kpi_global_data_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+
+                with st.spinner("Creazione dell'archivio ZIP..."):
+                    success, zip_data_or_msg = export_manager.package_all_csvs_as_zip(
+                        str(export_base_path),
+                        str(
+                            export_base_path / default_zip_name
+                        ),  # Provide a path for on-server file saving
+                        return_bytes_for_streamlit=True,  # Request bytes for download
+                    )
+
+                if success:
+                    st.download_button(
+                        label=f"Scarica {default_zip_name}",
+                        data=zip_data_or_msg,  # This will be the bytes
+                        file_name=default_zip_name,
+                        mime="application/zip",
+                    )
+                    st.success(
+                        f"Archivio '{default_zip_name}' pronto per il download. "
+                        f"È stato salvato anche in `{export_base_path / default_zip_name}`."
+                    )
+                else:
+                    st.error(
+                        f"Errore durante la creazione dell'archivio ZIP: {zip_data_or_msg}"
+                    )
+
+            except AttributeError as ae:
+                st.error(
+                    f"Errore: Funzionalità di esportazione non trovata ({ae}). Controllare 'export_manager.py'."
+                )
+                st.error(traceback.format_exc())
+            except Exception as e:
+                st.error(f"Errore critico durante l'esportazione ZIP: {e}")
+                st.error(traceback.format_exc())
 
     st.markdown("---")
-    st.subheader("Esporta CSV Globali in Archivio ZIP")
-    if st.button("Crea e Scarica Archivio ZIP", type="primary", key="create_zip_export"):
-        export_base_path = Path(CSV_EXPORT_BASE_PATH)
-        if not export_base_path.exists() or not any(export_base_path.iterdir()):
-            st.warning(f"Cartella {export_base_path.resolve()} vuota. Salva prima qualche target.")
-        else:
-            default_zip_name = f"kpi_global_data_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-            temp_zip_path_server = Path(CSV_EXPORT_BASE_PATH) / default_zip_name # Save in the same folder for simplicity
-
+    st.subheader("Accesso alla Cartella")
+    if st.button(
+        "📂 Apri Cartella Esportazioni Locale", key="open_export_folder_streamlit"
+    ):
+        # This button will only work effectively if Streamlit is running on the same machine
+        # as the user's desktop environment, or if the path is a shared/network path
+        # accessible by the user and the server.
+        export_path_obj = Path(CSV_EXPORT_BASE_PATH).resolve()
+        if not export_path_obj.exists():
             try:
-                # Attempt to use export_manager if it supports returning bytes
-                if hasattr(export_manager, "package_all_csvs_as_zip"):
-                    # Check if the function signature might support return_bytes_for_streamlit
-                    # This is a bit of a guess; ideally, export_manager is designed for this.
-                    try:
-                        success, data = export_manager.package_all_csvs_as_zip(
-                            str(CSV_EXPORT_BASE_PATH),
-                            str(temp_zip_path_server), # Provide a path even if bytes are returned
-                            return_bytes_for_streamlit=True
-                        )
-                        if success:
-                            st.download_button(label="Scarica ZIP", data=data, file_name=default_zip_name, mime="application/zip")
-                            st.success(f"Archivio '{default_zip_name}' pronto.")
-                            # No cleanup needed for temp_zip_path_server if bytes were returned directly
-                            # and the function didn't write a file. If it did, it's in CSV_EXPORT_BASE_PATH.
-                            # return # Exit after successful download button
-                        else:
-                            st.error(f"Errore da export_manager (bytes): {data}")
-                            # Fall through to manual zipping if export_manager failed or doesn't support bytes
-                    except TypeError: # Likely means return_bytes_for_streamlit is not a valid arg
-                        st.warning("export_manager.package_all_csvs_as_zip non supporta 'return_bytes_for_streamlit'. Tento zipping manuale.")
-                    except Exception as e_em:
-                        st.error(f"Errore con export_manager: {e_em}. Tento zipping manuale.")
+                export_path_obj.mkdir(parents=True, exist_ok=True)
+                st.info(
+                    f"Cartella creata: `{export_path_obj}`. Genera i file CSV per popolarla."
+                )
+            except Exception as e_mkdir:
+                st.error(
+                    f"Impossibile creare la cartella `{export_path_obj}`: {e_mkdir}"
+                )
+                st.stop()  # Stop if we can't even create the directory
 
-                # Fallback: Manual zipping if export_manager part didn't work or isn't available
-                shutil.make_archive(str(temp_zip_path_server.with_suffix('')), 'zip', str(export_base_path))
-                
-                if temp_zip_path_server.exists():
-                    with open(temp_zip_path_server, "rb") as fp:
-                        st.download_button(
-                            label="Scarica ZIP (Manuale)",
-                            data=fp,
-                            file_name=default_zip_name,
-                            mime="application/zip",
-                        )
-                    st.success(f"Archivio '{default_zip_name}' (creato manualmente) pronto.")
-                else:
-                    st.error("Creazione ZIP manuale fallita: file non trovato.")
-
-            except Exception as e:
-                st.error(f"Errore critico creazione/download ZIP: {e}")
-                import traceback
-                st.error(traceback.format_exc())
+        st.markdown(
+            f"Tentativo di aprire la cartella: `{export_path_obj}`."
+            " Questa operazione potrebbe non funzionare a seconda di come è ospitata l'app Streamlit "
+            "e delle autorizzazioni del browser."
+        )
+        try:
+            if sys.platform == "win32":
+                # os.startfile is for files, explorer is better for folders
+                subprocess.Popen(f'explorer "{export_path_obj}"')
+            elif sys.platform == "darwin":  # macOS
+                subprocess.Popen(["open", str(export_path_obj)])
+            else:  # Linux
+                subprocess.Popen(["xdg-open", str(export_path_obj)])
+            # Note: Streamlit cannot directly trigger a folder open dialog in the user's browser
+            # due to security restrictions. This subprocess call works on the server side.
+            # If running locally, it will open the folder on the local machine.
+            # If running on a remote server, it attempts to open it on the server.
+            st.success(
+                f"Comando per aprire la cartella `{export_path_obj}` eseguito sul server."
+            )
+        except Exception as e:
+            st.error(
+                f"Impossibile eseguire il comando per aprire la cartella: {e}. Percorso: `{export_path_obj}`"
+            )
