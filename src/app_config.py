@@ -147,6 +147,30 @@ WEIGHT_INITIAL_FACTOR_INC = 1.5
 SINE_PHASE_OFFSET = -np.pi / 2
 WEEKDAY_BIAS_FACTOR_MEDIA = 0.8
 
+# Distribution Profile Parameters (Example Values - Adjust as needed)
+WEIGHT_INITIAL_FACTOR_INC = (
+    0.5  # For incremental, progressive start (less at beginning)
+)
+WEIGHT_FINAL_FACTOR_INC = 1.5  # For incremental, progressive end (more at end)
+
+WEIGHT_INITIAL_FACTOR_AVG = (
+    1.6  # For average, progressive start (slightly more than avg)
+)
+WEIGHT_FINAL_FACTOR_AVG = 0.4  # For average, progressive end (slightly less than avg)
+
+SINE_AMPLITUDE_INCREMENTAL = 0.3  # Amplitude for sinusoidal distribution (incremental)
+SINE_AMPLITUDE_MEDIA = 0.2  # Amplitude for sinusoidal distribution (average)
+SINE_PHASE_OFFSET = 0  # Phase offset for sinusoidal distributions (in radians)
+
+WEEKDAY_BIAS_FACTOR_INCREMENTAL = (
+    0.8  # e.g., weekends get 80% of a normal day's incremental target
+)
+WEEKDAY_BIAS_FACTOR_MEDIA = 1.1  # e.g., weekends have a media target 10% higher
+
+DEVIATION_SCALE_FACTOR_AVG = (
+    0.2  # How much the avg profile deviates from base avg (e.g. 20%)
+)
+
 # --- STRING CONSTANTS (Python Constants, critical for DB and logic) ---
 CALC_TYPE_INCREMENTALE = "Incrementale"
 CALC_TYPE_MEDIA = "Media"

@@ -281,6 +281,13 @@ def setup_databases():
             "profile_params": "TEXT",
             "is_target1_manual": "BOOLEAN NOT NULL DEFAULT 0",
             "is_target2_manual": "BOOLEAN NOT NULL DEFAULT 0",
+            # --- NEW FORMULA COLUMNS ---
+            "target1_is_formula_based": "BOOLEAN NOT NULL DEFAULT 0",
+            "target1_formula": "TEXT",
+            "target1_formula_inputs": "TEXT",
+            "target2_is_formula_based": "BOOLEAN NOT NULL DEFAULT 0",
+            "target2_formula": "TEXT",
+            "target2_formula_inputs": "TEXT",
         }
         for col_name, col_def in columns_to_add.items():
             if col_name not in target_columns_info:
@@ -1019,29 +1026,57 @@ def remove_all_links_for_kpi(kpi_spec_id):
         print(f"Rimossi tutti i link master/sub per KPI Spec ID {kpi_spec_id}")
 
 
+def _placeholder_safe_evaluate_formula(formula_str, context_vars):
+    """
+    UNSAFE PLACEHOLDER for formula evaluation. Replace with a secure method.
+    """
+    print(
+        f"DEBUG: Evaluating formula (UNSAFE): '{formula_str}' with context: {context_vars}"
+    )
+    try:
+        # Create a limited scope for eval
+        # This is still not truly safe against all attacks.
+        allowed_names = {key: val for key, val in context_vars.items()}
+        # You might want to add safe math functions here if needed
+        # import math
+        # allowed_names.update({
+        #     'sqrt': math.sqrt, 'pow': math.pow, 'sin': math.sin, 'cos': math.cos, 'tan': math.tan,
+        #     'log': math.log, 'log10': math.log10, 'exp': math.exp
+        # })
+        code = compile(formula_str, "<string>", "eval")
+
+        # Validate AST nodes if you want more control before eval, though complex.
+        # For example, ensure only allowed operations/names are used.
+
+        return eval(code, {"__builtins__": {}}, allowed_names)
+    except Exception as e:
+        print(f"ERROR during (unsafe) formula evaluation: {e}")
+        raise ValueError(f"Formula evaluation failed: {e}")
+
+
 # --- Gestione Target Annuali ---
 def save_annual_targets(
     year,
     stabilimento_id,
-    targets_data_map,
+    targets_data_map,  # Expects Python dicts/lists for 'repartition_values', 'profile_params', 'targetX_formula_inputs'
     initiator_kpi_spec_id=None,
-    is_recursive_call=False,
 ):
-
     if not targets_data_map:
         print("Nessun dato target da salvare.")
         return
 
     print(
-        f"Inizio save_annual_targets per Anno: {year}, Stab: {stabilimento_id}. Initiator: {initiator_kpi_spec_id}, Recursive: {is_recursive_call}"
+        f"Inizio save_annual_targets per Anno: {year}, Stab: {stabilimento_id}. Initiator: {initiator_kpi_spec_id}"
     )
-    # print(f"Dati input: {targets_data_map}") # Can be very verbose
 
     kpis_needing_repartition_update = set()
+    kpis_with_formula_target1 = []
+    kpis_with_formula_target2 = []
 
+    # Phase 1: Save all definitions, including formula structure and non-formula based targets
     with sqlite3.connect(DB_TARGETS) as conn:
         cursor = conn.cursor()
-        for kpi_spec_id_str, data_dict in targets_data_map.items():
+        for kpi_spec_id_str, data_dict_from_ui in targets_data_map.items():
             try:
                 current_kpi_spec_id = int(kpi_spec_id_str)
             except ValueError:
@@ -1051,67 +1086,169 @@ def save_annual_targets(
             record = data_retriever.get_annual_target_entry(
                 year, stabilimento_id, current_kpi_spec_id
             )
-            annual_t1 = float(
-                data_dict.get(
-                    "annual_target1", record["annual_target1"] if record else 0.0
-                )
-                or 0.0
+
+            # Defaults for when record is None or field is missing
+            db_annual_t1, db_annual_t2 = 0.0, 0.0
+            db_repart_logic = REPARTITION_LOGIC_ANNO
+            db_repart_values_json = "{}"
+            db_dist_profile = PROFILE_ANNUAL_PROGRESSIVE
+            db_profile_params_json = "{}"
+            db_is_manual1, db_is_manual2 = True, True
+            db_t1_is_formula, db_t1_formula_str, db_t1_formula_inputs_json = (
+                False,
+                None,
+                "[]",
             )
-            annual_t2 = float(
-                data_dict.get(
-                    "annual_target2", record["annual_target2"] if record else 0.0
-                )
-                or 0.0
+            db_t2_is_formula, db_t2_formula_str, db_t2_formula_inputs_json = (
+                False,
+                None,
+                "[]",
             )
-            repart_logic = data_dict.get(
-                "repartition_logic",
-                record["repartition_logic"] if record else REPARTITION_LOGIC_ANNO,
+
+            if record:  # If record exists, try to load values from it
+                try:
+                    db_annual_t1 = float(record["annual_target1"] or 0.0)
+                except KeyError:
+                    pass
+                try:
+                    db_annual_t2 = float(record["annual_target2"] or 0.0)
+                except KeyError:
+                    pass
+                try:
+                    db_repart_logic = (
+                        record["repartition_logic"] or REPARTITION_LOGIC_ANNO
+                    )
+                except KeyError:
+                    pass
+                try:
+                    db_repart_values_json = record["repartition_values"] or "{}"
+                except KeyError:
+                    pass
+                try:
+                    db_dist_profile = (
+                        record["distribution_profile"] or PROFILE_ANNUAL_PROGRESSIVE
+                    )
+                except KeyError:
+                    pass
+                try:
+                    db_profile_params_json = record["profile_params"] or "{}"
+                except KeyError:
+                    pass
+                try:
+                    db_is_manual1 = bool(record["is_target1_manual"])
+                except KeyError:
+                    pass
+                try:
+                    db_is_manual2 = bool(record["is_target2_manual"])
+                except KeyError:
+                    pass
+                try:
+                    db_t1_is_formula = bool(record["target1_is_formula_based"])
+                except KeyError:
+                    pass
+                try:
+                    db_t1_formula_str = record["target1_formula"]
+                except KeyError:
+                    pass
+                try:
+                    db_t1_formula_inputs_json = record["target1_formula_inputs"] or "[]"
+                except KeyError:
+                    pass
+                try:
+                    db_t2_is_formula = bool(record["target2_is_formula_based"])
+                except KeyError:
+                    pass
+                try:
+                    db_t2_formula_str = record["target2_formula"]
+                except KeyError:
+                    pass
+                try:
+                    db_t2_formula_inputs_json = record["target2_formula_inputs"] or "[]"
+                except KeyError:
+                    pass
+
+            # Get values from UI data_dict, falling back to DB values (or defaults if no DB record)
+            final_annual_t1 = float(
+                data_dict_from_ui.get("annual_target1", db_annual_t1) or 0.0
             )
-            repart_values_json = json.dumps(
-                data_dict.get(
-                    "repartition_values",
-                    json.loads(record["repartition_values"] or "{}") if record else {},
-                )
+            final_annual_t2 = float(
+                data_dict_from_ui.get("annual_target2", db_annual_t2) or 0.0
             )
-            dist_profile = data_dict.get(
-                "distribution_profile",
-                (
-                    record["distribution_profile"]
-                    if record
-                    else PROFILE_ANNUAL_PROGRESSIVE
-                ),
+            final_repart_logic = data_dict_from_ui.get(
+                "repartition_logic", db_repart_logic
             )
-            profile_params_json = json.dumps(
-                data_dict.get(
-                    "profile_params",
-                    json.loads(record["profile_params"] or "{}") if record else {},
-                )
+            final_dist_profile = data_dict_from_ui.get(
+                "distribution_profile", db_dist_profile
             )
-            is_manual1 = bool(
-                data_dict.get(
-                    "is_target1_manual", record["is_target1_manual"] if record else True
-                )
+
+            # For JSON fields, expect Python dict/list from UI, load from DB JSON string if UI doesn't provide
+            repart_values_py = data_dict_from_ui.get(
+                "repartition_values", json.loads(db_repart_values_json)
             )
-            is_manual2 = bool(
-                data_dict.get(
-                    "is_target2_manual", record["is_target2_manual"] if record else True
-                )
+            final_repart_values_json = json.dumps(repart_values_py)
+
+            profile_params_py = data_dict_from_ui.get(
+                "profile_params", json.loads(db_profile_params_json)
+            )
+            final_profile_params_json = json.dumps(profile_params_py)
+
+            final_t1_is_formula = bool(
+                data_dict_from_ui.get("target1_is_formula_based", db_t1_is_formula)
+            )
+            final_t1_formula_str = data_dict_from_ui.get(
+                "target1_formula", db_t1_formula_str
+            )
+            t1_formula_inputs_py = data_dict_from_ui.get(
+                "target1_formula_inputs", json.loads(db_t1_formula_inputs_json)
+            )
+            final_t1_formula_inputs_json = json.dumps(t1_formula_inputs_py)
+
+            final_t2_is_formula = bool(
+                data_dict_from_ui.get("target2_is_formula_based", db_t2_is_formula)
+            )
+            final_t2_formula_str = data_dict_from_ui.get(
+                "target2_formula", db_t2_formula_str
+            )
+            t2_formula_inputs_py = data_dict_from_ui.get(
+                "target2_formula_inputs", json.loads(db_t2_formula_inputs_json)
+            )
+            final_t2_formula_inputs_json = json.dumps(t2_formula_inputs_py)
+
+            # is_manual flag logic: if formula is used, it's not manual. Otherwise, take UI or DB value.
+            final_is_manual1 = (
+                False
+                if final_t1_is_formula
+                else bool(data_dict_from_ui.get("is_target1_manual", db_is_manual1))
+            )
+            final_is_manual2 = (
+                False
+                if final_t2_is_formula
+                else bool(data_dict_from_ui.get("is_target2_manual", db_is_manual2))
             )
 
             if record:
                 cursor.execute(
-                    """UPDATE annual_targets SET annual_target1=?, annual_target2=?, repartition_logic=?,
-                       repartition_values=?, distribution_profile=?, profile_params=?,
-                       is_target1_manual=?, is_target2_manual=? WHERE id=?""",
+                    """UPDATE annual_targets SET annual_target1=?, annual_target2=?,
+                       repartition_logic=?, repartition_values=?, distribution_profile=?, profile_params=?,
+                       is_target1_manual=?, is_target2_manual=?,
+                       target1_is_formula_based=?, target1_formula=?, target1_formula_inputs=?,
+                       target2_is_formula_based=?, target2_formula=?, target2_formula_inputs=?
+                       WHERE id=?""",
                     (
-                        annual_t1,
-                        annual_t2,
-                        repart_logic,
-                        repart_values_json,
-                        dist_profile,
-                        profile_params_json,
-                        is_manual1,
-                        is_manual2,
+                        final_annual_t1,
+                        final_annual_t2,
+                        final_repart_logic,
+                        final_repart_values_json,
+                        final_dist_profile,
+                        final_profile_params_json,
+                        final_is_manual1,
+                        final_is_manual2,
+                        final_t1_is_formula,
+                        final_t1_formula_str,
+                        final_t1_formula_inputs_json,
+                        final_t2_is_formula,
+                        final_t2_formula_str,
+                        final_t2_formula_inputs_json,
                         record["id"],
                     ),
                 )
@@ -1119,41 +1256,264 @@ def save_annual_targets(
                 cursor.execute(
                     """INSERT INTO annual_targets (year,stabilimento_id,kpi_id,annual_target1,annual_target2,
                        repartition_logic,repartition_values,distribution_profile,profile_params,
-                       is_target1_manual, is_target2_manual) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                       is_target1_manual, is_target2_manual,
+                       target1_is_formula_based, target1_formula, target1_formula_inputs,
+                       target2_is_formula_based, target2_formula, target2_formula_inputs)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         year,
                         stabilimento_id,
                         current_kpi_spec_id,
-                        annual_t1,
-                        annual_t2,
-                        repart_logic,
-                        repart_values_json,
-                        dist_profile,
-                        profile_params_json,
-                        is_manual1,
-                        is_manual2,
+                        final_annual_t1,
+                        final_annual_t2,
+                        final_repart_logic,
+                        final_repart_values_json,
+                        final_dist_profile,
+                        final_profile_params_json,
+                        final_is_manual1,
+                        final_is_manual2,
+                        final_t1_is_formula,
+                        final_t1_formula_str,
+                        final_t1_formula_inputs_json,
+                        final_t2_is_formula,
+                        final_t2_formula_str,
+                        final_t2_formula_inputs_json,
                     ),
                 )
             kpis_needing_repartition_update.add(current_kpi_spec_id)
-            # print(f"  KPI {current_kpi_spec_id} salvato/aggiornato. T1: {annual_t1} (Man: {is_manual1}), T2: {annual_t2} (Man: {is_manual2})")
+            if final_t1_is_formula:
+                kpis_with_formula_target1.append(current_kpi_spec_id)
+            if final_t2_is_formula:
+                kpis_with_formula_target2.append(current_kpi_spec_id)
         conn.commit()
 
+    # Phase 2: Calculate formula-based targets
+    MAX_ITERATIONS = len(targets_data_map) + 5  # Max attempts to resolve dependencies
+
+    for target_num_idx, kpi_list_for_formula_calc in enumerate(
+        [kpis_with_formula_target1, kpis_with_formula_target2]
+    ):
+        target_num_to_calculate = target_num_idx + 1
+        if not kpi_list_for_formula_calc:
+            continue
+
+        print(
+            f"  Inizio calcolo formule per Target {target_num_to_calculate}. KPIs: {kpi_list_for_formula_calc}"
+        )
+        kpis_pending_formula = list(kpi_list_for_formula_calc)
+        calculated_this_round_successfully = set()
+
+        for iteration in range(MAX_ITERATIONS):
+            if not kpis_pending_formula:
+                break
+
+            made_progress_in_iteration = False
+            next_pending_list = (
+                []
+            )  # KPIs to retry in the next iteration of this formula pass
+
+            for kpi_id_to_calc in kpis_pending_formula:
+                target_entry = data_retriever.get_annual_target_entry(
+                    year, stabilimento_id, kpi_id_to_calc
+                )
+                if not target_entry:
+                    print(
+                        f"    WARN: Impossibile trovare target entry per KPI {kpi_id_to_calc} per calcolo formula T{target_num_to_calculate}."
+                    )
+                    continue
+
+                is_formula_flag_db, formula_str_db, formula_inputs_json_db = (
+                    False,
+                    None,
+                    "[]",
+                )
+                try:
+                    is_formula_flag_db = bool(
+                        target_entry[
+                            f"target{target_num_to_calculate}_is_formula_based"
+                        ]
+                    )
+                except KeyError:
+                    pass
+                try:
+                    formula_str_db = target_entry[
+                        f"target{target_num_to_calculate}_formula"
+                    ]
+                except KeyError:
+                    pass
+                try:
+                    formula_inputs_json_db = (
+                        target_entry[f"target{target_num_to_calculate}_formula_inputs"]
+                        or "[]"
+                    )
+                except KeyError:
+                    pass
+
+                if not (
+                    is_formula_flag_db and formula_str_db and formula_inputs_json_db
+                ):
+                    continue  # Not formula-based or definition corrupt
+
+                try:
+                    formula_inputs_def_py = json.loads(formula_inputs_json_db)
+                    if not isinstance(formula_inputs_def_py, list):
+                        formula_inputs_def_py = []
+                except (json.JSONDecodeError, TypeError):
+                    print(
+                        f"    WARN: KPI {kpi_id_to_calc} T{target_num_to_calculate} ha JSON non valido per formula_inputs ('{formula_inputs_json_db}'). Skipping."
+                    )
+                    continue
+
+                context_vars = {}
+                all_inputs_ready = True
+                for f_input in formula_inputs_def_py:
+                    input_kpi_id = f_input.get("kpi_id")
+                    input_target_field_name = f_input.get("target_source")
+                    var_name = f_input.get("variable_name")
+
+                    if not all([input_kpi_id, input_target_field_name, var_name]):
+                        print(
+                            f"    WARN: Definizione input formula incompleta per KPI {kpi_id_to_calc} T{target_num_to_calculate}. Input: {f_input}. Skipping."
+                        )
+                        all_inputs_ready = False
+                        break
+
+                    if (
+                        input_kpi_id in kpis_pending_formula
+                        and input_kpi_id not in calculated_this_round_successfully
+                    ):
+                        input_kpi_target_entry_check = (
+                            data_retriever.get_annual_target_entry(
+                                year, stabilimento_id, input_kpi_id
+                            )
+                        )
+                        if input_kpi_target_entry_check:
+                            source_target_is_formula_dep = False
+                            try:
+                                if (
+                                    input_target_field_name == "annual_target1"
+                                    and bool(
+                                        input_kpi_target_entry_check[
+                                            "target1_is_formula_based"
+                                        ]
+                                    )
+                                ):
+                                    source_target_is_formula_dep = True
+                                elif (
+                                    input_target_field_name == "annual_target2"
+                                    and bool(
+                                        input_kpi_target_entry_check[
+                                            "target2_is_formula_based"
+                                        ]
+                                    )
+                                ):
+                                    source_target_is_formula_dep = True
+                            except KeyError:
+                                pass
+
+                            if source_target_is_formula_dep:
+                                all_inputs_ready = False
+                                break
+
+                    input_kpi_target_entry = data_retriever.get_annual_target_entry(
+                        year, stabilimento_id, input_kpi_id
+                    )
+                    if (
+                        not input_kpi_target_entry
+                        or input_target_field_name not in input_kpi_target_entry.keys()
+                        or input_kpi_target_entry[input_target_field_name] is None
+                    ):
+                        all_inputs_ready = False
+                        break
+                    try:
+                        context_vars[var_name] = float(
+                            input_kpi_target_entry[input_target_field_name]
+                        )
+                    except (TypeError, ValueError):
+                        print(
+                            f"    WARN: Valore non numerico per input {var_name} (KPI {input_kpi_id}.{input_target_field_name}). Skipping KPI {kpi_id_to_calc}."
+                        )
+                        all_inputs_ready = False
+                        break
+
+                if all_inputs_ready:
+                    try:
+                        calculated_value = _placeholder_safe_evaluate_formula(
+                            formula_str_db, context_vars
+                        )
+                        with sqlite3.connect(DB_TARGETS) as conn_update_formula:
+                            update_cursor = conn_update_formula.cursor()
+                            update_cursor.execute(
+                                f"""UPDATE annual_targets
+                                    SET annual_target{target_num_to_calculate}=?, is_target{target_num_to_calculate}_manual=?
+                                    WHERE id=?""",
+                                (
+                                    calculated_value,
+                                    False,
+                                    target_entry["id"],
+                                ),  # Formula calculated value means not manual
+                            )
+                            conn_update_formula.commit()
+                        print(
+                            f"    SUCCESS: KPI {kpi_id_to_calc} T{target_num_to_calculate} calcolato con formula: {calculated_value}"
+                        )
+                        calculated_this_round_successfully.add(kpi_id_to_calc)
+                        made_progress_in_iteration = True
+                    except Exception as e_eval:
+                        print(
+                            f"    ERROR: Calcolo formula KPI {kpi_id_to_calc} T{target_num_to_calculate} fallito: {e_eval}. Formula: '{formula_str_db}', Inputs: {context_vars}"
+                        )
+                        next_pending_list.append(
+                            kpi_id_to_calc
+                        )  # Retry if error during eval
+                else:
+                    next_pending_list.append(
+                        kpi_id_to_calc
+                    )  # Defer if inputs not ready
+
+            kpis_pending_formula = [
+                kpi
+                for kpi in next_pending_list
+                if kpi not in calculated_this_round_successfully
+            ]
+
+            if not made_progress_in_iteration and kpis_pending_formula:
+                print(
+                    f"    WARN: Nessun progresso nel calcolo formule per Target {target_num_to_calculate} nell'iterazione {iteration + 1}. KPI pendenti: {kpis_pending_formula}. Possibile dipendenza circolare o dati mancanti."
+                )
+                break
+
+        if kpis_pending_formula:
+            print(
+                f"    WARN: Calcolo formula per Target {target_num_to_calculate} non completato per tutti i KPI dopo {MAX_ITERATIONS} iterazioni. KPI pendenti: {kpis_pending_formula}"
+            )
+            for unresolved_kpi_id in kpis_pending_formula:
+                print(
+                    f"      - KPI {unresolved_kpi_id} (Target {target_num_to_calculate}) non risolto."
+                )
+
+    # Phase 3: Master/Sub KPI distribution
     masters_to_re_evaluate = set()
     if initiator_kpi_spec_id:
         role_info = data_retriever.get_kpi_role_details(initiator_kpi_spec_id)
         if role_info["role"] == "master":
             masters_to_re_evaluate.add(initiator_kpi_spec_id)
-        elif role_info["role"] == "sub" and role_info["master_id"]:
+        elif role_info["role"] == "sub" and role_info.get(
+            "master_id"
+        ):  # Check if master_id exists
             masters_to_re_evaluate.add(role_info["master_id"])
 
-    for kpi_spec_id_str in targets_data_map.keys():
-        try:
-            kpi_id = int(kpi_spec_id_str)
-            role_info = data_retriever.get_kpi_role_details(kpi_id)
-            if role_info["role"] == "master":
-                masters_to_re_evaluate.add(kpi_id)
-        except ValueError:
-            continue
+    all_kpi_ids_in_map_or_formula = (
+        {int(k) for k in targets_data_map.keys()}
+        .union(kpis_with_formula_target1)
+        .union(kpis_with_formula_target2)
+    )
+    for kpi_id_eval in all_kpi_ids_in_map_or_formula:
+        role_info = data_retriever.get_kpi_role_details(kpi_id_eval)
+        if role_info["role"] == "master":
+            masters_to_re_evaluate.add(kpi_id_eval)
+        elif role_info["role"] == "sub" and role_info.get("master_id"):
+            masters_to_re_evaluate.add(role_info["master_id"])
 
     for master_kpi_id in masters_to_re_evaluate:
         print(f"  Valutazione Master KPI per distribuzione pesata: {master_kpi_id}")
@@ -1166,9 +1526,6 @@ def save_annual_targets(
             )
             continue
 
-        # Fetch sub KPIs with their weights
-        # data_retriever.get_sub_kpis_for_master now needs to return {'sub_kpi_spec_id': id, 'weight': weight}
-        # For now, we'll do a direct query here to get weights to avoid changing data_retriever yet.
         sub_kpi_links_of_this_master_with_weights = []
         raw_sub_kpi_ids = data_retriever.get_sub_kpis_for_master(master_kpi_id)
         if raw_sub_kpi_ids:
@@ -1190,83 +1547,96 @@ def save_annual_targets(
                         sub_kpi_links_of_this_master_with_weights.append(
                             {
                                 "sub_kpi_spec_id": sub_kpi_id_raw,
-                                "weight": 1.0,  # Fallback weight
-                            }
+                                "weight": 1.0,
+                            }  # Fallback weight
                         )
 
         if not sub_kpi_links_of_this_master_with_weights:
-            print(
-                f"    Master KPI {master_kpi_id} non ha SubKPI collegati (o pesi non trovati)."
-            )
             continue
 
-        print(
-            f"    Master KPI {master_kpi_id} ha SubKPIs con pesi: {sub_kpi_links_of_this_master_with_weights}"
-        )
-
         for target_num_to_process in [1, 2]:
-            master_target_value = master_target_entry[
-                f"annual_target{target_num_to_process}"
-            ]
+            try:
+                master_target_value = master_target_entry[
+                    f"annual_target{target_num_to_process}"
+                ]
+                if master_target_value is None:
+                    continue  # Master target not set
+            except KeyError:
+                print(
+                    f"    WARN: Campo annual_target{target_num_to_process} mancante per Master KPI {master_kpi_id}."
+                )
+                continue
 
-            sum_of_manual_sub_targets = 0.0
-            non_manual_sub_kpis_for_this_target = (
-                []
-            )  # Stores {'id': sub_kpi_id, 'weight': weight}
+            sum_of_manual_or_formula_sub_targets = 0.0
+            non_manual_sub_kpis_for_this_target = []
             total_weight_for_distribution = 0.0
 
             for sub_link_info in sub_kpi_links_of_this_master_with_weights:
                 sub_kpi_id = sub_link_info["sub_kpi_spec_id"]
                 sub_kpi_weight = sub_link_info["weight"]
                 if not isinstance(sub_kpi_weight, (int, float)) or sub_kpi_weight <= 0:
-                    print(
-                        f"      WARN: SubKPI {sub_kpi_id} (master {master_kpi_id}) ha peso non valido ({sub_kpi_weight}). Usato 1.0 per calcolo."
-                    )
                     sub_kpi_weight = 1.0
 
                 sub_target_entry = data_retriever.get_annual_target_entry(
                     year, stabilimento_id, sub_kpi_id
                 )
-                sub_is_manual_this_target = False
-                sub_target_value_this_target = 0.0
+                (
+                    sub_target_value_this_target,
+                    is_sub_manual_this_target,
+                    is_sub_formula_based_this_target,
+                ) = (0.0, False, False)
 
                 if sub_target_entry:
-                    sub_is_manual_this_target = bool(
-                        sub_target_entry[f"is_target{target_num_to_process}_manual"]
-                    )
-                    sub_target_value_this_target = sub_target_entry[
-                        f"annual_target{target_num_to_process}"
-                    ]
+                    try:
+                        sub_target_value_this_target = (
+                            sub_target_entry[f"annual_target{target_num_to_process}"]
+                            or 0.0
+                        )
+                    except KeyError:
+                        sub_target_value_this_target = 0.0
+                    try:
+                        is_sub_manual_this_target = bool(
+                            sub_target_entry[f"is_target{target_num_to_process}_manual"]
+                        )
+                    except KeyError:
+                        is_sub_manual_this_target = (
+                            True  # Default to manual if flag missing
+                        )
+                    try:
+                        is_sub_formula_based_this_target = bool(
+                            sub_target_entry[
+                                f"target{target_num_to_process}_is_formula_based"
+                            ]
+                        )
+                    except KeyError:
+                        is_sub_formula_based_this_target = False
 
-                if sub_is_manual_this_target:
-                    sum_of_manual_sub_targets += sub_target_value_this_target
-                else:
+                if is_sub_formula_based_this_target:  # Formula takes precedence
+                    sum_of_manual_or_formula_sub_targets += float(
+                        sub_target_value_this_target
+                    )
+                elif is_sub_manual_this_target:  # Then manual
+                    sum_of_manual_or_formula_sub_targets += float(
+                        sub_target_value_this_target
+                    )
+                else:  # Eligible for derivation
                     non_manual_sub_kpis_for_this_target.append(
                         {"id": sub_kpi_id, "weight": sub_kpi_weight}
                     )
                     total_weight_for_distribution += sub_kpi_weight
 
             remaining_target_for_distribution = (
-                master_target_value - sum_of_manual_sub_targets
+                float(master_target_value) - sum_of_manual_or_formula_sub_targets
             )
 
-            print(
-                f"    Target {target_num_to_process} per Master {master_kpi_id}: Val={master_target_value}, SommaManSub={sum_of_manual_sub_targets}, Rimanente={remaining_target_for_distribution}, NumNonManSub={len(non_manual_sub_kpis_for_this_target)}, TotPesoNonMan={total_weight_for_distribution}"
-            )
-
-            if (
-                non_manual_sub_kpis_for_this_target
-            ):  # Check if there are any non-manual subs
+            if non_manual_sub_kpis_for_this_target:
                 with sqlite3.connect(DB_TARGETS) as conn_update_subs:
                     cursor_update_subs = conn_update_subs.cursor()
                     for sub_info_to_derive in non_manual_sub_kpis_for_this_target:
                         sub_kpi_id_to_derive = sub_info_to_derive["id"]
                         sub_weight = sub_info_to_derive["weight"]
                         value_for_this_sub = 0.0
-
-                        if (
-                            total_weight_for_distribution > 1e-9
-                        ):  # Avoid division by zero if all weights are zero
+                        if total_weight_for_distribution > 1e-9:
                             value_for_this_sub = (
                                 sub_weight / total_weight_for_distribution
                             ) * remaining_target_for_distribution
@@ -1274,16 +1644,10 @@ def save_annual_targets(
                             remaining_target_for_distribution != 0
                             and len(non_manual_sub_kpis_for_this_target) > 0
                         ):
-                            # Fallback: if total weight is zero (or very small) but there's target to distribute, split equally
                             value_for_this_sub = (
                                 remaining_target_for_distribution
                                 / len(non_manual_sub_kpis_for_this_target)
                             )
-                            print(
-                                f"      WARN: Totale pesi per subKPIs non manuali di Master {master_kpi_id} è 0 (o troppo piccolo). "
-                                f"Ripartizione equa per Target {target_num_to_process} tra {len(non_manual_sub_kpis_for_this_target)} subKPIs."
-                            )
-                        # If remaining_target_for_distribution is also 0, value_for_this_sub remains 0.0
 
                         sub_record_derive = data_retriever.get_annual_target_entry(
                             year, stabilimento_id, sub_kpi_id_to_derive
@@ -1292,77 +1656,106 @@ def save_annual_targets(
                         manual_flag_col_to_update = (
                             f"is_target{target_num_to_process}_manual"
                         )
+                        formula_flag_col_to_update = (
+                            f"target{target_num_to_process}_is_formula_based"
+                        )
 
                         if sub_record_derive:
+                            # When deriving from master, it's not manual and not formula-based itself
                             cursor_update_subs.execute(
-                                f"""UPDATE annual_targets SET {target_col_to_update}=?, {manual_flag_col_to_update}=?
+                                f"""UPDATE annual_targets SET {target_col_to_update}=?, {manual_flag_col_to_update}=?, {formula_flag_col_to_update}=?
                                     WHERE id=?""",
-                                (value_for_this_sub, False, sub_record_derive["id"]),
+                                (
+                                    value_for_this_sub,
+                                    False,
+                                    False,
+                                    sub_record_derive["id"],
+                                ),
                             )
                         else:
-                            default_repart_logic = REPARTITION_LOGIC_ANNO
-                            default_repart_values = "{}"
-                            default_dist_profile = PROFILE_ANNUAL_PROGRESSIVE
-                            default_profile_params = "{}"
-                            other_target_num = 1 if target_num_to_process == 2 else 2
-                            other_target_val = 0.0
-                            other_manual_flag = True
+                            # Prepare values for other target if inserting new row
+                            other_target_num_val = (
+                                1 if target_num_to_process == 2 else 2
+                            )
+                            default_val_other_target = 0.0
+                            default_manual_other_target = True
+                            default_formula_other_target = False
+
+                            cols = f"""year, stabilimento_id, kpi_id,
+                                        annual_target{target_num_to_process}, is_target{target_num_to_process}_manual, target{target_num_to_process}_is_formula_based,
+                                        annual_target{other_target_num_val}, is_target{other_target_num_val}_manual, target{other_target_num_val}_is_formula_based,
+                                        repartition_logic, repartition_values, distribution_profile, profile_params"""
+                            placeholders = (
+                                "?,?,?, ?,?,? ,?,?,? ,?,?,?,?"  # 13 placeholders
+                            )
+                            values_to_insert = (
+                                year,
+                                stabilimento_id,
+                                sub_kpi_id_to_derive,
+                                value_for_this_sub,
+                                False,
+                                False,  # Current target being derived
+                                default_val_other_target,
+                                default_manual_other_target,
+                                default_formula_other_target,  # Other target defaults
+                                REPARTITION_LOGIC_ANNO,
+                                "{}",
+                                PROFILE_ANNUAL_PROGRESSIVE,
+                                "{}",  # Default repart/profile
+                            )
                             cursor_update_subs.execute(
-                                """INSERT INTO annual_targets 
-                                   (year, stabilimento_id, kpi_id, annual_target1, annual_target2, 
-                                    repartition_logic, repartition_values, distribution_profile, profile_params,
-                                    is_target1_manual, is_target2_manual) 
-                                   VALUES (?,?,?, ?,?, ?,?,?,?, ?,?)""",
-                                (
-                                    year,
-                                    stabilimento_id,
-                                    sub_kpi_id_to_derive,
-                                    (
-                                        value_for_this_sub
-                                        if target_num_to_process == 1
-                                        else other_target_val
-                                    ),
-                                    (
-                                        value_for_this_sub
-                                        if target_num_to_process == 2
-                                        else other_target_val
-                                    ),
-                                    default_repart_logic,
-                                    default_repart_values,
-                                    default_dist_profile,
-                                    default_profile_params,
-                                    (
-                                        False
-                                        if target_num_to_process == 1
-                                        else other_manual_flag
-                                    ),
-                                    (
-                                        False
-                                        if target_num_to_process == 2
-                                        else other_manual_flag
-                                    ),
-                                ),
+                                f"INSERT INTO annual_targets ({cols}) VALUES ({placeholders})",
+                                values_to_insert,
                             )
                         kpis_needing_repartition_update.add(sub_kpi_id_to_derive)
                         print(
-                            f"      SubKPI {sub_kpi_id_to_derive} Target {target_num_to_process} derivato (peso {sub_weight}): {value_for_this_sub}"
+                            f"      SubKPI {sub_kpi_id_to_derive} T{target_num_to_process} derivato (da master, peso {sub_weight}): {value_for_this_sub}"
                         )
                     conn_update_subs.commit()
 
+    # Phase 4: Calculate and save repartitions for all affected KPIs
     print(
         f"  KPIs che necessitano ricalcolo ripartizione: {kpis_needing_repartition_update}"
     )
     for kpi_id_recalc in kpis_needing_repartition_update:
-        calculate_and_save_all_repartitions(year, stabilimento_id, kpi_id_recalc, 1)
-        calculate_and_save_all_repartitions(year, stabilimento_id, kpi_id_recalc, 2)
+        target_entry_check = data_retriever.get_annual_target_entry(
+            year, stabilimento_id, kpi_id_recalc
+        )
+        if target_entry_check:
+            # --- START CORRECTION for AttributeError in Phase 4 ---
+            annual_target1_exists_and_not_none = False
+            try:
+                if (
+                    "annual_target1" in target_entry_check.keys()
+                    and target_entry_check["annual_target1"] is not None
+                ):
+                    annual_target1_exists_and_not_none = True
+            except (
+                KeyError
+            ):  # Should ideally not happen if keys() check is done, but for safety
+                pass
 
-    #try:
-    #    if hasattr(export_manager, "export_all_data_to_global_csvs"):
-    #        export_manager.export_all_data_to_global_csvs(str(CSV_EXPORT_BASE_PATH))
-    #    else:
-    #        print("Funzione export_manager.export_all_data_to_global_csvs non trovata.")
-    #except Exception as e:
-    #    print(f"ERRORE CRITICO durante la generazione dei CSV globali: {e}")
+            if annual_target1_exists_and_not_none:
+                calculate_and_save_all_repartitions(
+                    year, stabilimento_id, kpi_id_recalc, 1
+                )
+
+            annual_target2_exists_and_not_none = False
+            try:
+                if (
+                    "annual_target2" in target_entry_check.keys()
+                    and target_entry_check["annual_target2"] is not None
+                ):
+                    annual_target2_exists_and_not_none = True
+            except KeyError:
+                pass
+
+            if annual_target2_exists_and_not_none:
+                calculate_and_save_all_repartitions(
+                    year, stabilimento_id, kpi_id_recalc, 2
+                )
+            # --- END CORRECTION for AttributeError in Phase 4 ---
+
     print(f"Fine save_annual_targets per Anno: {year}, Stab: {stabilimento_id}")
 
 

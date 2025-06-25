@@ -67,6 +67,31 @@ def get_kpi_display_name_st(kpi_data_row):  # Simplified version for Streamlit i
     i_name = kpi_data_row.get("indicator_name", "N/I")
     return f"{g_name} > {sg_name} > {i_name}"
 
+# Add this function or integrate into an existing refresh mechanism
+def refresh_all_kpi_cache_for_formula_dialog():
+    """Populates/updates the cache of all KPIs for formula input selection."""
+    try:
+        all_kpis = dr.get_all_kpis_detailed(
+            only_visible=False
+        )  # Get all, visible or not, for dependencies
+        st.session_state.all_kpis_for_formula_selection_cache_st = {
+            kpi["id"]: get_kpi_display_name(dict(kpi))
+            for kpi in all_kpis
+            if kpi and "id" in kpi.keys()
+        }
+        # st.write(f"DEBUG: Cached {len(st.session_state.all_kpis_for_formula_selection_cache_st)} KPIs for formula dialog.")
+    except Exception as e:
+        st.error(f"Errore durante l'aggiornamento della cache KPI per le formule: {e}")
+        st.session_state.all_kpis_for_formula_selection_cache_st = {}
+
+
+# Call this during initial setup and potentially when KPI structure changes
+if "all_kpis_for_formula_selection_cache_st" not in st.session_state:
+    refresh_all_kpi_cache_for_formula_dialog()
+
+    # --- Define ALL Callbacks and Helper functions for this tab at this top level ---
+    # ... (on_master_target_ui_change_st, on_sub_manual_flag_ui_change_st, initial_master_sub_ui_distribution_st) ...
+    # ... These existing helper functions might need minor tweaks to interact with the new formula flags ...
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(layout="wide", page_title="Gestione Target KPI", page_icon="🎯")
@@ -114,7 +139,9 @@ if "initialized" not in st.session_state:
 
     st.session_state.kpi_target_inputs = {}
     st.session_state._master_sub_update_active_st = False
-
+    st.session_state.formula_input_dialog_open_for = (
+        None  # Tracks {kpi_id}_{target_num} for modal
+    )
     # Results Tab
     st.session_state.results_year = str(datetime.datetime.now().year)
     st.session_state.results_stabilimento_id = None
@@ -124,6 +151,10 @@ if "initialized" not in st.session_state:
     st.session_state.results_subgroup_id = None
     st.session_state.results_indicator_actual_id = None
     st.session_state.results_kpi_spec_id = None
+    st.session_state.current_formula_inputs_temp = []  # Temp storage for dialog inputs
+    # Cache for all KPI spec details for formula input dialog
+    # Format: {kpi_spec_id: "display_name"}
+    st.session_state.all_kpis_for_formula_selection_cache_st = {}
 
 
 # --- Constants for UI ---
@@ -259,67 +290,84 @@ with tab_stabilimenti:
 
         if current_editing_data_stab:
             st.subheader(f"Modifica Stabilimento: {current_editing_data_stab['name']}")
-            form_key_stab = f"stabilimento_form_edit_{current_editing_data_stab['id']}"
+            # form_key_stab = f"stabilimento_form_edit_{current_editing_data_stab['id']}" # Not strictly needed if using consistent input keys
             button_text_stab = "Salva Modifiche"
             initial_name_stab = current_editing_data_stab["name"]
+            # Assuming 'description' is also part of current_editing_data_stab if the table has it
+            initial_description_stab = current_editing_data_stab.get("description", "")
             initial_visible_stab = bool(current_editing_data_stab["visible"])
             editing_id_stab = current_editing_data_stab["id"]
         else:
             st.subheader("Aggiungi Nuovo Stabilimento")
-            form_key_stab = "stabilimento_form_new"  # Reset key for new form
+            # form_key_stab = "stabilimento_form_new"
             button_text_stab = "Aggiungi Stabilimento"
             initial_name_stab = ""
+            initial_description_stab = ""  # For the new description field
             initial_visible_stab = True
             editing_id_stab = None
 
-        # Use a consistent key for the form itself, but inputs inside can be dynamic if needed
-        with st.form(key="stabilimento_master_form", clear_on_submit=False):
-            stab_name_input = st.text_input(
+        # Use a consistent key for the form itself
+        with st.form(
+            key="stabilimento_master_form",
+            clear_on_submit=True if not editing_id_stab else False,
+        ):
+            stab_name_input_val = st.text_input(  # Changed variable name for clarity
                 "Nome Stabilimento",
-                value=initial_name_stab,  # This will update when current_editing_data_stab changes
-                key="stab_name_input_field",  # Consistent key for the input field
+                value=initial_name_stab,
+                key="stab_name_input_field",  # Consistent key
             )
-            stab_visible_input = st.checkbox(
+            stab_description_input_val = st.text_area(  # ADDED/ENSURED DESCRIPTION FIELD
+                "Descrizione Stabilimento",  # You can make it optional in prompt if needed
+                value=initial_description_stab,
+                key="stab_description_input_field",  # Consistent key
+                height=100,
+            )
+            stab_visible_input_val = st.checkbox(  # Changed variable name for clarity
                 "Visibile per Inserimento Target",
-                value=initial_visible_stab,  # This will update
-                key="stab_visible_input_field",  # Consistent key for the input field
+                value=initial_visible_stab,
+                key="stab_visible_input_field",  # Consistent key
             )
 
             submitted_stabilimento_form = st.form_submit_button(button_text_stab)
 
             if submitted_stabilimento_form:
-                # Read current values from input widgets
-                actual_stab_name = st.session_state.stab_name_input_field
-                actual_stab_visible = st.session_state.stab_visible_input_field
+                # Read current values directly from the input variables returned by widgets
+                actual_stab_name = stab_name_input_val
+                actual_stab_description = (
+                    stab_description_input_val  # GET THE DESCRIPTION
+                )
+                actual_stab_visible = stab_visible_input_val
 
                 if not actual_stab_name.strip():
                     st.error("Il nome dello stabilimento è obbligatorio.")
                 else:
                     try:
-                        if (
-                            editing_id_stab is not None
-                        ):  # In "Edit" mode (derived from current_editing_data_stab)
+                        if editing_id_stab is not None:  # In "Edit" mode
+                            # Ensure db_manager.update_stabilimento also expects description if the table schema changed
                             db_manager.update_stabilimento(
                                 editing_id_stab,
                                 actual_stab_name.strip(),
+                                actual_stab_description.strip(),  # Pass description
                                 actual_stab_visible,
                             )
                             st.success(
                                 f"Stabilimento '{actual_stab_name.strip()}' aggiornato."
                             )
-                        else:  # "Add" mode
+                        else:  # "Add" mode - THIS IS THE CORRECTED PART
+                            # CALL db_manager.add_stabilimento with the 3 expected arguments.
+                            # DO NOT pass a cursor. DO NOT manage conn/cursor here.
                             db_manager.add_stabilimento(
-                                actual_stab_name.strip(), actual_stab_visible
+                                actual_stab_name.strip(),
+                                actual_stab_description.strip(),  # Pass the description
+                                actual_stab_visible,
                             )
                             st.success(
                                 f"Stabilimento '{actual_stab_name.strip()}' aggiunto."
                             )
 
-                        st.session_state.editing_stabilimento = (
-                            None  # Reset editing state
-                        )
+                        st.session_state.editing_stabilimento = None
                         # No need to touch stabilimenti_df_selection_state here
-                        st.rerun()
+                        st.rerun()  # This will clear the form if clear_on_submit was True for "Add" mode
                     except sqlite3.IntegrityError:
                         st.error(
                             f"Errore: Uno stabilimento con nome '{actual_stab_name.strip()}' esiste già."
@@ -329,13 +377,13 @@ with tab_stabilimenti:
                         import traceback
 
                         st.error(traceback.format_exc())
+                        # NO conn.rollback() or conn.close() here; db_manager handles its own.
 
-        if current_editing_data_stab:  # Only show "Clear" if editing
+        if current_editing_data_stab:
             if st.button(
                 "Pulisci Form / Nuovo Stabilimento", key="clear_stab_form_button"
             ):
                 st.session_state.editing_stabilimento = None
-                # Clear the dataframe selection state as well
                 if "stabilimenti_df_selection_state" in st.session_state:
                     st.session_state.stabilimenti_df_selection_state = {
                         "selection": {"rows": []}
@@ -1029,244 +1077,242 @@ with tab_target:
     st.header("Inserimento Target Annuali e Ripartizione")
 
     # --- Define ALL Callbacks and Helper functions for this tab at this top level ---
-    def on_master_target_ui_change_st(master_id, target_num_str):
+    def _on_use_formula_toggle_st(kpi_id, target_num_str, key_suffix=""):
+        """
+        Callback for when 'Usa Formula TX' checkbox changes.
+        Updates the backing store and widget states.
+        """
+        target_num = int(target_num_str)
+        use_formula_key = f"kpi_entry_{kpi_id}_use_formula{target_num}{key_suffix}"
+        is_manual_key = f"kpi_entry_{kpi_id}_is_manual{target_num}{key_suffix}" # For sub-KPIs
+        # target_value_key = f"kpi_entry_{kpi_id}_target{target_num}{key_suffix}" # Not directly modified here
+
+        if kpi_id in st.session_state.kpi_target_inputs:
+            backing_store = st.session_state.kpi_target_inputs[kpi_id]
+            # The widget's state is already in st.session_state due to its key
+            is_using_formula_widget = st.session_state.get(use_formula_key, False)
+
+            backing_store[f"target{target_num}_is_formula_based"] = is_using_formula_widget
+
+            if is_using_formula_widget:
+                backing_store[f"is_manual{target_num}"] = False
+                # Reflect this in the session state for the manual checkbox widget if it exists
+                if is_manual_key in st.session_state:
+                    st.session_state[is_manual_key] = False # This should be okay as it's just setting a default for next render
+            else:
+                # If formula is turned OFF:
+                # For non-sub-KPIs, it becomes manual by default.
+                if not backing_store.get("is_sub_kpi", False):
+                    backing_store[f"is_manual{target_num}"] = True
+                    if is_manual_key in st.session_state: # Should not exist for non-sub
+                         st.session_state[is_manual_key] = True
+
+                # For sub-KPIs, its 'is_manual' state is determined by its own checkbox's current value.
+                # If it's a sub-KPI and formula is now OFF, it might need master-sub redistribution.
+                # This depends on whether its "Manuale TX" checkbox is also off.
+                if backing_store.get("is_sub_kpi") and backing_store.get("master_kpi_id"):
+                    is_now_manual_for_sub = st.session_state.get(is_manual_key, backing_store.get(f"is_manual{target_num}",True) )
+                    if not is_now_manual_for_sub: # If not manual and not formula, it's derived
+                        on_master_target_ui_change_st(backing_store["master_kpi_id"], str(target_num), key_suffix)
+        # st.rerun() # Often not needed if state change naturally leads to desired UI update on next pass
+
+    def on_master_target_ui_change_st(master_id, target_num_str, key_suffix=""):
+        """
+        Callback when a master KPI's target value changes in the UI.
+        Distributes the target to its non-manual/non-formula sub-KPIs.
+        Reads directly from widget states (st.session_state[widget_key]).
+        Updates sub-KPI widget states (st.session_state[sub_widget_key]) AND backing store.
+        """
         target_num = int(target_num_str)
         if st.session_state.get("_master_sub_update_active_st", False):
             return
         st.session_state._master_sub_update_active_st = True
         try:
-            master_data = st.session_state.kpi_target_inputs.get(master_id)
-            if not master_data or not master_data.get("is_master_kpi"):
+            master_backing_data = st.session_state.kpi_target_inputs.get(master_id)
+            if not master_backing_data or not master_backing_data.get("is_master_kpi"):
                 return
 
             master_widget_key_base = f"kpi_entry_{master_id}"
-            master_target_val_key_widget = (
-                f"{master_widget_key_base}_target{target_num}"
-            )
-            master_target_val = st.session_state.get(
-                master_target_val_key_widget,
-                master_data.get(f"target{target_num}", 0.0),
-            )
+            master_target_val_widget_key = f"{master_widget_key_base}_target{target_num}{key_suffix}"
+            # Get current value from the widget's state
+            master_target_val = st.session_state.get(master_target_val_widget_key, master_backing_data.get(f"target{target_num}", 0.0))
+            master_backing_data[f"target{target_num}"] = float(master_target_val) # Update backing store
 
-            sum_manual_sub_targets = 0.0
+
+            sum_manual_or_formula_sub_targets = 0.0
             non_manual_subs_for_dist = []
             total_weight_for_dist = 0.0
 
-            for sub_info in master_data.get("sub_kpis_with_weights", []):
+            for sub_info in master_backing_data.get("sub_kpis_with_weights", []):
                 sub_id = sub_info["sub_kpi_spec_id"]
                 sub_weight = sub_info.get("weight", 1.0)
-                sub_data_loop = st.session_state.kpi_target_inputs.get(sub_id)
+                sub_backing_data = st.session_state.kpi_target_inputs.get(sub_id)
 
-                if sub_data_loop and sub_data_loop.get("is_sub_kpi"):
-                    sub_widget_key_base = f"kpi_entry_{sub_id}"
-                    sub_is_manual_widget_key = (
-                        f"{sub_widget_key_base}_is_manual{target_num}"
-                    )
-                    sub_target_val_widget_key = (
-                        f"{sub_widget_key_base}_target{target_num}"
-                    )
+                if sub_backing_data and sub_backing_data.get("is_sub_kpi"):
+                    sub_widget_key_base_loop = f"kpi_entry_{sub_id}"
+                    sub_is_manual_widget_key = f"{sub_widget_key_base_loop}_is_manual{target_num}{key_suffix}"
+                    sub_target_val_widget_key = f"{sub_widget_key_base_loop}_target{target_num}{key_suffix}"
+                    sub_use_formula_widget_key = f"{sub_widget_key_base_loop}_use_formula{target_num}{key_suffix}"
 
-                    sub_is_manual_val = st.session_state.get(
-                        sub_is_manual_widget_key,
-                        sub_data_loop.get(f"is_manual{target_num}", True),
-                    )
-                    sub_target_val_current = st.session_state.get(
-                        sub_target_val_widget_key,
-                        sub_data_loop.get(f"target{target_num}", 0.0),
-                    )
+                    sub_is_using_formula = st.session_state.get(sub_use_formula_widget_key, sub_backing_data.get(f"target{target_num}_is_formula_based", False))
+                    sub_is_manual_val = st.session_state.get(sub_is_manual_widget_key, sub_backing_data.get(f"is_manual{target_num}", True))
+                    sub_target_val_current = st.session_state.get(sub_target_val_widget_key, sub_backing_data.get(f"target{target_num}", 0.0))
 
-                    if sub_is_manual_val:
-                        sum_manual_sub_targets += float(sub_target_val_current)
+                    if sub_is_using_formula:
+                        sum_manual_or_formula_sub_targets += float(sub_target_val_current)
+                    elif sub_is_manual_val:
+                        sum_manual_or_formula_sub_targets += float(sub_target_val_current)
                     else:
-                        non_manual_subs_for_dist.append(
-                            {"id": sub_id, "weight": sub_weight}
-                        )
+                        non_manual_subs_for_dist.append({"id": sub_id, "weight": sub_weight})
                         total_weight_for_dist += sub_weight
 
-            remaining_target_for_dist = (
-                float(master_target_val) - sum_manual_sub_targets
-            )
+            remaining_target_for_dist = float(master_target_val) - sum_manual_or_formula_sub_targets
 
             for sub_to_update in non_manual_subs_for_dist:
                 sub_id_update = sub_to_update["id"]
                 s_weight = sub_to_update["weight"]
                 value_for_this_sub = 0.0
                 if total_weight_for_dist > 1e-9:
-                    value_for_this_sub = (
-                        s_weight / total_weight_for_dist
-                    ) * remaining_target_for_dist
-                elif (
-                    remaining_target_for_dist != 0 and len(non_manual_subs_for_dist) > 0
-                ):
-                    value_for_this_sub = remaining_target_for_dist / len(
-                        non_manual_subs_for_dist
-                    )
+                    value_for_this_sub = (s_weight / total_weight_for_dist) * remaining_target_for_dist
+                elif remaining_target_for_dist != 0 and len(non_manual_subs_for_dist) > 0:
+                    value_for_this_sub = remaining_target_for_dist / len(non_manual_subs_for_dist)
 
-                sub_target_widget_key_update = (
-                    f"kpi_entry_{sub_id_update}_target{target_num}"
-                )
-                st.session_state[sub_target_widget_key_update] = round(
-                    value_for_this_sub, 2
-                )  # Update widget state for next render
+                sub_target_widget_key_update = f"kpi_entry_{sub_id_update}_target{target_num}{key_suffix}"
+                # Directly update the session state for the target widget of the sub-KPI
+                # This will make the number_input widget display the new value on the next rerun
+                st.session_state[sub_target_widget_key_update] = round(value_for_this_sub, 2)
+
 
                 if sub_id_update in st.session_state.kpi_target_inputs:
-                    st.session_state.kpi_target_inputs[sub_id_update][
-                        f"target{target_num}"
-                    ] = round(value_for_this_sub, 2)
-                    st.session_state.kpi_target_inputs[sub_id_update][
-                        f"is_manual{target_num}"
-                    ] = False
+                    st.session_state.kpi_target_inputs[sub_id_update][f"target{target_num}"] = round(value_for_this_sub, 2)
+                    st.session_state.kpi_target_inputs[sub_id_update][f"is_manual{target_num}"] = False
+                    st.session_state.kpi_target_inputs[sub_id_update][f"target{target_num}_is_formula_based"] = False
+                    # Update the manual checkbox widget state if it exists for this sub-KPI
+                    sub_manual_cb_key = f"kpi_entry_{sub_id_update}_is_manual{target_num}{key_suffix}"
+                    if sub_manual_cb_key in st.session_state:
+                        st.session_state[sub_manual_cb_key] = False
         finally:
             st.session_state._master_sub_update_active_st = False
 
-    def on_sub_manual_flag_ui_change_st(sub_id, target_num_str):
+    def on_sub_manual_flag_ui_change_st(sub_id, target_num_str, key_suffix=""):
         target_num = int(target_num_str)
-        if st.session_state.get("_master_sub_update_active_st", False):
+        if st.session_state.get("_master_sub_update_active_st", False): return
+
+        sub_backing_data = st.session_state.kpi_target_inputs.get(sub_id)
+        if not (sub_backing_data and sub_backing_data.get("is_sub_kpi") and sub_backing_data.get("master_kpi_id")):
             return
 
-        sub_data = st.session_state.kpi_target_inputs.get(sub_id)
-        if sub_data and sub_data.get("is_sub_kpi") and sub_data.get("master_kpi_id"):
-            master_id = sub_data["master_kpi_id"]
+        use_formula_widget_key = f"kpi_entry_{sub_id}_use_formula{target_num}{key_suffix}"
+        if st.session_state.get(use_formula_widget_key, False): # If formula is ON for this sub-target
+            manual_widget_key_self = f"kpi_entry_{sub_id}_is_manual{target_num}{key_suffix}"
+            # Force manual flag to False in both widget state and backing store
+            if manual_widget_key_self in st.session_state: st.session_state[manual_widget_key_self] = False
+            if sub_id in st.session_state.kpi_target_inputs:
+                 st.session_state.kpi_target_inputs[sub_id][f"is_manual{target_num}"] = False
+            return # Don't proceed with master/sub logic if formula is primary driver
 
-            sub_widget_key_base = f"kpi_entry_{sub_id}"
-            manual_flag_widget_key = f"{sub_widget_key_base}_is_manual{target_num}"
-            if sub_id in st.session_state.kpi_target_inputs:  # Update backing store
-                st.session_state.kpi_target_inputs[sub_id][f"is_manual{target_num}"] = (
-                    st.session_state.get(manual_flag_widget_key, True)
-                )
+        st.session_state._master_sub_update_active_st = True
+        try:
+            master_id = sub_backing_data["master_kpi_id"]
+            manual_flag_widget_key = f"kpi_entry_{sub_id}_is_manual{target_num}{key_suffix}"
 
-            on_master_target_ui_change_st(master_id, str(target_num))
+            if sub_id in st.session_state.kpi_target_inputs:
+                st.session_state.kpi_target_inputs[sub_id][f"is_manual{target_num}"] = st.session_state.get(manual_flag_widget_key, True)
+            
+            on_master_target_ui_change_st(master_id, str(target_num), key_suffix)
+        finally:
+            st.session_state._master_sub_update_active_st = False
 
-    def initial_master_sub_ui_distribution_st():
-        if st.session_state.get(
-            "_master_sub_update_active_st", False
-        ) or not st.session_state.get("kpi_target_inputs"):
+    def initial_master_sub_ui_distribution_st(key_suffix=""):
+        if st.session_state.get("_master_sub_update_active_st", False) or not st.session_state.get("kpi_target_inputs"):
             return
         st.session_state._master_sub_update_active_st = True
         try:
-            for (
-                kpi_id_master_init,
-                master_data_init,
-            ) in st.session_state.kpi_target_inputs.items():
+            for kpi_id_master_init, master_data_init in st.session_state.kpi_target_inputs.items():
                 if master_data_init.get("is_master_kpi"):
-                    on_master_target_ui_change_st(kpi_id_master_init, "1")
-                    on_master_target_ui_change_st(kpi_id_master_init, "2")
+                    on_master_target_ui_change_st(kpi_id_master_init, "1", key_suffix)
+                    on_master_target_ui_change_st(kpi_id_master_init, "2", key_suffix)
         finally:
             st.session_state._master_sub_update_active_st = False
 
     def load_kpi_data_for_target_entry():
-        # st.write("--- DEBUG: load_kpi_data_for_target_entry CALLED ---")
-        st.session_state.kpi_target_inputs = {}  # Reset the backing store
-        year_str = st.session_state.get(
-            "target_year_sb_filters", str(datetime.datetime.now().year)
-        )
+        st.session_state.kpi_target_inputs = {}
+        year_str = st.session_state.get("target_year_sb_filters", str(datetime.datetime.now().year))
         stab_name = st.session_state.get("target_stab_sb_filters")
 
-        if not year_str or not stab_name:
-            return
+        if not year_str or not stab_name: return
         try:
             year = int(year_str)
+            if 'stabilimenti_map_target_ui' not in globals() or not stabilimenti_map_target_ui:
+                stabilimenti_all_target_filters_temp = dr.get_all_stabilimenti(only_visible=True)
+                globals()['stabilimenti_map_target_ui'] = {s["name"]: s["id"] for s in stabilimenti_all_target_filters_temp}
             stabilimento_id = stabilimenti_map_target_ui.get(stab_name)
-            if stabilimento_id is None:
-                st.warning(f"ID Stabilimento non trovato per '{stab_name}'.")
-                return
-        except ValueError:
-            st.error(f"Anno non valido: {year_str}")
-            return
-        except Exception as e:
-            st.error(f"Errore preparazione caricamento target: {e}")
-            return
+            if stabilimento_id is None: return
+        except Exception: return
 
         kpis_for_entry = dr.get_all_kpis_detailed(only_visible=True)
-        if not kpis_for_entry:
-            st.warning("Nessun KPI (visibile) trovato.")
-            return
+        if not kpis_for_entry: return
 
-        for current_kpi_row in kpis_for_entry:
-            kpi_spec_id = current_kpi_row["id"]
-            if kpi_spec_id is None:
-                continue
-            existing_target_db_row = dr.get_annual_target_entry(
-                year, stabilimento_id, kpi_spec_id
-            )
+        for current_kpi_row_sqlite in kpis_for_entry:
+            current_kpi_row = dict(current_kpi_row_sqlite)
+            kpi_spec_id = current_kpi_row.get("id")
+            if kpi_spec_id is None: continue
+
+            existing_target_db_row_sqlite = dr.get_annual_target_entry(year, stabilimento_id, kpi_spec_id)
+            existing_target_db_row = dict(existing_target_db_row_sqlite) if existing_target_db_row_sqlite else None
             kpi_role_details = dr.get_kpi_role_details(kpi_spec_id)
-            def_t1, def_t2 = 0.0, 0.0
-            def_profile = PROFILE_ANNUAL_PROGRESSIVE
-            def_logic = REPARTITION_LOGIC_ANNO
-            def_repart_values_from_db = {}
-            def_profile_params_from_db = {}
-            def_is_manual1, def_is_manual2 = True, True
-            if existing_target_db_row:
-                try:  # Safely parse data from DB
-                    val_t1 = existing_target_db_row["annual_target1"]
-                    def_t1 = float(val_t1 if val_t1 is not None else 0.0)
-                    val_t2 = existing_target_db_row["annual_target2"]
-                    def_t2 = float(val_t2 if val_t2 is not None else 0.0)
-                    db_profile_val = existing_target_db_row["distribution_profile"]
-                    if (
-                        db_profile_val
-                        and db_profile_val in DISTRIBUTION_PROFILE_OPTIONS
-                    ):
-                        def_profile = db_profile_val
-                    def_logic = (
-                        existing_target_db_row["repartition_logic"]
-                        or REPARTITION_LOGIC_ANNO
-                    )
-                    val_manual1 = existing_target_db_row["is_target1_manual"]
-                    def_is_manual1 = (
-                        bool(val_manual1) if val_manual1 is not None else True
-                    )
-                    val_manual2 = existing_target_db_row["is_target2_manual"]
-                    def_is_manual2 = (
-                        bool(val_manual2) if val_manual2 is not None else True
-                    )
-                    repart_values_str = (
-                        existing_target_db_row["repartition_values"] or "{}"
-                    )
-                    def_repart_values_from_db = json.loads(repart_values_str)
-                    profile_params_str = (
-                        existing_target_db_row["profile_params"] or "{}"
-                    )
-                    def_profile_params_from_db = json.loads(profile_params_str)
-                except KeyError as e:
-                    st.warning(f"Colonna target mancante per KPI {kpi_spec_id}: {e}.")
-                except json.JSONDecodeError as e:
-                    st.warning(f"Errore JSON target per KPI {kpi_spec_id}: {e}.")
-                except Exception as e_row_access:
-                    st.error(
-                        f"Errore accesso riga target per KPI {kpi_spec_id}: {e_row_access}"
-                    )
-            try:  # Safely get KPI details
-                calc_type = current_kpi_row["calculation_type"]
-                unit_of_measure = (
-                    current_kpi_row["unit_of_measure"]
-                    if "unit_of_measure" in current_kpi_row.keys()
-                    else ""
-                )
-            except KeyError as e:
-                st.error(f"Colonna KPI mancante per {kpi_spec_id}: {e}")
-                calc_type = CALC_TYPE_INCREMENTALE
-                unit_of_measure = ""
 
-            # Populate the backing data store ONLY.
+            def_t1, def_t2 = 0.0, 0.0
+            def_profile, def_logic = PROFILE_ANNUAL_PROGRESSIVE, REPARTITION_LOGIC_ANNO
+            def_repart_values, def_profile_params = {}, {}
+            def_t1_is_formula, def_t1_formula, def_t1_inputs_json = False, "", "[]"
+            def_t2_is_formula, def_t2_formula, def_t2_inputs_json = False, "", "[]"
+            def_is_manual1, def_is_manual2 = True, True
+
+            if existing_target_db_row:
+                try:
+                    def_t1 = float(existing_target_db_row.get("annual_target1", 0.0) or 0.0)
+                    def_t2 = float(existing_target_db_row.get("annual_target2", 0.0) or 0.0)
+                    def_profile = existing_target_db_row.get("distribution_profile", PROFILE_ANNUAL_PROGRESSIVE) or PROFILE_ANNUAL_PROGRESSIVE
+                    if def_profile not in DISTRIBUTION_PROFILE_OPTIONS: def_profile = PROFILE_ANNUAL_PROGRESSIVE
+                    def_logic = existing_target_db_row.get("repartition_logic", REPARTITION_LOGIC_ANNO) or REPARTITION_LOGIC_ANNO
+                    
+                    def_t1_is_formula = bool(existing_target_db_row.get("target1_is_formula_based", False))
+                    def_t1_formula = existing_target_db_row.get("target1_formula", "") or ""
+                    def_t1_inputs_json = existing_target_db_row.get("target1_formula_inputs", "[]") or "[]"
+                    def_t2_is_formula = bool(existing_target_db_row.get("target2_is_formula_based", False))
+                    def_t2_formula = existing_target_db_row.get("target2_formula", "") or ""
+                    def_t2_inputs_json = existing_target_db_row.get("target2_formula_inputs", "[]") or "[]"
+
+                    def_is_manual1 = bool(existing_target_db_row.get("is_target1_manual", True)) if not def_t1_is_formula else False
+                    def_is_manual2 = bool(existing_target_db_row.get("is_target2_manual", True)) if not def_t2_is_formula else False
+                    
+                    def_repart_values = json.loads(existing_target_db_row.get("repartition_values", "{}") or "{}")
+                    def_profile_params = json.loads(existing_target_db_row.get("profile_params", "{}") or "{}")
+                except Exception as e: print(f"Error parsing DB row for KPI {kpi_spec_id}: {e}")
+
+            calc_type = current_kpi_row.get("calculation_type", CALC_TYPE_INCREMENTALE)
+            unit = current_kpi_row.get("unit_of_measure", "")
+
             st.session_state.kpi_target_inputs[kpi_spec_id] = {
-                "target1": def_t1,
-                "target2": def_t2,
-                "is_manual1": def_is_manual1,
-                "is_manual2": def_is_manual2,
-                "profile": def_profile,
-                "logic": def_logic,
-                "repartition_values_raw": def_repart_values_from_db,
-                "profile_params_raw": def_profile_params_from_db,
-                "calc_type": calc_type,
-                "unit_of_measure": unit_of_measure,
+                "target1": def_t1, "target2": def_t2,
+                "is_manual1": def_is_manual1, "is_manual2": def_is_manual2,
+                "profile": def_profile, "logic": def_logic,
+                "repartition_values_raw": def_repart_values,
+                "profile_params_raw": def_profile_params,
+                "calc_type": calc_type, "unit_of_measure": unit,
                 "is_sub_kpi": kpi_role_details["role"] == "sub",
                 "master_kpi_id": kpi_role_details.get("master_id"),
                 "is_master_kpi": kpi_role_details["role"] == "master",
                 "sub_kpis_with_weights": [],
-                "display_name": get_kpi_display_name(dict(current_kpi_row)),
+                "display_name": get_kpi_display_name(current_kpi_row),
+                "target1_is_formula_based": def_t1_is_formula,
+                "target1_formula": def_t1_formula,
+                "target1_formula_inputs_json": def_t1_inputs_json,
+                "target2_is_formula_based": def_t2_is_formula,
+                "target2_formula": def_t2_formula,
+                "target2_formula_inputs_json": def_t2_inputs_json,
             }
-            # DO NOT set st.session_state[widget_key] here. That's done by the widget's `value` param during render.
             if st.session_state.kpi_target_inputs[kpi_spec_id]["is_master_kpi"]:
                 sub_ids_raw = dr.get_sub_kpis_for_master(kpi_spec_id)
                 if sub_ids_raw:
@@ -1278,535 +1324,404 @@ with tab_target:
                                 (kpi_spec_id, sub_id_r),
                             ).fetchone()
                             if link_row:
-                                st.session_state.kpi_target_inputs[kpi_spec_id][
-                                    "sub_kpis_with_weights"
-                                ].append(
-                                    {
-                                        "sub_kpi_spec_id": link_row["sub_kpi_spec_id"],
-                                        "weight": link_row["distribution_weight"],
-                                    }
+                                st.session_state.kpi_target_inputs[kpi_spec_id]["sub_kpis_with_weights"].append(
+                                    {"sub_kpi_spec_id": link_row["sub_kpi_spec_id"], "weight": link_row["distribution_weight"]}
                                 )
-
-        initial_master_sub_ui_distribution_st()  # This will read from kpi_target_inputs and update widget states if needed.
-        # st.write("--- DEBUG: load_kpi_data_for_target_entry FINISHED ---")
+        
+        year_for_suffix = st.session_state.get("target_year_sb_filters", "")
+        stab_name_for_suffix = st.session_state.get("target_stab_sb_filters", "")
+        stab_id_for_suffix = stabilimenti_map_target_ui.get(stab_name_for_suffix, "") if 'stabilimenti_map_target_ui' in globals() else ""
+        suffix_for_initial_dist = f"_{year_for_suffix}_{stab_id_for_suffix}" if year_for_suffix and stab_id_for_suffix else ""
+        initial_master_sub_ui_distribution_st(suffix_for_initial_dist)
 
     # --- Filters ---
-    stabilimenti_all_target_filters = dr.get_all_stabilimenti(only_visible=True)
-    stabilimenti_map_target_ui = {
-        s["name"]: s["id"] for s in stabilimenti_all_target_filters
-    }
+    if 'stabilimenti_map_target_ui' not in globals(): # Initialize if not present
+        stabilimenti_all_target_filters_global_init = dr.get_all_stabilimenti(only_visible=True)
+        globals()['stabilimenti_map_target_ui'] = {s["name"]: s["id"] for s in stabilimenti_all_target_filters_global_init}
 
     target_filter_cols = st.columns([1, 2, 1])
     with target_filter_cols[0]:
-        year_options_filter = list(
-            range(datetime.datetime.now().year - 5, datetime.datetime.now().year + 6)
-        )
-        current_year_filter_val_str = st.session_state.get(
-            "target_year_sb_filters", str(datetime.datetime.now().year)
-        )
-        try:
-            default_year_idx_filter = year_options_filter.index(
-                int(current_year_filter_val_str)
-            )
-        except (ValueError, TypeError):
-            default_year_idx_filter = year_options_filter.index(
-                datetime.datetime.now().year
-            )
-        st.selectbox(
-            "Anno",
-            options=year_options_filter,
-            index=default_year_idx_filter,
-            key="target_year_sb_filters",
-            on_change=load_kpi_data_for_target_entry,
-        )
+        year_options_filter = [str(y) for y in range(datetime.datetime.now().year - 5, datetime.datetime.now().year + 6)]
+        current_year_filter_val_str = st.session_state.get("target_year_sb_filters", str(datetime.datetime.now().year))
+        st.selectbox("Anno", options=year_options_filter, index=year_options_filter.index(current_year_filter_val_str) if current_year_filter_val_str in year_options_filter else 0,
+                     key="target_year_sb_filters", on_change=load_kpi_data_for_target_entry)
 
     stabilimenti_names_target_filter = [""] + list(stabilimenti_map_target_ui.keys())
     with target_filter_cols[1]:
         current_stab_filter_val = st.session_state.get("target_stab_sb_filters")
-        try:
-            stab_idx_filter = (
-                stabilimenti_names_target_filter.index(current_stab_filter_val)
-                if current_stab_filter_val is not None
-                else 0
-            )
-        except ValueError:
-            stab_idx_filter = 0
-        st.selectbox(
-            "Stabilimento",
-            stabilimenti_names_target_filter,
-            index=stab_idx_filter,
-            key="target_stab_sb_filters",
-            on_change=load_kpi_data_for_target_entry,
-        )
+        st.selectbox("Stabilimento", stabilimenti_names_target_filter,
+                     index=stabilimenti_names_target_filter.index(current_stab_filter_val) if current_stab_filter_val in stabilimenti_names_target_filter else 0,
+                     key="target_stab_sb_filters", on_change=load_kpi_data_for_target_entry)
 
     with target_filter_cols[2]:
-        st.button(
-            "Ricarica Dati Target",
-            on_click=load_kpi_data_for_target_entry,
-            use_container_width=True,
-            key="reload_target_data_button_filters",
-        )
+        st.button("Ricarica Dati Target", on_click=load_kpi_data_for_target_entry, use_container_width=True, key="reload_target_data_button_filters")
 
     # --- Display KPI Target Entry Fields ---
     year_str_for_display_check = st.session_state.get("target_year_sb_filters")
     stab_name_for_display_check = st.session_state.get("target_stab_sb_filters")
     kpi_inputs_for_display = st.session_state.get("kpi_target_inputs")
 
-    if (
-        year_str_for_display_check
-        and stab_name_for_display_check
-        and kpi_inputs_for_display
-    ):
+    if not st.session_state.get("all_kpis_for_formula_selection_cache_st"):
+        refresh_all_kpi_cache_for_formula_dialog()
+
+    if year_str_for_display_check and stab_name_for_display_check and kpi_inputs_for_display:
         year_to_display = year_str_for_display_check
         stabilimento_to_display = stab_name_for_display_check
+        stab_id_for_key = stabilimenti_map_target_ui.get(stabilimento_to_display, "")
+        # IMPORTANT: Create a unique suffix for keys for this specific year/stabilimento context
+        key_suffix = f"_{year_to_display}_{stab_id_for_key}" if year_to_display and stab_id_for_key else f"_{datetime.datetime.now().timestamp()}"
+
 
         st.markdown("---")
         st.subheader(f"Target per {stabilimento_to_display} - Anno {year_to_display}")
 
-        sorted_kpi_ids = sorted(
-            kpi_inputs_for_display.keys(),
-            key=lambda kpi_id: kpi_inputs_for_display[kpi_id].get(
-                "display_name", str(kpi_id)
-            ),
-        )
+        sorted_kpi_ids = sorted(kpi_inputs_for_display.keys(), key=lambda kpi_id: kpi_inputs_for_display[kpi_id].get("display_name", str(kpi_id)))
 
         for kpi_spec_id in sorted_kpi_ids:
-            kpi_session_data = kpi_inputs_for_display[
-                kpi_spec_id
-            ]  # Data from backing store
-            key_base = f"kpi_entry_{kpi_spec_id}"
+            kpi_session_data = kpi_inputs_for_display[kpi_spec_id] # Data from backing store
+            key_base = f"kpi_entry_{kpi_spec_id}" # Base for widget keys
 
-            exp_label = f"{kpi_session_data.get('display_name', 'KPI N/D')} (ID Spec: {kpi_spec_id}, Unità: {kpi_session_data.get('unit_of_measure', 'N/D')}, Tipo: {kpi_session_data.get('calc_type', 'N/D')})"
-            prefix = ""
+            # Read current UI state for formula and manual flags using the unique key_suffix
+            use_formula1_widget_val = st.session_state.get(f"{key_base}_use_formula1{key_suffix}", kpi_session_data.get("target1_is_formula_based", False))
+            use_formula2_widget_val = st.session_state.get(f"{key_base}_use_formula2{key_suffix}", kpi_session_data.get("target2_is_formula_based", False))
+            
+            is_manual1_widget_val = use_formula1_widget_val is False and st.session_state.get(f"{key_base}_is_manual1{key_suffix}", kpi_session_data.get("is_manual1", True))
+            is_manual2_widget_val = use_formula2_widget_val is False and st.session_state.get(f"{key_base}_is_manual2{key_suffix}", kpi_session_data.get("is_manual2", True))
+
+
+            exp_label_prefix = ""
             if kpi_session_data.get("is_sub_kpi"):
-                is_manual1_ui = st.session_state.get(
-                    f"{key_base}_is_manual1", kpi_session_data.get("is_manual1", True)
-                )
-                is_manual2_ui = st.session_state.get(
-                    f"{key_base}_is_manual2", kpi_session_data.get("is_manual2", True)
-                )
-                if not is_manual1_ui or not is_manual2_ui:
-                    prefix = "⚙️ (Derivato) "
-                else:
-                    prefix = "✏️ (Manuale) "
+                if use_formula1_widget_val or use_formula2_widget_val: exp_label_prefix = "🧪 (Formula) "
+                elif not is_manual1_widget_val or not is_manual2_widget_val : exp_label_prefix = "⚙️ (Derivato) "
+                else: exp_label_prefix = "✏️ (Manuale) "
+            elif use_formula1_widget_val or use_formula2_widget_val: exp_label_prefix = "🧪 (Formula) "
+            else: exp_label_prefix = "✏️ (Manuale Def.) " # Default for master/standalone non-formula
+            
+            exp_label = f"{exp_label_prefix}{kpi_session_data.get('display_name', 'KPI N/D')} (ID Spec: {kpi_spec_id}, Unità: {kpi_session_data.get('unit_of_measure', 'N/D')}, Tipo: {kpi_session_data.get('calc_type', 'N/D')})"
 
-            with st.expander(prefix + exp_label):
-                col_t1, col_t2 = st.columns(2)
-                with col_t1:
-                    st.number_input(
-                        "Target 1",
-                        value=float(
-                            kpi_session_data.get("target1", 0.0)
-                        ),  # Value from backing store
-                        key=f"{key_base}_target1",
-                        format="%.2f",
-                        disabled=kpi_session_data.get("is_sub_kpi")
-                        and not kpi_session_data.get(
-                            "is_manual1", True
-                        ),  # Disable based on backing store initially
-                        on_change=(
-                            on_master_target_ui_change_st
-                            if kpi_session_data.get("is_master_kpi")
-                            else None
-                        ),
-                        args=(
-                            (kpi_spec_id, "1")
-                            if kpi_session_data.get("is_master_kpi")
-                            else None
-                        ),
-                    )
-                    if kpi_session_data.get("is_sub_kpi"):
-                        st.checkbox(
-                            "Manuale T1",
-                            value=kpi_session_data.get(
-                                "is_manual1", True
-                            ),  # Value from backing store
-                            key=f"{key_base}_is_manual1",
-                            on_change=on_sub_manual_flag_ui_change_st,
-                            args=(kpi_spec_id, "1"),
-                        )
-                with col_t2:
-                    st.number_input(
-                        "Target 2",
-                        value=float(
-                            kpi_session_data.get("target2", 0.0)
-                        ),  # Value from backing store
-                        key=f"{key_base}_target2",
-                        format="%.2f",
-                        disabled=kpi_session_data.get("is_sub_kpi")
-                        and not kpi_session_data.get(
-                            "is_manual2", True
-                        ),  # Disable based on backing store
-                        on_change=(
-                            on_master_target_ui_change_st
-                            if kpi_session_data.get("is_master_kpi")
-                            else None
-                        ),
-                        args=(
-                            (kpi_spec_id, "2")
-                            if kpi_session_data.get("is_master_kpi")
-                            else None
-                        ),
-                    )
-                    if kpi_session_data.get("is_sub_kpi"):
-                        st.checkbox(
-                            "Manuale T2",
-                            value=kpi_session_data.get(
-                                "is_manual2", True
-                            ),  # Value from backing store
-                            key=f"{key_base}_is_manual2",
-                            on_change=on_sub_manual_flag_ui_change_st,
-                            args=(kpi_spec_id, "2"),
-                        )
+            with st.expander(exp_label):
+                st.markdown("###### Target 1")
+                t1_row = st.columns([0.3, 0.15, 0.25, 0.9, 0.3]) # Value, Manual CB, Use Formula CB, Formula String, Define Button
+                with t1_row[0]:
+                    st.number_input("Valore T1", value=float(st.session_state.get(f"{key_base}_target1{key_suffix}",kpi_session_data.get("target1", 0.0))),
+                                    key=f"{key_base}_target1{key_suffix}", format="%.2f",
+                                    disabled=use_formula1_widget_val or (kpi_session_data.get("is_sub_kpi") and not is_manual1_widget_val),
+                                    on_change=on_master_target_ui_change_st if kpi_session_data.get("is_master_kpi") else None,
+                                    args=(kpi_spec_id, "1", key_suffix) if kpi_session_data.get("is_master_kpi") else (),
+                                    label_visibility="collapsed", placeholder="Target 1")
+                if kpi_session_data.get("is_sub_kpi"):
+                    with t1_row[1]:
+                        st.checkbox("Man. T1", value=is_manual1_widget_val, key=f"{key_base}_is_manual1{key_suffix}",
+                                    on_change=on_sub_manual_flag_ui_change_st, args=(kpi_spec_id, "1", key_suffix),
+                                    disabled=use_formula1_widget_val)
+                with t1_row[2]:
+                    st.checkbox("Formula T1", value=use_formula1_widget_val, key=f"{key_base}_use_formula1{key_suffix}",
+                                on_change=_on_use_formula_toggle_st, args=(kpi_spec_id, "1", key_suffix))
+                with t1_row[3]:
+                    st.text_input("Def. Formula T1", value=st.session_state.get(f"{key_base}_formula_str1{key_suffix}",kpi_session_data.get("target1_formula", "")),
+                                  key=f"{key_base}_formula_str1{key_suffix}",
+                                  disabled=not use_formula1_widget_val, placeholder="Es: KPI_A * 0.5 + KPI_B",
+                                  label_visibility="collapsed")
+                with t1_row[4]:
+                    if st.button("Input F.T1", key=f"{key_base}_btn_formula_inputs1{key_suffix}", disabled=not use_formula1_widget_val, use_container_width=True):
+                        st.session_state.formula_input_dialog_open_for = f"{kpi_spec_id}_1{key_suffix}"
+                        current_inputs_json = kpi_session_data.get("target1_formula_inputs_json", "[]")
+                        try: st.session_state.current_formula_inputs_temp = json.loads(current_inputs_json)
+                        except json.JSONDecodeError: st.session_state.current_formula_inputs_temp = []
+                        st.rerun()
 
-                profile_val_from_backing = kpi_session_data.get(
-                    "profile", PROFILE_ANNUAL_PROGRESSIVE
-                )
-                try:
-                    profile_idx = DISTRIBUTION_PROFILE_OPTIONS.index(
-                        profile_val_from_backing
-                    )
-                except ValueError:
-                    profile_idx = DISTRIBUTION_PROFILE_OPTIONS.index(
-                        PROFILE_ANNUAL_PROGRESSIVE
-                    )
-                st.selectbox(
-                    "Profilo Distribuzione",
-                    options=DISTRIBUTION_PROFILE_OPTIONS,
-                    index=profile_idx,
-                    key=f"{key_base}_profile",
-                )
+                st.markdown("###### Target 2")
+                t2_row = st.columns([0.3, 0.15, 0.25, 0.9, 0.3])
+                with t2_row[0]:
+                    st.number_input("Valore T2", value=float(st.session_state.get(f"{key_base}_target2{key_suffix}",kpi_session_data.get("target2", 0.0))),
+                                    key=f"{key_base}_target2{key_suffix}", format="%.2f",
+                                    disabled=use_formula2_widget_val or (kpi_session_data.get("is_sub_kpi") and not is_manual2_widget_val),
+                                    on_change=on_master_target_ui_change_st if kpi_session_data.get("is_master_kpi") else None,
+                                    args=(kpi_spec_id, "2", key_suffix) if kpi_session_data.get("is_master_kpi") else (),
+                                    label_visibility="collapsed", placeholder="Target 2")
+                if kpi_session_data.get("is_sub_kpi"):
+                    with t2_row[1]:
+                        st.checkbox("Man. T2", value=is_manual2_widget_val, key=f"{key_base}_is_manual2{key_suffix}",
+                                    on_change=on_sub_manual_flag_ui_change_st, args=(kpi_spec_id, "2", key_suffix),
+                                    disabled=use_formula2_widget_val)
+                with t2_row[2]:
+                    st.checkbox("Formula T2", value=use_formula2_widget_val, key=f"{key_base}_use_formula2{key_suffix}",
+                                on_change=_on_use_formula_toggle_st, args=(kpi_spec_id, "2", key_suffix))
+                with t2_row[3]:
+                    st.text_input("Def. Formula T2", value=st.session_state.get(f"{key_base}_formula_str2{key_suffix}", kpi_session_data.get("target2_formula", "")),
+                                  key=f"{key_base}_formula_str2{key_suffix}",
+                                  disabled=not use_formula2_widget_val, placeholder="Es: VAR_X + VAR_Y",
+                                  label_visibility="collapsed")
+                with t2_row[4]:
+                    if st.button("Input F.T2", key=f"{key_base}_btn_formula_inputs2{key_suffix}", disabled=not use_formula2_widget_val, use_container_width=True):
+                        st.session_state.formula_input_dialog_open_for = f"{kpi_spec_id}_2{key_suffix}"
+                        current_inputs_json = kpi_session_data.get("target2_formula_inputs_json", "[]")
+                        try: st.session_state.current_formula_inputs_temp = json.loads(current_inputs_json)
+                        except json.JSONDecodeError: st.session_state.current_formula_inputs_temp = []
+                        st.rerun()
+                
+                st.markdown("---")
+                profile_val_from_backing = kpi_session_data.get("profile", PROFILE_ANNUAL_PROGRESSIVE)
+                try: profile_idx = DISTRIBUTION_PROFILE_OPTIONS.index(profile_val_from_backing)
+                except ValueError: profile_idx = DISTRIBUTION_PROFILE_OPTIONS.index(PROFILE_ANNUAL_PROGRESSIVE)
+                st.selectbox("Profilo Distribuzione", options=DISTRIBUTION_PROFILE_OPTIONS, index=profile_idx, key=f"{key_base}_profile{key_suffix}")
 
-                current_profile_ui = st.session_state.get(
-                    f"{key_base}_profile", profile_val_from_backing
-                )  # Read widget's current state
-                show_logic_radios_ui = True
-                if current_profile_ui in [
-                    PROFILE_ANNUAL_PROGRESSIVE,
-                    PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-                    PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-                    PROFILE_EVEN,
-                    "event_based_spikes_or_dips",
-                ]:
-                    show_logic_radios_ui = False
+                current_profile_ui = st.session_state.get(f"{key_base}_profile{key_suffix}", profile_val_from_backing)
+                show_logic_radios_ui = not (current_profile_ui in [PROFILE_ANNUAL_PROGRESSIVE, PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS, PROFILE_TRUE_ANNUAL_SINUSOIDAL, PROFILE_EVEN, "event_based_spikes_or_dips"])
 
-                logic_val_from_backing = kpi_session_data.get(
-                    "logic", REPARTITION_LOGIC_ANNO
-                )
-                try:
-                    logic_idx = REPARTITION_LOGIC_OPTIONS.index(logic_val_from_backing)
-                except ValueError:
-                    logic_idx = REPARTITION_LOGIC_OPTIONS.index(REPARTITION_LOGIC_ANNO)
+                logic_val_from_backing = kpi_session_data.get("logic", REPARTITION_LOGIC_ANNO)
+                try: logic_idx = REPARTITION_LOGIC_OPTIONS.index(logic_val_from_backing)
+                except ValueError: logic_idx = REPARTITION_LOGIC_OPTIONS.index(REPARTITION_LOGIC_ANNO)
+
                 if show_logic_radios_ui:
-                    st.selectbox(
-                        "Logica Rip. Valori",
-                        options=REPARTITION_LOGIC_OPTIONS,
-                        index=logic_idx,
-                        key=f"{key_base}_logic",
-                    )
+                    st.selectbox("Logica Rip. Valori", options=REPARTITION_LOGIC_OPTIONS, index=logic_idx, key=f"{key_base}_logic{key_suffix}")
 
-                effective_logic_for_display = st.session_state.get(
-                    f"{key_base}_logic", logic_val_from_backing
-                )  # Read widget state or backing
-                if not show_logic_radios_ui:
-                    effective_logic_for_display = REPARTITION_LOGIC_ANNO
+                effective_logic_for_display = st.session_state.get(f"{key_base}_logic{key_suffix}", logic_val_from_backing) if show_logic_radios_ui else REPARTITION_LOGIC_ANNO
+                raw_repart_db_vals = kpi_session_data.get("repartition_values_raw", {})
 
-                raw_repart_db_vals = kpi_session_data.get(
-                    "repartition_values_raw", {}
-                )  # From backing store
-                if (
-                    effective_logic_for_display == REPARTITION_LOGIC_MESE
-                    and show_logic_radios_ui
-                ):
+                if effective_logic_for_display == REPARTITION_LOGIC_MESE and show_logic_radios_ui:
                     st.markdown("###### Valori Mensili (%)")
                     month_cols = st.columns(4)
                     months = [calendar.month_name[i] for i in range(1, 13)]
                     for i, month_name in enumerate(months):
                         with month_cols[i % 4]:
-                            # Use raw_repart_db_vals for initial value for these number_inputs
-                            default_month_val = raw_repart_db_vals.get(
-                                month_name,
-                                (
-                                    round(100 / 12, 2)
-                                    if kpi_session_data.get("calc_type")
-                                    == CALC_TYPE_INCREMENTALE
-                                    else 100.0
-                                ),
-                            )
-                            st.number_input(
-                                month_name[:3],
-                                value=float(default_month_val),
-                                format="%.2f",
-                                key=f"{key_base}_month_{i}",
-                            )
-                elif (
-                    effective_logic_for_display == REPARTITION_LOGIC_TRIMESTRE
-                    and show_logic_radios_ui
-                ):
+                            default_val = raw_repart_db_vals.get(month_name, (round(100 / 12, 2) if kpi_session_data.get("calc_type") == CALC_TYPE_INCREMENTALE else 100.0))
+                            st.number_input(month_name[:3], value=float(st.session_state.get(f"{key_base}_month_{i}{key_suffix}",default_val)), format="%.2f", key=f"{key_base}_month_{i}{key_suffix}")
+                elif effective_logic_for_display == REPARTITION_LOGIC_TRIMESTRE and show_logic_radios_ui:
                     st.markdown("###### Valori Trimestrali (%)")
                     q_cols = st.columns(4)
                     quarters = ["Q1", "Q2", "Q3", "Q4"]
                     for i, q_name in enumerate(quarters):
-                        with q_cols[i % 4]:
-                            default_q_val = raw_repart_db_vals.get(
-                                q_name,
-                                (
-                                    round(100 / 4, 2)
-                                    if kpi_session_data.get("calc_type")
-                                    == CALC_TYPE_INCREMENTALE
-                                    else 100.0
-                                ),
-                            )
-                            st.number_input(
-                                q_name,
-                                value=float(default_q_val),
-                                format="%.2f",
-                                key=f"{key_base}_q_{i}",
-                            )
-                elif (
-                    effective_logic_for_display == REPARTITION_LOGIC_SETTIMANA
-                    and show_logic_radios_ui
-                ):
+                        with q_cols[i%4]:
+                            default_val = raw_repart_db_vals.get(q_name, (round(100/4,2) if kpi_session_data.get("calc_type") == CALC_TYPE_INCREMENTALE else 100.0))
+                            st.number_input(q_name, value=float(st.session_state.get(f"{key_base}_q_{i}{key_suffix}",default_val)), format="%.2f", key=f"{key_base}_q_{i}{key_suffix}")
+                elif effective_logic_for_display == REPARTITION_LOGIC_SETTIMANA and show_logic_radios_ui:
                     st.markdown("###### Valori Settimanali (JSON)")
-                    weekly_json_val = (
-                        json.dumps(raw_repart_db_vals, indent=2)
-                        if isinstance(raw_repart_db_vals, dict)
-                        and any(k.count("-W") > 0 for k in raw_repart_db_vals.keys())
-                        else json.dumps({"Info": 'Es: {"2024-W01": 2.5}'}, indent=2)
-                    )
-                    st.text_area(
-                        "JSON Settimanale",
-                        value=weekly_json_val,
-                        height=100,
-                        key=f"{key_base}_weekly_json",
-                    )
+                    default_val = json.dumps(raw_repart_db_vals, indent=2) if isinstance(raw_repart_db_vals, dict) and any(k.count("-W") > 0 for k in raw_repart_db_vals.keys()) else json.dumps({"Info": 'Es: {"2024-W01": 2.5}'}, indent=2)
+                    st.text_area("JSON Settimanale", value=st.session_state.get(f"{key_base}_weekly_json{key_suffix}",default_val), height=100, key=f"{key_base}_weekly_json{key_suffix}")
 
                 if current_profile_ui == "event_based_spikes_or_dips":
                     st.markdown("###### Parametri Eventi (JSON)")
-                    profile_params_from_backing = kpi_session_data.get(
-                        "profile_params_raw", {}
-                    )
-                    event_json_val = json.dumps(
-                        profile_params_from_backing.get(
-                            "events",
-                            [
-                                {
-                                    "start_date": "YYYY-MM-DD",
-                                    "end_date": "YYYY-MM-DD",
-                                    "multiplier": 1.0,
-                                    "addition": 0.0,
-                                    "comment": "Esempio",
-                                }
-                            ],
-                        ),
-                        indent=2,
-                    )
-                    st.text_area(
-                        "JSON Eventi",
-                        value=event_json_val,
-                        height=120,
-                        key=f"{key_base}_event_json",
-                    )
+                    profile_params_from_backing = kpi_session_data.get("profile_params_raw", {})
+                    default_val = json.dumps(profile_params_from_backing.get("events", [{"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "multiplier": 1.0, "addition": 0.0, "comment": "Esempio"}]), indent=2)
+                    st.text_area("JSON Eventi", value=st.session_state.get(f"{key_base}_event_json{key_suffix}",default_val), height=120, key=f"{key_base}_event_json{key_suffix}")
+        
+        # --- Modal section for Formula Inputs (rendered outside the loop if active) ---
+        if st.session_state.get("formula_input_dialog_open_for"):
+            dialog_full_key = st.session_state.formula_input_dialog_open_for
+            dialog_kpi_id_str, dialog_target_num_str, *dialog_suffix_parts = dialog_full_key.split("_")
+            dialog_kpi_id = int(dialog_kpi_id_str)
+            dialog_target_num = int(dialog_target_num_str)
+            
+            dialog_kpi_data = st.session_state.kpi_target_inputs.get(dialog_kpi_id)
+
+            if dialog_kpi_data:
+                with st.container(border=True): 
+                    st.subheader(f"Definisci Input Formula per {dialog_kpi_data.get('display_name')} - Target {dialog_target_num}")
+                    
+                    kpi_options_for_dialog = st.session_state.get("all_kpis_for_formula_selection_cache_st", {})
+                    filtered_kpi_options = {kid: name for kid, name in kpi_options_for_dialog.items() if kid != dialog_kpi_id}
+                    
+                    modal_sel_kpi_key = f"temp_modal_kpi_sel_{dialog_kpi_id}_{dialog_target_num}"
+                    modal_target_source_key = f"temp_modal_target_source_sel_{dialog_kpi_id}_{dialog_target_num}"
+                    modal_var_name_key = f"temp_modal_var_name_{dialog_kpi_id}_{dialog_target_num}"
+
+                    if modal_sel_kpi_key not in st.session_state: st.session_state[modal_sel_kpi_key] = ""
+                    if modal_target_source_key not in st.session_state: st.session_state[modal_target_source_key] = "annual_target1"
+                    if modal_var_name_key not in st.session_state: st.session_state[modal_var_name_key] = ""
+                    
+                    selected_input_kpi_id_val = st.selectbox("Seleziona KPI Input", options=[""] + list(filtered_kpi_options.keys()),
+                                                             index= (list([""] + list(filtered_kpi_options.keys()))).index(st.session_state[modal_sel_kpi_key]) if st.session_state[modal_sel_kpi_key] in list([""]+list(filtered_kpi_options.keys())) else 0,
+                                                             format_func=lambda kid: filtered_kpi_options.get(kid, "Seleziona...") if kid else "Seleziona...",
+                                                             key=modal_sel_kpi_key)
+                    target_source_sel_val = st.selectbox("Sorgente Target del KPI Input", options=["annual_target1", "annual_target2"],
+                                                         index=["annual_target1", "annual_target2"].index(st.session_state[modal_target_source_key]),
+                                                         key=modal_target_source_key)
+                    variable_name_formula_val = st.text_input("Nome Variabile (in formula)", value=st.session_state[modal_var_name_key],
+                                                              key=modal_var_name_key, placeholder="Es: ValoreDaKPI_A").strip().replace(" ", "_")
+
+                    if st.button("➕ Aggiungi Input", key=f"formula_modal_add_btn_{dialog_kpi_id}_{dialog_target_num}"):
+                        if selected_input_kpi_id_val and target_source_sel_val and variable_name_formula_val:
+                            if not variable_name_formula_val.isidentifier(): st.warning("Nome variabile non valido.")
+                            elif any(item['variable_name'] == variable_name_formula_val for item in st.session_state.current_formula_inputs_temp):
+                                st.warning(f"Nome variabile '{variable_name_formula_val}' già in uso.")
+                            else:
+                                st.session_state.current_formula_inputs_temp.append({
+                                    "kpi_id": selected_input_kpi_id_val, "target_source": target_source_sel_val, "variable_name": variable_name_formula_val
+                                })
+                                if modal_sel_kpi_key in st.session_state:
+                                    del st.session_state[modal_sel_kpi_key]
+                                if modal_var_name_key in st.session_state:
+                                    del st.session_state[modal_var_name_key]
+                                st.rerun()
+                        else: st.warning("Completa tutti i campi per l'input.")
+
+                    st.markdown("**Input Correnti:**")
+                    if st.session_state.current_formula_inputs_temp:
+                        for i, item in enumerate(st.session_state.current_formula_inputs_temp):
+                            kpi_name_disp = kpi_options_for_dialog.get(item['kpi_id'], f"ID: {item['kpi_id']}")
+                            st.markdown(f"`{i+1}`: `{item['variable_name']}` = *{kpi_name_disp}*.`{item['target_source']}`")
+                        
+                        idx_to_remove_options = [""] + list(range(len(st.session_state.current_formula_inputs_temp)))
+                        idx_to_remove_key = f"formula_modal_remove_sel_{dialog_kpi_id}_{dialog_target_num}"
+                        idx_to_remove_val = st.selectbox("Rimuovi Input N.", options=idx_to_remove_options,
+                                                          format_func=lambda x: f"Input {x+1}" if isinstance(x, int) else "Seleziona...",
+                                                          key=idx_to_remove_key) # Widget instantiated here
+                        if st.button("➖ Rimuovi Selezionato", key=f"formula_modal_remove_btn_{dialog_kpi_id}_{dialog_target_num}"):
+                            if isinstance(idx_to_remove_val, int) and 0 <= idx_to_remove_val < len(st.session_state.current_formula_inputs_temp):
+                                st.session_state.current_formula_inputs_temp.pop(idx_to_remove_val)
+                                if idx_to_remove_key in st.session_state:
+                                    del st.session_state[idx_to_remove_key] # Problematic assignment (line 1554)
+                                st.rerun()
+                    else: st.caption("Nessun input definito.")
+                    
+                    st.markdown("---")
+                    modal_cols = st.columns(2)
+                    with modal_cols[0]:
+                        if st.button("✅ Conferma Input Formula", key=f"formula_modal_ok_btn_{dialog_kpi_id}_{dialog_target_num}", type="primary", use_container_width=True):
+                            inputs_json_str = json.dumps(st.session_state.current_formula_inputs_temp)
+                            st.session_state.kpi_target_inputs[dialog_kpi_id][f"target{dialog_target_num}_formula_inputs_json"] = inputs_json_str
+                            st.session_state.formula_input_dialog_open_for = None
+                            st.session_state.current_formula_inputs_temp = []
+                            if modal_sel_kpi_key in st.session_state:
+                                del st.session_state[modal_sel_kpi_key]
+                            if modal_var_name_key in st.session_state:
+                                del st.session_state[modal_var_name_key]
+                            if modal_target_source_key in st.session_state:
+                                del st.session_state[modal_target_source_key]
+                            st.rerun()
+                    with modal_cols[1]:
+                        if st.button("❌ Annulla", key=f"formula_modal_cancel_btn_{dialog_kpi_id}_{dialog_target_num}", use_container_width=True):
+                            st.session_state.formula_input_dialog_open_for = None
+                            st.session_state.current_formula_inputs_temp = []
+                            if modal_sel_kpi_key in st.session_state:
+                                del st.session_state[modal_sel_kpi_key]
+                            if modal_var_name_key in st.session_state:
+                                del st.session_state[modal_var_name_key]
+                            if modal_target_source_key in st.session_state:
+                                del st.session_state[modal_target_source_key]
+                            st.rerun()
 
         st.markdown("---")
-        if st.button(
-            "SALVA TUTTI I TARGET",
-            type="primary",
-            use_container_width=True,
-            key="save_all_targets_button_main",
-        ):
-            year_to_save_val = int(st.session_state.get("target_year_sb_filters"))
+        if st.button("SALVA TUTTI I TARGET", type="primary", use_container_width=True, key="save_all_targets_button_main"):
+            year_to_save_val_str = st.session_state.get("target_year_sb_filters")
             stab_name_to_save_val = st.session_state.get("target_stab_sb_filters")
-            stab_id_to_save_val = stabilimenti_map_target_ui.get(stab_name_to_save_val)
-
-            if not year_to_save_val or stab_id_to_save_val is None:
-                st.error("Anno o Stabilimento non validi per il salvataggio.")
+            
+            if not year_to_save_val_str or not stab_name_to_save_val :
+                st.error("Anno o Stabilimento non selezionati per il salvataggio.")
             else:
-                targets_to_save_for_db = {}
-                all_inputs_valid_save = True
-                for (
-                    kpi_id_save,
-                    kpi_data_sess_save,
-                ) in (
-                    st.session_state.kpi_target_inputs.items()
-                ):  # Iterate backing store
-                    key_base_save = f"kpi_entry_{kpi_id_save}"
-                    try:  # Read current values from widgets via session_state
-                        t1_val_save = st.session_state[f"{key_base_save}_target1"]
-                        t2_val_save = st.session_state[f"{key_base_save}_target2"]
-                    except KeyError:
-                        st.warning(
-                            f"Dati widget UI mancanti per KPI {kpi_id_save} durante salvataggio. Salto."
-                        )
-                        continue
+                year_to_save_val = int(year_to_save_val_str)
+                stab_id_to_save_val = stabilimenti_map_target_ui.get(stab_name_to_save_val)
+                if stab_id_to_save_val is None:
+                    st.error("ID Stabilimento non valido per il salvataggio.")
+                else:
+                    targets_to_save_for_db = {}
+                    all_inputs_valid_save = True
+                    # Use the same key_suffix that was used for rendering the widgets
+                    current_key_suffix_save = f"_{year_to_save_val}_{stab_id_to_save_val}"
 
-                    profile_save = st.session_state.get(
-                        f"{key_base_save}_profile", kpi_data_sess_save.get("profile")
-                    )
-                    is_manual1_save = st.session_state.get(
-                        f"{key_base_save}_is_manual1",
-                        kpi_data_sess_save.get("is_manual1", True),
-                    )
-                    is_manual2_save = st.session_state.get(
-                        f"{key_base_save}_is_manual2",
-                        kpi_data_sess_save.get("is_manual2", True),
-                    )
-
-                    repart_values_for_db_save, profile_params_for_db_save = {}, {}
-                    show_logic_radios_save_check = True
-                    if profile_save in [
-                        PROFILE_ANNUAL_PROGRESSIVE,
-                        PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-                        PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-                        PROFILE_EVEN,
-                        "event_based_spikes_or_dips",
-                    ]:
-                        show_logic_radios_save_check = False
-                    effective_logic_db_save = REPARTITION_LOGIC_ANNO
-                    if show_logic_radios_save_check:
-                        effective_logic_db_save = st.session_state.get(
-                            f"{key_base_save}_logic", kpi_data_sess_save.get("logic")
-                        )
-
-                    if (
-                        effective_logic_db_save == REPARTITION_LOGIC_MESE
-                        and show_logic_radios_save_check
-                    ):
-                        months_save = [calendar.month_name[i] for i in range(1, 13)]
-                        current_sum_percent = 0
-                        for i, month_name_save in enumerate(months_save):
-                            val = st.session_state.get(
-                                f"{key_base_save}_month_{i}", 0.0
-                            )
-                            repart_values_for_db_save[month_name_save] = float(val)
-                            current_sum_percent += float(val)
-                        if (
-                            kpi_data_sess_save.get("calc_type")
-                            == CALC_TYPE_INCREMENTALE
-                            and not (99.9 <= current_sum_percent <= 100.1)
-                            and (
-                                abs(float(t1_val_save)) > 1e-9
-                                or abs(float(t2_val_save)) > 1e-9
-                            )
-                        ):
-                            st.error(
-                                f"KPI {kpi_data_sess_save.get('display_name', kpi_id_save)}: Somma MESE {current_sum_percent:.2f}%. Deve essere 100%."
-                            )
-                            all_inputs_valid_save = False
-                            break
-                    elif (
-                        effective_logic_db_save == REPARTITION_LOGIC_TRIMESTRE
-                        and show_logic_radios_save_check
-                    ):
-                        quarters_save = ["Q1", "Q2", "Q3", "Q4"]
-                        current_sum_percent = 0
-                        for i, q_name_save in enumerate(quarters_save):
-                            val = st.session_state.get(f"{key_base_save}_q_{i}", 0.0)
-                            repart_values_for_db_save[q_name_save] = float(val)
-                            current_sum_percent += float(val)
-                        if (
-                            kpi_data_sess_save.get("calc_type")
-                            == CALC_TYPE_INCREMENTALE
-                            and not (99.9 <= current_sum_percent <= 100.1)
-                            and (
-                                abs(float(t1_val_save)) > 1e-9
-                                or abs(float(t2_val_save)) > 1e-9
-                            )
-                        ):
-                            st.error(
-                                f"KPI {kpi_data_sess_save.get('display_name', kpi_id_save)}: Somma TRIMESTRE {current_sum_percent:.2f}%. Deve essere 100%."
-                            )
-                            all_inputs_valid_save = False
-                            break
-                    elif (
-                        effective_logic_db_save == REPARTITION_LOGIC_SETTIMANA
-                        and show_logic_radios_save_check
-                    ):
-                        json_str_weekly = st.session_state.get(
-                            f"{key_base_save}_weekly_json", "{}"
-                        )
+                    for kpi_id_save, kpi_data_sess_save in st.session_state.kpi_target_inputs.items():
+                        key_base_save = f"kpi_entry_{kpi_id_save}"
                         try:
-                            repart_values_for_db_save = json.loads(json_str_weekly)
-                        except json.JSONDecodeError:
-                            st.error(
-                                f"KPI {kpi_data_sess_save.get('display_name', kpi_id_save)}: JSON settimanale non valido."
-                            )
-                            all_inputs_valid_save = False
-                            break
+                            t1_val_save = st.session_state.get(f"{key_base_save}_target1{current_key_suffix_save}", kpi_data_sess_save.get("target1", 0.0))
+                            t2_val_save = st.session_state.get(f"{key_base_save}_target2{current_key_suffix_save}", kpi_data_sess_save.get("target2", 0.0))
+                        except KeyError:
+                            st.error(f"Chiave widget mancante per KPI {kpi_id_save}. Impossibile salvare."); all_inputs_valid_save = False; break
+                        
+                        profile_save = st.session_state.get(f"{key_base_save}_profile{current_key_suffix_save}", kpi_data_sess_save.get("profile"))
+                        
+                        t1_use_formula_val_save = st.session_state.get(f"{key_base_save}_use_formula1{current_key_suffix_save}", kpi_data_sess_save.get("target1_is_formula_based", False))
+                        t1_formula_str_save = st.session_state.get(f"{key_base_save}_formula_str1{current_key_suffix_save}", kpi_data_sess_save.get("target1_formula", "")) if t1_use_formula_val_save else None
+                        t1_formula_inputs_json_save = kpi_data_sess_save.get("target1_formula_inputs_json", "[]") # Already in backing store
+                        try: t1_formula_inputs_py_save = json.loads(t1_formula_inputs_json_save)
+                        except json.JSONDecodeError: st.error(f"JSON T1 Input Formula corrotto per {kpi_id_save}"); all_inputs_valid_save=False; break
 
-                    if profile_save == "event_based_spikes_or_dips":
-                        json_str_event = st.session_state.get(
-                            f"{key_base_save}_event_json", "[]"
-                        )
+                        t2_use_formula_val_save = st.session_state.get(f"{key_base_save}_use_formula2{current_key_suffix_save}", kpi_data_sess_save.get("target2_is_formula_based", False))
+                        t2_formula_str_save = st.session_state.get(f"{key_base_save}_formula_str2{current_key_suffix_save}", kpi_data_sess_save.get("target2_formula", "")) if t2_use_formula_val_save else None
+                        t2_formula_inputs_json_save = kpi_data_sess_save.get("target2_formula_inputs_json", "[]")
+                        try: t2_formula_inputs_py_save = json.loads(t2_formula_inputs_json_save)
+                        except json.JSONDecodeError: st.error(f"JSON T2 Input Formula corrotto per {kpi_id_save}"); all_inputs_valid_save=False; break
+                        
+                        is_manual1_final_save = False if t1_use_formula_val_save else st.session_state.get(f"{key_base_save}_is_manual1{current_key_suffix_save}", kpi_data_sess_save.get("is_manual1", True))
+                        is_manual2_final_save = False if t2_use_formula_val_save else st.session_state.get(f"{key_base_save}_is_manual2{current_key_suffix_save}", kpi_data_sess_save.get("is_manual2", True))
+
+                        repart_values_for_db_save, profile_params_for_db_save = {}, {}
+                        show_logic_radios_save_check = not (profile_save in [PROFILE_ANNUAL_PROGRESSIVE, PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS, PROFILE_TRUE_ANNUAL_SINUSOIDAL, PROFILE_EVEN, "event_based_spikes_or_dips"])
+                        effective_logic_db_save = st.session_state.get(f"{key_base_save}_logic{current_key_suffix_save}", kpi_data_sess_save.get("logic")) if show_logic_radios_save_check else REPARTITION_LOGIC_ANNO
+
+                        if effective_logic_db_save == REPARTITION_LOGIC_MESE and show_logic_radios_save_check:
+                            months_save = [calendar.month_name[i_m_save] for i_m_save in range(1, 13)]
+                            current_sum_percent = 0.0
+                            for i_m, month_n_save in enumerate(months_save):
+                                val_m = st.session_state.get(f"{key_base_save}_month_{i_m}{current_key_suffix_save}", 0.0)
+                                repart_values_for_db_save[month_n_save] = float(val_m)
+                                current_sum_percent += float(val_m)
+                            if kpi_data_sess_save.get("calc_type") == CALC_TYPE_INCREMENTALE and (abs(float(t1_val_save)) > 1e-9 or abs(float(t2_val_save)) > 1e-9) and not (99.9 <= current_sum_percent <= 100.1):
+                                st.error(f"KPI {kpi_data_sess_save.get('display_name', kpi_id_save)}: Somma MESE {current_sum_percent:.2f}%. Deve essere 100%."); all_inputs_valid_save = False; break
+                        elif effective_logic_db_save == REPARTITION_LOGIC_TRIMESTRE and show_logic_radios_save_check:
+                            quarters_save = ["Q1", "Q2", "Q3", "Q4"]
+                            current_sum_percent = 0.0
+                            for i_q, q_n_save in enumerate(quarters_save):
+                                val_q = st.session_state.get(f"{key_base_save}_q_{i_q}{current_key_suffix_save}", 0.0)
+                                repart_values_for_db_save[q_n_save] = float(val_q)
+                                current_sum_percent += float(val_q)
+                            if kpi_data_sess_save.get("calc_type") == CALC_TYPE_INCREMENTALE and (abs(float(t1_val_save)) > 1e-9 or abs(float(t2_val_save)) > 1e-9) and not (99.9 <= current_sum_percent <= 100.1):
+                                st.error(f"KPI {kpi_data_sess_save.get('display_name', kpi_id_save)}: Somma TRIMESTRE {current_sum_percent:.2f}%. Deve essere 100%."); all_inputs_valid_save=False; break
+                        elif effective_logic_db_save == REPARTITION_LOGIC_SETTIMANA and show_logic_radios_save_check:
+                            json_str_weekly_save = st.session_state.get(f"{key_base_save}_weekly_json{current_key_suffix_save}", "{}")
+                            try: repart_values_for_db_save = json.loads(json_str_weekly_save)
+                            except json.JSONDecodeError: st.error(f"JSON settimanale non valido per KPI {kpi_id_save}"); all_inputs_valid_save=False;break
+                        
+                        if profile_save == "event_based_spikes_or_dips":
+                            json_str_event_save = st.session_state.get(f"{key_base_save}_event_json{current_key_suffix_save}", "[]")
+                            try: profile_params_for_db_save["events"] = json.loads(json_str_event_save)
+                            except json.JSONDecodeError: st.error(f"JSON eventi non valido per KPI {kpi_id_save}"); all_inputs_valid_save=False; break
+                        
+                        if not all_inputs_valid_save: break
+
+                        targets_to_save_for_db[str(kpi_id_save)] = {
+                            "annual_target1": float(t1_val_save), "annual_target2": float(t2_val_save),
+                            "repartition_logic": effective_logic_db_save, "repartition_values": repart_values_for_db_save,
+                            "distribution_profile": profile_save, "profile_params": profile_params_for_db_save,
+                            "is_target1_manual": is_manual1_final_save, "is_target2_manual": is_manual2_final_save,
+                            "target1_is_formula_based": t1_use_formula_val_save, "target1_formula": t1_formula_str_save,
+                            "target1_formula_inputs": t1_formula_inputs_py_save,
+                            "target2_is_formula_based": t2_use_formula_val_save, "target2_formula": t2_formula_str_save,
+                            "target2_formula_inputs": t2_formula_inputs_py_save,
+                        }
+
+                    if all_inputs_valid_save and targets_to_save_for_db:
                         try:
-                            profile_params_for_db_save["events"] = json.loads(
-                                json_str_event
-                            )
-                        except json.JSONDecodeError:
-                            st.error(
-                                f"KPI {kpi_data_sess_save.get('display_name', kpi_id_save)}: JSON eventi non valido."
-                            )
-                            all_inputs_valid_save = False
-                            break
-
-                    if not all_inputs_valid_save:
-                        break
-                    targets_to_save_for_db[str(kpi_id_save)] = {
-                        "annual_target1": float(t1_val_save),
-                        "annual_target2": float(t2_val_save),
-                        "repartition_logic": effective_logic_db_save,
-                        "repartition_values": repart_values_for_db_save,
-                        "distribution_profile": profile_save,
-                        "profile_params": profile_params_for_db_save,
-                        "is_target1_manual": is_manual1_save,
-                        "is_target2_manual": is_manual2_save,
-                    }
-
-                if all_inputs_valid_save and targets_to_save_for_db:
-                    try:
-                        db_manager.save_annual_targets(
-                            year_to_save_val,
-                            stab_id_to_save_val,
-                            targets_to_save_for_db,
-                        )
-                        st.success("Target salvati e CSV (potenzialmente) rigenerati!")
-                        load_kpi_data_for_target_entry()
-                        st.rerun()
-                    except Exception as e_save_db:
-                        st.error(
-                            f"Errore durante il salvataggio nel database: {e_save_db}"
-                        )
-                        import traceback
-
-                        st.error(traceback.format_exc())
-                elif not targets_to_save_for_db and all_inputs_valid_save:
-                    st.warning("Nessun dato target valido da salvare.")
-                elif not all_inputs_valid_save:
-                    st.error(
-                        "Salvataggio annullato a causa di errori nei dati di input."
-                    )
+                            db_manager.save_annual_targets(year_to_save_val, stab_id_to_save_val, targets_to_save_for_db)
+                            st.success("Target salvati!")
+                            load_kpi_data_for_target_entry() 
+                            st.rerun()
+                        except Exception as e_save_db:
+                            st.error(f"Errore durante il salvataggio nel database: {e_save_db}")
+                            st.error(traceback.format_exc())
+                    elif not targets_to_save_for_db and all_inputs_valid_save:
+                        st.warning("Nessun dato target valido da salvare.")
+                    elif not all_inputs_valid_save:
+                        st.error("Salvataggio annullato a causa di errori nei dati di input.")
     else:
         st.info("Seleziona Anno e Stabilimento per visualizzare o inserire i target.")
 
-    year_filter_value_auto = st.session_state.get("target_year_sb_filters")
-    stab_filter_value_auto = st.session_state.get("target_stab_sb_filters")
+    # This ensures that if filters change, data is reloaded.
+    if "last_loaded_year_target_tab" not in st.session_state: st.session_state.last_loaded_year_target_tab = None
+    if "last_loaded_stab_target_tab" not in st.session_state: st.session_state.last_loaded_stab_target_tab = None
 
-    if "last_loaded_year_filter" not in st.session_state:
-        st.session_state.last_loaded_year_filter = None
-    if "last_loaded_stab_filter" not in st.session_state:
-        st.session_state.last_loaded_stab_filter = None
+    year_filter_val_for_check = st.session_state.get("target_year_sb_filters")
+    stab_filter_val_for_check = st.session_state.get("target_stab_sb_filters")
 
-    if year_filter_value_auto and stab_filter_value_auto:
-        needs_load_auto = not st.session_state.get("kpi_target_inputs") or (
-            st.session_state.last_loaded_year_filter != year_filter_value_auto
-            or st.session_state.last_loaded_stab_filter != stab_filter_value_auto
-        )
-        if needs_load_auto:
+    if (year_filter_val_for_check and stab_filter_val_for_check and
+        (st.session_state.last_loaded_year_target_tab != year_filter_val_for_check or
+         st.session_state.last_loaded_stab_target_tab != stab_filter_val_for_check or
+         not st.session_state.get("kpi_target_inputs"))):
             load_kpi_data_for_target_entry()
-            st.session_state.last_loaded_year_filter = year_filter_value_auto
-            st.session_state.last_loaded_stab_filter = stab_filter_value_auto
-        elif st.session_state.get("kpi_target_inputs"):
-            initial_master_sub_ui_distribution_st()
+            st.session_state.last_loaded_year_target_tab = year_filter_val_for_check
+            st.session_state.last_loaded_stab_target_tab = stab_filter_val_for_check
+            st.rerun()
+
 
 # --- 📈 Visualizzazione Risultati ---
 with tab_results:
@@ -2345,7 +2260,6 @@ with tab_export:
             )
 # --- 🌍 Dashboard Globale KPI ---
 with tab_global_dashboard:
-    # We will implement this section below
     st.header("🌍 Dashboard Globale Target KPI")
     st.markdown(
         "Visualizza l'andamento dei target per tutti i KPI e stabilimenti, filtrato per anno e tipo di periodo."
@@ -2355,8 +2269,9 @@ with tab_global_dashboard:
     dash_filter_col1, dash_filter_col2 = st.columns(2)
 
     with dash_filter_col1:
-        if "dashboard_year" not in st.session_state:
-            st.session_state.dashboard_year = str(datetime.datetime.now().year)
+        # Use the widget's key for initialization and access
+        if "dashboard_year_sb" not in st.session_state:
+            st.session_state.dashboard_year_sb = str(datetime.datetime.now().year)
 
         year_options_dash = [
             str(y)
@@ -2365,64 +2280,70 @@ with tab_global_dashboard:
             )
         ]
         # Ensure current session state value is in options, or reset
-        if st.session_state.dashboard_year not in year_options_dash:
-            st.session_state.dashboard_year = str(datetime.datetime.now().year)
+        if st.session_state.dashboard_year_sb not in year_options_dash:
+            st.session_state.dashboard_year_sb = str(datetime.datetime.now().year)
 
         try:
             default_year_index_dash = year_options_dash.index(
-                st.session_state.dashboard_year
+                st.session_state.dashboard_year_sb  # Use the widget's key
             )
-        except (
-            ValueError
-        ):  # Fallback if current year somehow not in list (should not happen)
+        except ValueError:
             default_year_index_dash = year_options_dash.index(
                 str(datetime.datetime.now().year)
             )
 
+        # The selectbox will directly update st.session_state.dashboard_year_sb
         selected_year_dash = st.selectbox(
             "Seleziona Anno",
             options=year_options_dash,
             index=default_year_index_dash,
-            key="dashboard_year_sb",  # session_state will be updated automatically by Streamlit
+            key="dashboard_year_sb",
         )
-        # st.session_state.dashboard_year = selected_year_dash # No need to set it again here, key does it
 
     with dash_filter_col2:
-        if "dashboard_period_type" not in st.session_state:
-            st.session_state.dashboard_period_type = "Mese"
+        # Use the widget's key for initialization and access
+        if "dashboard_period_sb" not in st.session_state:
+            st.session_state.dashboard_period_sb = "Mese"
 
         # Ensure current session state value is in options, or reset
-        if st.session_state.dashboard_period_type not in PERIOD_TYPES_RESULTS:
-            st.session_state.dashboard_period_type = "Mese"
+        if st.session_state.dashboard_period_sb not in PERIOD_TYPES_RESULTS:
+            st.session_state.dashboard_period_sb = "Mese"
 
         try:
             period_idx_dash = PERIOD_TYPES_RESULTS.index(
-                st.session_state.dashboard_period_type
+                st.session_state.dashboard_period_sb  # Use the widget's key
             )
         except ValueError:
-            period_idx_dash = PERIOD_TYPES_RESULTS.index("Mese")  # Fallback
+            period_idx_dash = PERIOD_TYPES_RESULTS.index("Mese")
 
+        # The selectbox will directly update st.session_state.dashboard_period_sb
         selected_period_dash = st.selectbox(
             "Tipo Periodo di Visualizzazione",
             PERIOD_TYPES_RESULTS,
             index=period_idx_dash,
-            key="dashboard_period_sb",  # session_state will be updated automatically
+            key="dashboard_period_sb",
         )
-        # st.session_state.dashboard_period_type = selected_period_dash # No need to set it again
 
     st.markdown("---")
 
     # --- Data Fetching and Chart Display based on current session state values ---
     try:
-        year_to_fetch = int(st.session_state.dashboard_year)
-        period_type_to_fetch = st.session_state.dashboard_period_type
+        # Read directly from the session state keys associated with the widgets
+        year_to_fetch = int(st.session_state.dashboard_year_sb)
+        period_type_to_fetch = st.session_state.dashboard_period_sb
     except ValueError:
         st.error("Anno selezionato non valido.")
         st.stop()
-    except AttributeError:  # Handles if session_state keys are not set
+    except (
+        KeyError
+    ):  # Handles if session_state keys are somehow not set (e.g. first run with a bug)
         st.error(
             "Errore: Filtri non inizializzati correttamente. Ricarica la pagina o seleziona i filtri."
         )
+        # Attempt to set defaults and rerun to recover gracefully
+        st.session_state.dashboard_year_sb = str(datetime.datetime.now().year)
+        st.session_state.dashboard_period_sb = "Mese"
+        st.rerun()
         st.stop()
 
     with st.spinner(
@@ -2445,16 +2366,11 @@ with tab_global_dashboard:
 
             with st.expander(f"🏢 Stabilimento: {stabilimento_name}", expanded=False):
                 stab_has_charts = False
-                for (
-                    kpi_spec_row_sqlite
-                ) in all_kpis_dash:  # kpi_spec_row_sqlite is sqlite3.Row
-                    kpi_spec_row = dict(
-                        kpi_spec_row_sqlite
-                    )  # Convert to dict for easier/safer access
-
+                for kpi_spec_row_sqlite in all_kpis_dash:
+                    kpi_spec_row = dict(kpi_spec_row_sqlite)
                     kpi_spec_id = kpi_spec_row.get("id")
                     if kpi_spec_id is None:
-                        continue  # Should not happen if data is clean
+                        continue
 
                     kpi_display_name = get_kpi_display_name_st(kpi_spec_row)
                     kpi_unit_val = kpi_spec_row.get("unit_of_measure", "")
@@ -2479,7 +2395,6 @@ with tab_global_dashboard:
 
                     stab_has_charts = True
                     charts_rendered_count += 1
-
                     chart_data_list = []
                     if data_t1_dash:
                         for row_t1 in data_t1_dash:
@@ -2537,16 +2452,11 @@ with tab_global_dashboard:
                             color="Target Number",
                             height=250,
                         )
-                    except (
-                        Exception
-                    ) as e_chart:  # Catch errors specific to charting this df
+                    except Exception as e_chart:
                         st.error(
                             f"Errore durante la creazione del grafico per {kpi_display_name}: {e_chart}"
                         )
-                        print(
-                            f"Plotting error for {kpi_display_name} (Stab: {stabilimento_name}, KPI ID: {kpi_spec_id}): {e_chart}"
-                        )
-                        # st.dataframe(df_chart) # Debug: show data if chart fails
+                        # print(f"Plotting error for {kpi_display_name} (Stab: {stabilimento_name}, KPI ID: {kpi_spec_id}): {e_chart}")
 
                 if not stab_has_charts:
                     st.caption(
@@ -2557,3 +2467,229 @@ with tab_global_dashboard:
             st.info(
                 f"Nessun dato target trovato per l'anno {year_to_fetch} e periodo {period_type_to_fetch} per nessun KPI/Stabilimento."
             )
+
+    def _on_use_formula_toggle_st(kpi_id, target_num_str, key_suffix=""):
+        target_num = int(target_num_str)
+        # This callback primarily forces a rerun. The actual logic to disable/enable
+        # fields will happen in the rendering part based on the checkbox's new state.
+        # We also need to update the backing store.
+        use_formula_key = f"kpi_entry_{kpi_id}_use_formula{target_num}{key_suffix}"
+        is_manual_key = f"kpi_entry_{kpi_id}_is_manual{target_num}{key_suffix}"
+
+        if kpi_id in st.session_state.kpi_target_inputs:
+            is_using_formula = st.session_state.get(use_formula_key, False)
+            st.session_state.kpi_target_inputs[kpi_id][
+                f"target{target_num}_is_formula_based"
+            ] = is_using_formula
+            if is_using_formula:
+                st.session_state.kpi_target_inputs[kpi_id][
+                    f"is_manual{target_num}"
+                ] = False
+                if (
+                    is_manual_key in st.session_state
+                ):  # Update the manual checkbox widget state too
+                    st.session_state[is_manual_key] = False
+            # If formula is turned OFF, and it's a sub-KPI, it might need master-sub redistribution
+            elif st.session_state.kpi_target_inputs[kpi_id].get(
+                "is_sub_kpi"
+            ) and st.session_state.kpi_target_inputs[kpi_id].get("master_kpi_id"):
+                # Trigger redistribution if it's now not manual and not formula
+                if not st.session_state.kpi_target_inputs[kpi_id].get(
+                    f"is_manual{target_num}", True
+                ):
+                    on_master_target_ui_change_st(
+                        st.session_state.kpi_target_inputs[kpi_id]["master_kpi_id"],
+                        str(target_num),
+                    )
+        # A simple st.rerun() might be enough if the rendering logic correctly uses the session state
+        # st.rerun() # Or let Streamlit handle rerun based on widget interaction
+
+    def load_kpi_data_for_target_entry():
+        st.session_state.kpi_target_inputs = {}  # Reset the backing store
+        year_str = st.session_state.get(
+            "target_year_sb_filters", str(datetime.datetime.now().year)
+        )
+        stab_name = st.session_state.get("target_stab_sb_filters")
+
+        if not year_str or not stab_name:
+            return
+        try:
+            year = int(year_str)
+            # Ensure stabilimenti_map_target_ui is populated before this function is called
+            # Or pass it as an argument, or access it via a class instance if this becomes a method
+            if (
+                "stabilimenti_map_target_ui" not in globals()
+                and "stabilimenti_map_target_ui" not in locals()
+            ):
+                # Attempt to populate it if missing (e.g., direct script run or first load)
+                stabilimenti_all_target_filters_temp = dr.get_all_stabilimenti(
+                    only_visible=True
+                )
+                globals()["stabilimenti_map_target_ui"] = {
+                    s["name"]: s["id"] for s in stabilimenti_all_target_filters_temp
+                }
+
+            stabilimento_id = stabilimenti_map_target_ui.get(stab_name)
+            if stabilimento_id is None:
+                st.warning(f"ID Stabilimento non trovato per '{stab_name}'.")
+                return
+        except ValueError:
+            st.error(f"Anno non valido: {year_str}")
+            return
+        except Exception as e:
+            st.error(f"Errore preparazione caricamento target: {e}")
+            return
+
+        kpis_for_entry = dr.get_all_kpis_detailed(only_visible=True)
+        if not kpis_for_entry:
+            # st.warning("Nessun KPI (visibile) trovato.") # This might be too noisy if called often
+            return
+
+        for current_kpi_row_sqlite in kpis_for_entry:
+            current_kpi_row = dict(current_kpi_row_sqlite)  # Convert to dict
+            kpi_spec_id = current_kpi_row.get("id")
+            if kpi_spec_id is None:
+                continue
+
+            existing_target_db_row_sqlite = dr.get_annual_target_entry(
+                year, stabilimento_id, kpi_spec_id
+            )
+            existing_target_db_row = (
+                dict(existing_target_db_row_sqlite)
+                if existing_target_db_row_sqlite
+                else None
+            )
+
+            kpi_role_details = dr.get_kpi_role_details(kpi_spec_id)
+
+            # Defaults
+            def_t1, def_t2 = 0.0, 0.0
+            def_profile = PROFILE_ANNUAL_PROGRESSIVE
+            def_logic = REPARTITION_LOGIC_ANNO
+            def_repart_values_from_db = {}
+            def_profile_params_from_db = {}
+            def_is_manual1, def_is_manual2 = True, True
+            def_t1_is_formula, def_t1_formula, def_t1_formula_inputs_json = (
+                False,
+                "",
+                "[]",
+            )
+            def_t2_is_formula, def_t2_formula, def_t2_formula_inputs_json = (
+                False,
+                "",
+                "[]",
+            )
+
+            if existing_target_db_row:
+                try:
+                    def_t1 = float(
+                        existing_target_db_row.get("annual_target1", 0.0) or 0.0
+                    )
+                    def_t2 = float(
+                        existing_target_db_row.get("annual_target2", 0.0) or 0.0
+                    )
+                    db_profile_val = existing_target_db_row.get("distribution_profile")
+                    if (
+                        db_profile_val
+                        and db_profile_val in DISTRIBUTION_PROFILE_OPTIONS
+                    ):
+                        def_profile = db_profile_val
+                    def_logic = (
+                        existing_target_db_row.get("repartition_logic")
+                        or REPARTITION_LOGIC_ANNO
+                    )
+
+                    def_t1_is_formula = bool(
+                        existing_target_db_row.get("target1_is_formula_based", False)
+                    )
+                    def_t1_formula = (
+                        existing_target_db_row.get("target1_formula", "") or ""
+                    )
+                    def_t1_formula_inputs_json = (
+                        existing_target_db_row.get("target1_formula_inputs", "[]")
+                        or "[]"
+                    )
+
+                    def_t2_is_formula = bool(
+                        existing_target_db_row.get("target2_is_formula_based", False)
+                    )
+                    def_t2_formula = (
+                        existing_target_db_row.get("target2_formula", "") or ""
+                    )
+                    def_t2_formula_inputs_json = (
+                        existing_target_db_row.get("target2_formula_inputs", "[]")
+                        or "[]"
+                    )
+
+                    # is_manual depends on formula
+                    def_is_manual1 = (
+                        bool(existing_target_db_row.get("is_target1_manual", True))
+                        if not def_t1_is_formula
+                        else False
+                    )
+                    def_is_manual2 = (
+                        bool(existing_target_db_row.get("is_target2_manual", True))
+                        if not def_t2_is_formula
+                        else False
+                    )
+
+                    repart_values_str = (
+                        existing_target_db_row.get("repartition_values") or "{}"
+                    )
+                    def_repart_values_from_db = json.loads(repart_values_str)
+                    profile_params_str = (
+                        existing_target_db_row.get("profile_params") or "{}"
+                    )
+                    def_profile_params_from_db = json.loads(profile_params_str)
+                except Exception as e_row_access:
+                    st.warning(
+                        f"Errore accesso dati DB per KPI {kpi_spec_id}: {e_row_access}"
+                    )
+
+            calc_type = current_kpi_row.get("calculation_type", CALC_TYPE_INCREMENTALE)
+            unit_of_measure = current_kpi_row.get("unit_of_measure", "")
+
+            st.session_state.kpi_target_inputs[kpi_spec_id] = {
+                "target1": def_t1,
+                "target2": def_t2,
+                "is_manual1": def_is_manual1,
+                "is_manual2": def_is_manual2,
+                "profile": def_profile,
+                "logic": def_logic,
+                "repartition_values_raw": def_repart_values_from_db,
+                "profile_params_raw": def_profile_params_from_db,
+                "calc_type": calc_type,
+                "unit_of_measure": unit_of_measure,
+                "is_sub_kpi": kpi_role_details["role"] == "sub",
+                "master_kpi_id": kpi_role_details.get("master_id"),
+                "is_master_kpi": kpi_role_details["role"] == "master",
+                "sub_kpis_with_weights": [],
+                "display_name": get_kpi_display_name(current_kpi_row),
+                # Add formula fields to backing store
+                "target1_is_formula_based": def_t1_is_formula,
+                "target1_formula": def_t1_formula,
+                "target1_formula_inputs_json": def_t1_formula_inputs_json,  # Store as JSON string
+                "target2_is_formula_based": def_t2_is_formula,
+                "target2_formula": def_t2_formula,
+                "target2_formula_inputs_json": def_t2_formula_inputs_json,  # Store as JSON string
+            }
+            if st.session_state.kpi_target_inputs[kpi_spec_id]["is_master_kpi"]:
+                sub_ids_raw = dr.get_sub_kpis_for_master(kpi_spec_id)
+                if sub_ids_raw:
+                    with sqlite3.connect(db_manager.DB_KPIS) as conn_weights:
+                        conn_weights.row_factory = sqlite3.Row
+                        for sub_id_r in sub_ids_raw:
+                            link_row = conn_weights.execute(
+                                "SELECT sub_kpi_spec_id, distribution_weight FROM kpi_master_sub_links WHERE master_kpi_spec_id = ? AND sub_kpi_spec_id = ?",
+                                (kpi_spec_id, sub_id_r),
+                            ).fetchone()
+                            if link_row:
+                                st.session_state.kpi_target_inputs[kpi_spec_id][
+                                    "sub_kpis_with_weights"
+                                ].append(
+                                    {
+                                        "sub_kpi_spec_id": link_row["sub_kpi_spec_id"],
+                                        "weight": link_row["distribution_weight"],
+                                    }
+                                )
+        initial_master_sub_ui_distribution_st()
