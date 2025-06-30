@@ -1,449 +1,577 @@
-# data_retriever.py
+# src/data_retriever.py
 import sqlite3
 import json
-
-# from pathlib import Path # No longer needed directly for DB paths
 import datetime
 import calendar
+import traceback
+from pathlib import Path  # Ensure Path is imported
 
 # Import configurations from app_config.py
-from app_config import (
-    DB_KPIS,
-    DB_STABILIMENTI,
-    DB_TARGETS,
-    DB_KPI_DAYS,
-    DB_KPI_WEEKS,
-    DB_KPI_MONTHS,
-    DB_KPI_QUARTERS,
-    DB_KPI_TEMPLATES,
-    # CSV_EXPORT_BASE_PATH is not typically used by data_retriever directly
-)
+try:
+    from app_config import (
+        DB_KPIS,
+        DB_STABILIMENTI,
+        DB_TARGETS,
+        DB_KPI_DAYS,
+        DB_KPI_WEEKS,
+        DB_KPI_MONTHS,
+        DB_KPI_QUARTERS,
+        DB_KPI_TEMPLATES,
+        # CSV_EXPORT_BASE_PATH is not typically used by data_retriever directly
+    )
+except ImportError:
+    print(
+        "CRITICAL WARNING (data_retriever.py): app_config.py not found on PYTHONPATH. "
+        "Database paths will not be correctly defined. Most functions will fail."
+    )
+    # Define placeholders to allow script loading, but functions will likely error out
+    DB_KPIS = Path(
+        ":memory_retriever_kpis_error.sqlite"
+    )  # Use Path objects for placeholders too
+    DB_STABILIMENTI = Path(":memory_retriever_stabilimenti_error.sqlite")
+    DB_TARGETS = Path(":memory_retriever_targets_error.sqlite")
+    DB_KPI_DAYS = Path(":memory_retriever_days_error.sqlite")
+    DB_KPI_WEEKS = Path(":memory_retriever_weeks_error.sqlite")
+    DB_KPI_MONTHS = Path(":memory_retriever_months_error.sqlite")
+    DB_KPI_QUARTERS = Path(":memory_retriever_quarters_error.sqlite")
+    DB_KPI_TEMPLATES = Path(":memory_retriever_templates_error.sqlite")
+
+
+# --- Helper for DB Connection Errors ---
+def _handle_db_connection_error(db_name_const: str, func_name: str) -> bool:
+    # Get the actual Path object from globals using the constant name
+    db_path_obj = globals().get(db_name_const)
+
+    if not isinstance(db_path_obj, Path):
+        # If it's not a Path object (e.g., still a string or None), try to convert or handle
+        if isinstance(db_path_obj, str):
+            db_path_obj = Path(db_path_obj)
+        else:
+            msg = f"ERROR ({func_name}): Database path for {db_name_const} is not a valid Path object or string. Path: {db_path_obj}. Cannot retrieve data."
+            print(msg)
+            return True  # Indicates an error state
+
+    db_path_str = str(
+        db_path_obj
+    )  # Convert Path object to string for string operations
+
+    # Perform checks on the string representation
+    # The ":memory:" check is usually for sqlite3.connect(":memory:"), not for path names.
+    # Placeholder names like ":memory_...error.sqlite" are fine to check with string methods.
+    if (
+        db_path_str == ":memory:"
+        or ":memory_" in db_path_str
+        or "error_db" in db_path_str
+    ):
+        msg = f"ERROR ({func_name}): Database path for {db_name_const} ('{db_path_str}') is a placeholder or indicates a configuration error. Cannot retrieve data."
+        print(msg)
+        return True  # Indicates an error state
+
+    # Optionally, you could add a check if the file exists, though connect will also fail
+    # if not db_path_obj.exists() and db_path_str != ":memory:":
+    #     msg = f"ERROR ({func_name}): Database file for {db_name_const} ('{db_path_str}') does not exist. Cannot retrieve data."
+    #     print(msg)
+    #     return True
+
+    return False  # No configuration error detected by this function
 
 
 # --- Dimension Table Access Functions ---
 
 
 # --- KPI Groups ---
-def get_kpi_groups():
-    """Fetches all KPI groups, ordered by name."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_groups ORDER BY name").fetchall()
+def get_kpi_groups() -> list:
+    """Fetches all KPI groups, ordered by name. Returns list of sqlite3.Row."""
+    if _handle_db_connection_error("DB_KPIS", "get_kpi_groups"):
+        return []
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute("SELECT * FROM kpi_groups ORDER BY name").fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_kpi_groups): Database error querying kpi_groups: {e}")
+        print(traceback.format_exc())
+        return []
 
 
 # --- KPI Indicator Templates & Definitions ---
-def get_kpi_indicator_templates():
-    """Fetches all KPI indicator templates, ordered by name."""
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM kpi_indicator_templates ORDER BY name"
-        ).fetchall()
+def get_kpi_indicator_templates() -> list:
+    """Fetches all KPI indicator templates, ordered by name. Returns list of sqlite3.Row."""
+    if _handle_db_connection_error("DB_KPI_TEMPLATES", "get_kpi_indicator_templates"):
+        return []
+    try:
+        with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM kpi_indicator_templates ORDER BY name"
+            ).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_kpi_indicator_templates): Database error: {e}")
+        return []
 
 
-def get_kpi_indicator_template_by_id(template_id):
+def get_kpi_indicator_template_by_id(template_id: int):  # -> sqlite3.Row or None
     """Fetches a specific KPI indicator template by its ID."""
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM kpi_indicator_templates WHERE id = ?", (template_id,)
-        ).fetchone()
+    if _handle_db_connection_error(
+        "DB_KPI_TEMPLATES", "get_kpi_indicator_template_by_id"
+    ):
+        return None
+    try:
+        with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM kpi_indicator_templates WHERE id = ?", (template_id,)
+            ).fetchone()
+    except sqlite3.Error as e:
+        print(
+            f"ERROR (get_kpi_indicator_template_by_id): Database error for ID {template_id}: {e}"
+        )
+        return None
 
 
-def get_template_defined_indicators(template_id):
+def get_template_defined_indicators(template_id: int) -> list:
     """Fetches all indicators defined within a specific template, ordered by name."""
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM template_defined_indicators WHERE template_id = ? ORDER BY indicator_name_in_template",
-            (template_id,),
-        ).fetchall()
+    if _handle_db_connection_error(
+        "DB_KPI_TEMPLATES", "get_template_defined_indicators"
+    ):
+        return []
+    try:
+        with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM template_defined_indicators WHERE template_id = ? ORDER BY indicator_name_in_template",
+                (template_id,),
+            ).fetchall()
+    except sqlite3.Error as e:
+        print(
+            f"ERROR (get_template_defined_indicators): Database error for template ID {template_id}: {e}"
+        )
+        return []
 
 
-def get_template_indicator_definition_by_name(template_id, indicator_name):
+def get_template_indicator_definition_by_name(
+    template_id: int, indicator_name: str
+):  # -> sqlite3.Row or None
     """Fetches a specific indicator definition within a template by its name."""
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM template_defined_indicators WHERE template_id = ? AND indicator_name_in_template = ?",
-            (template_id, indicator_name),
-        ).fetchone()
+    if _handle_db_connection_error(
+        "DB_KPI_TEMPLATES", "get_template_indicator_definition_by_name"
+    ):
+        return None
+    try:
+        with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM template_defined_indicators WHERE template_id = ? AND indicator_name_in_template = ?",
+                (template_id, indicator_name),
+            ).fetchone()
+    except sqlite3.Error as e:
+        print(
+            f"ERROR (get_template_indicator_definition_by_name): Database error for template {template_id}, name {indicator_name}: {e}"
+        )
+        return None
 
 
-def get_template_indicator_definition_by_id(definition_id):
+def get_template_indicator_definition_by_id(
+    definition_id: int,
+):  # -> sqlite3.Row or None
     """Fetches a specific indicator definition by its ID."""
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM template_defined_indicators WHERE id = ?", (definition_id,)
-        ).fetchone()
-
+    if _handle_db_connection_error(
+        "DB_KPI_TEMPLATES", "get_template_indicator_definition_by_id"
+    ):
+        return None
+    try:
+        with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM template_defined_indicators WHERE id = ?",
+                (definition_id,),
+            ).fetchone()
+    except sqlite3.Error as e:
+        print(
+            f"ERROR (get_template_indicator_definition_by_id): Database error for def ID {definition_id}: {e}"
+        )
+        return None
 
 # --- KPI Subgroups ---
-def get_kpi_subgroups_by_group_revised(group_id):
+def get_kpi_subgroups_by_group_revised(group_id: int) -> list:
     """
     Fetches all KPI subgroups for a given group ID, including the name of their linked template.
+    Returns a list of dictionaries.
     """
+    if _handle_db_connection_error("DB_KPIS", "get_kpi_subgroups_by_group_revised_kpis") or \
+       _handle_db_connection_error("DB_KPI_TEMPLATES", "get_kpi_subgroups_by_group_revised_tpl"): return []
+
     subgroups = []
-    with sqlite3.connect(DB_KPIS) as conn_kpis:
-        conn_kpis.row_factory = sqlite3.Row
-        subgroups_raw = conn_kpis.execute(
-            "SELECT * FROM kpi_subgroups WHERE group_id = ? ORDER BY name", (group_id,)
-        ).fetchall()
+    try:
+        with sqlite3.connect(DB_KPIS) as conn_kpis:
+            conn_kpis.row_factory = sqlite3.Row
+            subgroups_raw = conn_kpis.execute(
+                "SELECT * FROM kpi_subgroups WHERE group_id = ? ORDER BY name", (group_id,)
+            ).fetchall()
 
-    templates_info = {}  # Cache template names for efficiency if called multiple times
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn_templates:
-        conn_templates.row_factory = sqlite3.Row
-        all_templates = conn_templates.execute(
-            "SELECT id, name FROM kpi_indicator_templates"
-        ).fetchall()
-        for t in all_templates:
-            templates_info[t["id"]] = t["name"]
+        templates_info = {}
+        with sqlite3.connect(DB_KPI_TEMPLATES) as conn_templates:
+            conn_templates.row_factory = sqlite3.Row
+            all_templates = conn_templates.execute(
+                "SELECT id, name FROM kpi_indicator_templates"
+            ).fetchall()
+            for t in all_templates:
+                templates_info[t["id"]] = t["name"]
 
-    for sg_raw in subgroups_raw:
-        sg_dict = dict(sg_raw)
-        sg_dict["template_name"] = templates_info.get(sg_raw["indicator_template_id"])
-        subgroups.append(sg_dict)
+        for sg_raw_row in subgroups_raw:
+            sg_dict = dict(sg_raw_row) # Convert sqlite3.Row to dict
+            sg_dict["template_name"] = templates_info.get(sg_dict.get("indicator_template_id"))
+            subgroups.append(sg_dict)
+    except sqlite3.Error as e:
+        print(f"ERROR (get_kpi_subgroups_by_group_revised): Database error for group ID {group_id}: {e}")
+        return []
     return subgroups
 
-
-def get_kpi_subgroup_by_id_with_template_name(subgroup_id):
+def get_kpi_subgroup_by_id_with_template_name(subgroup_id: int): # -> dict or None
     """Fetches a specific KPI subgroup by ID, including its template name if linked."""
+    if _handle_db_connection_error("DB_KPIS", "get_kpi_subgroup_by_id_kpis") or \
+       _handle_db_connection_error("DB_KPI_TEMPLATES", "get_kpi_subgroup_by_id_tpl"): return None
+
     sg_dict = None
-    with sqlite3.connect(DB_KPIS) as conn_kpis:
-        conn_kpis.row_factory = sqlite3.Row
-        sg_raw = conn_kpis.execute(
-            "SELECT * FROM kpi_subgroups WHERE id = ?", (subgroup_id,)
-        ).fetchone()
-        if sg_raw:
-            sg_dict = dict(sg_raw)
-            if sg_raw["indicator_template_id"]:
-                with sqlite3.connect(DB_KPI_TEMPLATES) as conn_templates:
-                    conn_templates.row_factory = sqlite3.Row
-                    template_info = conn_templates.execute(
-                        "SELECT name FROM kpi_indicator_templates WHERE id = ?",
-                        (sg_raw["indicator_template_id"],),
-                    ).fetchone()
-                    if template_info:
-                        sg_dict["template_name"] = template_info["name"]
+    try:
+        with sqlite3.connect(DB_KPIS) as conn_kpis:
+            conn_kpis.row_factory = sqlite3.Row
+            sg_raw = conn_kpis.execute(
+                "SELECT * FROM kpi_subgroups WHERE id = ?", (subgroup_id,)
+            ).fetchone()
+            if sg_raw:
+                sg_dict = dict(sg_raw)
+                if sg_dict.get("indicator_template_id"): # Use .get() for safety
+                    with sqlite3.connect(DB_KPI_TEMPLATES) as conn_templates:
+                        conn_templates.row_factory = sqlite3.Row
+                        template_info = conn_templates.execute(
+                            "SELECT name FROM kpi_indicator_templates WHERE id = ?",
+                            (sg_dict["indicator_template_id"],),
+                        ).fetchone()
+                        sg_dict["template_name"] = template_info["name"] if template_info else None
+    except sqlite3.Error as e:
+        print(f"ERROR (get_kpi_subgroup_by_id_with_template_name): Database error for subgroup ID {subgroup_id}: {e}")
+        return None
     return sg_dict
 
-
 # --- KPI Indicators ---
-def get_kpi_indicators_by_subgroup(subgroup_id):
+def get_kpi_indicators_by_subgroup(subgroup_id: int) -> list:
     """Fetches all KPI indicators for a given subgroup ID, ordered by name."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM kpi_indicators WHERE subgroup_id = ? ORDER BY name",
-            (subgroup_id,),
-        ).fetchall()
-
+    if _handle_db_connection_error("DB_KPIS", "get_kpi_indicators_by_subgroup"): return []
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM kpi_indicators WHERE subgroup_id = ? ORDER BY name",
+                (subgroup_id,),
+            ).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_kpi_indicators_by_subgroup): Database error for subgroup ID {subgroup_id}: {e}")
+        return []
 
 # --- KPI Specifications (from `kpis` table) ---
-def get_all_kpis_detailed(only_visible=False):
+def get_all_kpis_detailed(only_visible=False) -> list:
     """
-    Fetches all KPI specifications with their full hierarchy names (group, subgroup, indicator).
-    Includes kpis.id (as 'id'), kpis.indicator_id, kpi_indicators.id (as 'actual_indicator_id'), sg.id (as 'subgroup_id').
-    kpis.id is the kpi_spec_id.
+    Fetches all KPI specifications with their full hierarchy names.
+    Returns list of sqlite3.Row. kpis.id is aliased as 'id' in the query and available.
     """
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        # The query correctly selects k.id, which becomes accessible as "id" in the sqlite3.Row object.
-        # If "id" is not found or is None later, it implies issues with the data in the 'kpis' table itself.
-        query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
-                          k.indicator_id, i.id as actual_indicator_id,
-                          k.description, k.calculation_type, k.unit_of_measure, k.visible,
-                          sg.id as subgroup_id, sg.indicator_template_id
-                   FROM kpis k 
-                   JOIN kpi_indicators i ON k.indicator_id = i.id
-                   JOIN kpi_subgroups sg ON i.subgroup_id = sg.id 
-                   JOIN kpi_groups g ON sg.group_id = g.id """
-        if only_visible:
-            query += " WHERE k.visible = 1"
-        query += " ORDER BY g.name, sg.name, i.name"
+    if _handle_db_connection_error("DB_KPIS", "get_all_kpis_detailed"): return [] # MODIFIED
+    query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
+                      k.indicator_id, i.id as actual_indicator_id,
+                      k.description, k.calculation_type, k.unit_of_measure, k.visible,
+                      sg.id as subgroup_id, sg.indicator_template_id
+               FROM kpis k
+               JOIN kpi_indicators i ON k.indicator_id = i.id
+               JOIN kpi_subgroups sg ON i.subgroup_id = sg.id
+               JOIN kpi_groups g ON sg.group_id = g.id """
+    if only_visible:
+        query += " WHERE k.visible = 1"
+    query += " ORDER BY g.name, sg.name, i.name"
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_all_kpis_detailed): Database error: {e}")
+        return []
 
-        try:
-            fetched_rows = conn.execute(query).fetchall()
-            # Example of pre-filtering problematic rows if absolutely necessary,
-            # though fixing data source is better.
-            # valid_rows = [row for row in fetched_rows if row and "id" in row.keys() and row["id"] is not None]
-            # return valid_rows
-            return fetched_rows  # Return as is, Streamlit app will handle/warn
-        except sqlite3.Error as e:
-            print(
-                f"Database error in get_all_kpis_detailed: {e}"
-            )  # Or st.error in Streamlit context if possible
-            return []  # Return empty list on error
-
-
-def get_kpi_detailed_by_id(kpi_spec_id):
+def get_kpi_detailed_by_id(kpi_spec_id: int): # -> dict or None
     """
-    Fetches a specific KPI specification by its ID (kpis.id), including full hierarchy and template info.
+    Fetches a specific KPI specification by its ID (kpis.id), including hierarchy and template info.
     """
-    with sqlite3.connect(DB_KPIS) as conn_kpis:
-        conn_kpis.row_factory = sqlite3.Row
-        query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
-                          i.id as actual_indicator_id, k.indicator_id, k.description, k.calculation_type,
-                          k.unit_of_measure, k.visible, sg.id as subgroup_id, sg.indicator_template_id
-                   FROM kpis k JOIN kpi_indicators i ON k.indicator_id = i.id
-                   JOIN kpi_subgroups sg ON i.subgroup_id = sg.id JOIN kpi_groups g ON sg.group_id = g.id
-                   WHERE k.id = ?"""
-        kpi_info_row = conn_kpis.execute(query, (kpi_spec_id,)).fetchone()
+    if _handle_db_connection_error("DB_KPIS", "get_kpi_detailed_by_id_kpis") or \
+       _handle_db_connection_error("DB_KPI_TEMPLATES", "get_kpi_detailed_by_id_tpl"): return None
+    kpi_dict = None
+    try:
+        with sqlite3.connect(DB_KPIS) as conn_kpis:
+            conn_kpis.row_factory = sqlite3.Row
+            query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
+                              i.id as actual_indicator_id, k.indicator_id, k.description, k.calculation_type,
+                              k.unit_of_measure, k.visible, sg.id as subgroup_id, sg.indicator_template_id
+                       FROM kpis k JOIN kpi_indicators i ON k.indicator_id = i.id
+                       JOIN kpi_subgroups sg ON i.subgroup_id = sg.id JOIN kpi_groups g ON sg.group_id = g.id
+                       WHERE k.id = ?"""
+            kpi_info_row = conn_kpis.execute(query, (kpi_spec_id,)).fetchone()
 
-        if kpi_info_row:
-            kpi_dict = dict(kpi_info_row)
-            if kpi_dict.get(
-                "indicator_template_id"
-            ):  # Check if key exists before accessing
-                with sqlite3.connect(DB_KPI_TEMPLATES) as conn_templates:
-                    conn_templates.row_factory = sqlite3.Row
-                    template_info = conn_templates.execute(
-                        "SELECT name FROM kpi_indicator_templates WHERE id = ?",
-                        (kpi_dict["indicator_template_id"],),
-                    ).fetchone()
-                    if template_info:
-                        kpi_dict["template_name"] = template_info["name"]
-            return kpi_dict
-    return None
-
+            if kpi_info_row:
+                kpi_dict = dict(kpi_info_row)
+                if kpi_dict.get("indicator_template_id"):
+                    with sqlite3.connect(DB_KPI_TEMPLATES) as conn_templates:
+                        conn_templates.row_factory = sqlite3.Row
+                        template_info = conn_templates.execute(
+                            "SELECT name FROM kpi_indicator_templates WHERE id = ?",
+                            (kpi_dict["indicator_template_id"],),
+                        ).fetchone()
+                        kpi_dict["template_name"] = template_info["name"] if template_info else None
+    except sqlite3.Error as e:
+        print(f"ERROR (get_kpi_detailed_by_id): Database error for kpi_spec_id {kpi_spec_id}: {e}")
+        return None
+    return kpi_dict
 
 # --- Stabilimenti ---
-def get_all_stabilimenti(only_visible=False):
+def get_all_stabilimenti(only_visible=False) -> list:
     """Fetches all stabilimenti, optionally filtering by visibility, ordered by name."""
-    with sqlite3.connect(DB_STABILIMENTI) as conn:
-        conn.row_factory = sqlite3.Row
-        query = (
-            "SELECT * FROM stabilimenti"
-            + (" WHERE visible = 1" if only_visible else "")
-            + " ORDER BY name"
-        )
-        return conn.execute(query).fetchall()
-
+    if _handle_db_connection_error("DB_STABILIMENTI", "get_all_stabilimenti"): return []
+    query = "SELECT * FROM stabilimenti" + (" WHERE visible = 1" if only_visible else "") + " ORDER BY name"
+    try:
+        with sqlite3.connect(DB_STABILIMENTI) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_all_stabilimenti): Database error: {e}")
+        return []
 
 # --- Fact Table Access Functions (Targets) ---
 
-
-def get_annual_target_entry(year, stabilimento_id, kpi_spec_id):
+def get_annual_target_entry(year: int, stabilimento_id: int, kpi_spec_id: int): # -> sqlite3.Row or None
     """
-    Fetches the annual target entry for a specific year, stabilimento, and KPI specification ID.
-    kpi_spec_id corresponds to kpis.id.
-    Includes the manual override flags.
+    Fetches the annual target entry for a specific year, stabilimento, and KPI spec ID (kpis.id).
     """
-    with sqlite3.connect(DB_TARGETS) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT * FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
-            (year, stabilimento_id, kpi_spec_id),
-        ).fetchone()
-
+    if _handle_db_connection_error("DB_TARGETS", "get_annual_target_entry"): return None
+    try:
+        with sqlite3.connect(DB_TARGETS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT * FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
+                (year, stabilimento_id, kpi_spec_id),
+            ).fetchone()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_annual_target_entry): Database error for Y{year},S{stabilimento_id},K{kpi_spec_id}: {e}")
+        return None
 
 def get_periodic_targets_for_kpi(
-    year, stabilimento_id, kpi_spec_id, period_type, target_number
-):
+    year: int, stabilimento_id: int, kpi_spec_id: int, period_type: str, target_number: int
+) -> list:
     """
-    Fetches repartited (periodic) target data for a specific KPI, year, stabilimento, period type, and target number.
-    kpi_spec_id corresponds to kpis.id.
+    Fetches repartited (periodic) target data for a specific KPI, year, stabilimento,
+    period type ('Giorno', 'Settimana', 'Mese', 'Trimestre'), and target number (1 or 2).
     """
     db_map = {
-        "Giorno": (DB_KPI_DAYS, "daily_targets", "date_value"),
-        "Settimana": (DB_KPI_WEEKS, "weekly_targets", "week_value"),
-        "Mese": (DB_KPI_MONTHS, "monthly_targets", "month_value"),
-        "Trimestre": (DB_KPI_QUARTERS, "quarterly_targets", "quarter_value"),
+        "Giorno": (DB_KPI_DAYS, "daily_targets", "date_value", "DB_KPI_DAYS"),
+        "Settimana": (DB_KPI_WEEKS, "weekly_targets", "week_value", "DB_KPI_WEEKS"),
+        "Mese": (DB_KPI_MONTHS, "monthly_targets", "month_value", "DB_KPI_MONTHS"),
+        "Trimestre": (DB_KPI_QUARTERS, "quarterly_targets", "quarter_value", "DB_KPI_QUARTERS"),
     }
     if period_type not in db_map:
+        print(f"ERROR (get_periodic_targets_for_kpi): Invalid period_type '{period_type}'")
         raise ValueError(f"Tipo periodo non valido: {period_type}")
 
-    db_path, table_name, period_col_name = db_map[period_type]
+    db_path, table_name, period_col_name, db_const_str = db_map[period_type]
+    if _handle_db_connection_error(db_const_str, f"get_periodic_targets_for_kpi_{period_type}"): return []
 
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
 
-        # Build ORDER BY clause carefully for different period types
-        order_clause = f"ORDER BY {period_col_name}"  # Default for date_value (Giorno)
-        if period_type == "Mese":
-            # Order months chronologically
-            month_order_cases = " ".join(
-                [f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)]
-            )
-            order_clause = f"ORDER BY CASE {period_col_name} {month_order_cases} END"
-        elif period_type == "Trimestre":
-            # Order quarters Q1, Q2, Q3, Q4
-            quarter_order_cases = " ".join(
-                [f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)]
-            )
-            order_clause = f"ORDER BY CASE {period_col_name} {quarter_order_cases} END"
-        elif period_type == "Settimana":
-            # Order weeks by year then week number (e.g., "2023-W52" before "2024-W01")
-            # Assumes week_value format is "YYYY-Www"
-            order_clause = f"ORDER BY SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER)"
+    order_clause = f"ORDER BY {period_col_name}"
+    if period_type == "Mese":
+        month_order_cases = " ".join([f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)])
+        order_clause = f"ORDER BY CASE {period_col_name} {month_order_cases} END"
+    elif period_type == "Trimestre":
+        quarter_order_cases = " ".join([f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)])
+        order_clause = f"ORDER BY CASE {period_col_name} {quarter_order_cases} END"
+    elif period_type == "Settimana": # ISO Week "YYYY-Www"
+        order_clause = f"ORDER BY SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER)"
 
-        query = (
-            f"SELECT {period_col_name} AS Periodo, target_value AS Target FROM {table_name} "
-            f"WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=? {order_clause}"
-        )
-
-        cursor.execute(query, (year, stabilimento_id, kpi_spec_id, target_number))
-        return cursor.fetchall()
-
+    query = (f"SELECT {period_col_name} AS Periodo, target_value AS Target FROM {table_name} "
+             f"WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=? {order_clause}")
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query, (year, stabilimento_id, kpi_spec_id, target_number)).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_periodic_targets_for_kpi {period_type}): Database error: {e}")
+        return []
 
 # --- Master/Sub KPI Link Retrieval Functions ---
-def get_sub_kpis_for_master(master_kpi_spec_id):
+def get_sub_kpis_for_master(master_kpi_spec_id: int) -> list:
     """Returns a list of sub_kpi_spec_id linked to a master_kpi_spec_id."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row  # Ensure rows can be accessed by column name
-        rows = conn.execute(
-            "SELECT sub_kpi_spec_id FROM kpi_master_sub_links WHERE master_kpi_spec_id = ?",
-            (master_kpi_spec_id,),
-        ).fetchall()
-        return [row["sub_kpi_spec_id"] for row in rows]
+    if _handle_db_connection_error("DB_KPIS", "get_sub_kpis_for_master"): return []
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT sub_kpi_spec_id FROM kpi_master_sub_links WHERE master_kpi_spec_id = ?",
+                (master_kpi_spec_id,),
+            ).fetchall()
+            return [row["sub_kpi_spec_id"] for row in rows]
+    except sqlite3.Error as e:
+        print(f"ERROR (get_sub_kpis_for_master): Database error for master ID {master_kpi_spec_id}: {e}")
+        return []
 
+def get_master_kpi_for_sub(sub_kpi_spec_id: int): # -> int or None
+    """Returns the master_kpi_spec_id for a given sub_kpi_spec_id, or None."""
+    if _handle_db_connection_error("DB_KPIS", "get_master_kpi_for_sub"): return None
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT master_kpi_spec_id FROM kpi_master_sub_links WHERE sub_kpi_spec_id = ?",
+                (sub_kpi_spec_id,),
+            ).fetchone()
+            return row["master_kpi_spec_id"] if row else None
+    except sqlite3.Error as e:
+        print(f"ERROR (get_master_kpi_for_sub): Database error for sub ID {sub_kpi_spec_id}: {e}")
+        return None
 
-def get_master_kpi_for_sub(sub_kpi_spec_id):
-    """Returns the master_kpi_spec_id for a given sub_kpi_spec_id, or None if it's not a sub-KPI."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        row = conn.execute(
-            "SELECT master_kpi_spec_id FROM kpi_master_sub_links WHERE sub_kpi_spec_id = ?",
-            (sub_kpi_spec_id,),
-        ).fetchone()
-        return row["master_kpi_spec_id"] if row else None
+def get_all_master_sub_kpi_links() -> list:
+    """Returns all links (id, master_kpi_spec_id, sub_kpi_spec_id, distribution_weight)."""
+    if _handle_db_connection_error("DB_KPIS", "get_all_master_sub_kpi_links"): return []
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(
+                "SELECT id, master_kpi_spec_id, sub_kpi_spec_id, distribution_weight FROM kpi_master_sub_links ORDER BY master_kpi_spec_id, sub_kpi_spec_id"
+            ).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_all_master_sub_kpi_links): Database error: {e}")
+        return []
 
-
-def get_all_master_sub_kpi_links():
-    """Returns all links for display or management."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute(
-            "SELECT id, master_kpi_spec_id, sub_kpi_spec_id FROM kpi_master_sub_links"
-        ).fetchall()
-
-
-def get_kpi_role_details(kpi_spec_id):
+def get_kpi_role_details(kpi_spec_id: int) -> dict:
     """
-    Determines the role of a KPI (Master, Sub, or None) and related info.
-    Returns a dict: {'role': 'master'/'sub'/'none', 'related_kpis': [ids_of_subs_if_master], 'master_id': id_if_sub}
+    Determines KPI role (Master, Sub, or None) and related info.
+    Returns dict: {'role': 'master'/'sub'/'none', 'related_kpis': [ids_of_subs_if_master], 'master_id': id_if_sub}
     """
     role_details = {"role": "none", "related_kpis": [], "master_id": None}
-
-    # Check if it's a master
     sub_kpis = get_sub_kpis_for_master(kpi_spec_id)
     if sub_kpis:
         role_details["role"] = "master"
         role_details["related_kpis"] = sub_kpis
-        return role_details  # A KPI is either a master or a sub, not both directly (by design)
-
-    # Check if it's a sub
+        return role_details
     master_id = get_master_kpi_for_sub(kpi_spec_id)
     if master_id:
         role_details["role"] = "sub"
         role_details["master_id"] = master_id
-        # Optionally, one could also fetch siblings here if needed:
-        # siblings = get_sub_kpis_for_master(master_id)
-        # role_details['related_kpis'] = [s_id for s_id in siblings if s_id != kpi_spec_id] # Example of siblings
-
     return role_details
+
+# --- NEW Functions for Export Manager ---
+
+def get_all_annual_target_entries_for_export() -> list:
+    """
+    Fetches all records from annual_targets for CSV export. Selects all relevant columns.
+    """
+    if _handle_db_connection_error("DB_TARGETS", "get_all_annual_target_entries_for_export"): return []
+    query = """
+        SELECT id, year, stabilimento_id, kpi_id,
+               annual_target1, annual_target2,
+               distribution_profile, repartition_logic,
+               repartition_values, profile_params,
+               is_target1_manual, is_target2_manual,
+               target1_is_formula_based, target1_formula, target1_formula_inputs,
+               target2_is_formula_based, target2_formula, target2_formula_inputs
+        FROM annual_targets
+        ORDER BY year, stabilimento_id, kpi_id;
+    """
+    try:
+        with sqlite3.connect(DB_TARGETS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_all_annual_target_entries_for_export): Database error: {e}")
+        print(traceback.format_exc())
+        return []
+
+def get_all_periodic_targets_for_export(period_type: str) -> list:
+    """
+    Fetches all records from a specific periodic target table for CSV export.
+    Args:
+        period_type (str): "days", "weeks", "months", or "quarters".
+    """
+    period_db_map = { # Added DB Constant string as 4th element for _handle_db_connection_error
+        "days": (DB_KPI_DAYS, "daily_targets", "date_value", "DB_KPI_DAYS"),
+        "weeks": (DB_KPI_WEEKS, "weekly_targets", "week_value", "DB_KPI_WEEKS"),
+        "months": (DB_KPI_MONTHS, "monthly_targets", "month_value", "DB_KPI_MONTHS"),
+        "quarters": (DB_KPI_QUARTERS, "quarterly_targets", "quarter_value", "DB_KPI_QUARTERS"),
+    }
+    if period_type not in period_db_map:
+        print(f"ERROR (get_all_periodic_targets_for_export): Invalid period_type '{period_type}'")
+        raise ValueError(f"Tipo periodo non valido per l'export: {period_type}")
+
+    db_path, table_name, period_col_name, db_const_name = period_db_map[period_type]
+    
+    if _handle_db_connection_error(db_const_name, f"get_all_periodic_targets_for_export_{period_type}"): return []
+
+    order_clause = f"ORDER BY year, stabilimento_id, kpi_id, {period_col_name}, target_number"
+    if period_col_name == "month_value":
+        month_order_cases = " ".join([f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)])
+        order_clause = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {month_order_cases} END, target_number"
+    elif period_col_name == "quarter_value":
+        quarter_order_cases = " ".join([f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)])
+        order_clause = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {quarter_order_cases} END, target_number"
+    elif period_col_name == "week_value":
+         order_clause = f"ORDER BY year, stabilimento_id, kpi_id, SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER), target_number"
+
+    query = (f"SELECT kpi_id, stabilimento_id, year, {period_col_name}, target_number, target_value "
+             f"FROM {table_name} {order_clause}")
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_all_periodic_targets_for_export - {period_type}): Database error: {e}")
+        print(traceback.format_exc())
+        return []
 
 
 if __name__ == "__main__":
-    # Small test block for data_retriever functions
     print("Testing data_retriever.py...")
-
-    # Assumes setup_databases() from database_manager.py has been run
-    # and some data exists. Replace with actual IDs from your test data.
-    test_group_id = 1  # Example
-    test_template_id = 1  # Example
-    test_kpi_spec_id = 1  # Example kpis.id
-    test_year = datetime.datetime.now().year
-    test_stabilimento_id = 1  # Example
+    # Ensure app_config paths are correct if running standalone for tests.
+    # Test calls as before...
+    test_group_id = 1
+    test_template_id = 1
+    test_kpi_spec_id = 1
+    test_year = datetime.date.today().year
+    test_stabilimento_id = 1
 
     print("\n--- KPI Groups ---")
     groups = get_kpi_groups()
-    if groups:
-        print(
-            f"Found {len(groups)} groups. First: {dict(groups[0]) if groups else 'None'}"
-        )
+    if groups: print(f"Found {len(groups)} groups. First: {dict(groups[0]) if groups else 'None'}")
 
     print("\n--- KPI Subgroups (for group 1) ---")
     subgroups = get_kpi_subgroups_by_group_revised(test_group_id)
-    if subgroups:
-        print(
-            f"Found {len(subgroups)} subgroups for group {test_group_id}. First: {subgroups[0] if subgroups else 'None'}"
-        )
-
-    print("\n--- KPI Indicator Templates ---")
-    templates = get_kpi_indicator_templates()
-    if templates:
-        print(
-            f"Found {len(templates)} templates. First: {dict(templates[0]) if templates else 'None'}"
-        )
-
-    print("\n--- Template Defined Indicators (for template 1) ---")
-    defined_indicators = get_template_defined_indicators(test_template_id)
-    if defined_indicators:
-        print(
-            f"Found {len(defined_indicators)} indicators in template {test_template_id}. First: {dict(defined_indicators[0]) if defined_indicators else 'None'}"
-        )
+    if subgroups: print(f"Found {len(subgroups)} subgroups for group {test_group_id}. First: {subgroups[0] if subgroups else 'None'}")
 
     print("\n--- All KPI Specifications (Detailed) ---")
-    all_kpis = get_all_kpis_detailed(only_visible=True)
-    if all_kpis:
-        print(
-            f"Found {len(all_kpis)} visible KPI specs. First: {dict(all_kpis[0]) if all_kpis else 'None'}"
-        )
+    all_kpis_detailed = get_all_kpis_detailed(only_visible=True)
+    if all_kpis_detailed: print(f"Found {len(all_kpis_detailed)} visible KPI specs. First: {dict(all_kpis_detailed[0]) if all_kpis_detailed else 'None'}")
 
-    print(f"\n--- KPI Spec Detailed by ID ({test_kpi_spec_id}) ---")
-    kpi_spec = get_kpi_detailed_by_id(test_kpi_spec_id)
-    if kpi_spec:
-        print(dict(kpi_spec))
-
-    print("\n--- Stabilimenti ---")
-    stabilimenti = get_all_stabilimenti(only_visible=True)
-    if stabilimenti:
-        print(
-            f"Found {len(stabilimenti)} visible stabilimenti. First: {dict(stabilimenti[0]) if stabilimenti else 'None'}"
-        )
-
-    print(
-        f"\n--- Annual Target for KPI Spec ID {test_kpi_spec_id}, Year {test_year}, Stab {test_stabilimento_id} ---"
-    )
-    annual_target = get_annual_target_entry(
-        test_year, test_stabilimento_id, test_kpi_spec_id
-    )
-    if annual_target:
-        print(dict(annual_target))
-    else:
-        print("No annual target found for test IDs.")
+    print(f"\n--- Annual Target for KPI Spec ID {test_kpi_spec_id}, Year {test_year}, Stab {test_stabilimento_id} ---")
+    annual_target = get_annual_target_entry(test_year, test_stabilimento_id, test_kpi_spec_id)
+    if annual_target: print(dict(annual_target))
+    else: print("No annual target found for test IDs.")
 
     print(f"\n--- Monthly Targets for KPI Spec ID {test_kpi_spec_id}, Target 1 ---")
-    monthly_targets = get_periodic_targets_for_kpi(
-        test_year, test_stabilimento_id, test_kpi_spec_id, "Mese", 1
-    )
+    monthly_targets = get_periodic_targets_for_kpi(test_year, test_stabilimento_id, test_kpi_spec_id, "Mese", 1)
     if monthly_targets:
         print(f"Found {len(monthly_targets)} monthly targets. First 3:")
-        for mt in monthly_targets[:3]:
-            print(f"  {mt['Periodo']}: {mt['Target']}")
-    else:
-        print("No monthly targets found for test IDs.")
+        for mt in monthly_targets[:3]: print(f"  {mt['Periodo']}: {mt['Target']}")
+    else: print("No monthly targets found for Mese.")
 
-    print(f"\n--- Master/Sub Links for KPI Spec ID {test_kpi_spec_id} ---")
-    role_info = get_kpi_role_details(test_kpi_spec_id)
-    print(f"Role for KPI {test_kpi_spec_id}: {role_info['role']}")
-    if role_info["role"] == "master":
-        print(f"  Manages SubKPIs: {role_info['related_kpis']}")
-    elif role_info["role"] == "sub":
-        print(f"  Managed by Master KPI: {role_info['master_id']}")
+    print("\n--- Testing new export functions (basic calls) ---")
+    all_annual = get_all_annual_target_entries_for_export()
+    print(f"Fetched {len(all_annual)} total annual target entries for export.")
+    if all_annual: print(f"  First annual for export: {dict(all_annual[0])}")
 
-    print("\n--- All Master/Sub Links ---")
-    all_links = get_all_master_sub_kpi_links()
-    if all_links:
-        print(f"Found {len(all_links)} links. First few:")
-        for link in all_links[:3]:
-            print(
-                f"  ID: {link['id']}, Master: {link['master_kpi_spec_id']}, Sub: {link['sub_kpi_spec_id']}"
-            )
-    else:
-        print("No master/sub links found in the database.")
+    for p_type in ["days", "weeks", "months", "quarters"]:
+        all_periodic = get_all_periodic_targets_for_export(p_type)
+        print(f"Fetched {len(all_periodic)} total {p_type} target entries for export.")
+        if all_periodic: print(f"  First {p_type} for export: {dict(all_periodic[0])}")
 
-    print("\nTest run finished.")
+    print("\nTest run finished for data_retriever.py.")

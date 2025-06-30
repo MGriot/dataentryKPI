@@ -1,10 +1,60 @@
-#export_manager.py
+# src/export_manager.py
 import csv
 import zipfile
+import io  # For zip in memory for Streamlit
+import traceback
 from pathlib import Path
-import database_manager as db  # Assuming you import database_manager as db
-import sqlite3
-import calendar  # Import the calendar module for month names
+import calendar  # For month name sorting in periodic data
+
+# Configuration import
+try:
+    from app_config import CSV_EXPORT_BASE_PATH
+
+    # DB Path constants are not directly used here anymore if data_retriever handles all fetching.
+    # If data_retriever needs them passed, they could be imported.
+except ImportError:
+    print(
+        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
+        "CSV_EXPORT_BASE_PATH will not be correctly defined. "
+    )
+    CSV_EXPORT_BASE_PATH = "./fallback_csv_exports"  # Fallback
+
+# Data retrieval import
+_data_retriever_available = False
+try:
+    # Assuming data_retriever.py has or will have these functions:
+    from data_retriever import (
+        get_all_annual_target_entries_for_export,  # New function needed in data_retriever
+        get_all_periodic_targets_for_export,  # New function needed in data_retriever (takes period_type)
+        get_all_stabilimenti,  # Existing function, suitable
+        get_all_kpis_detailed,  # Existing function, suitable
+    )
+
+    _data_retriever_available = True
+except ImportError:
+    print(
+        "CRITICAL WARNING: data_retriever.py or its required export functions not found. "
+        "Export functionality will be severely limited or non-operational. "
+        "Mocks will be used if this script is run directly."
+    )
+
+    # Mock functions if data_retriever is not available (for script to load, not for real use)
+    def get_all_annual_target_entries_for_export():
+        print("MOCK: get_all_annual_target_entries_for_export called")
+        return []
+
+    def get_all_periodic_targets_for_export(period_type: str):
+        print(f"MOCK: get_all_periodic_targets_for_export({period_type}) called")
+        return []
+
+    def get_all_stabilimenti(only_visible=False):
+        print("MOCK: get_all_stabilimenti called")
+        return []
+
+    def get_all_kpis_detailed(only_visible=False):
+        print("MOCK: get_all_kpis_detailed called")
+        return []
+
 
 # Define the names for the global CSV files
 GLOBAL_CSV_FILES = {
@@ -17,39 +67,38 @@ GLOBAL_CSV_FILES = {
     "kpis": "dict_kpis.csv",
 }
 
-from app_config import (
-    DB_KPIS,
-    DB_STABILIMENTI,
-    DB_TARGETS,
-    DB_KPI_DAYS,
-    DB_KPI_WEEKS,
-    DB_KPI_MONTHS,
-    DB_KPI_QUARTERS,
-    DB_KPI_TEMPLATES,
-    CSV_EXPORT_BASE_PATH,
-)
+# Ensure CSV_EXPORT_BASE_PATH is a Path object
+_CSV_EXPORT_BASE_PATH_OBJ = Path(CSV_EXPORT_BASE_PATH)
 
 
-def export_all_data_to_global_csvs(base_export_path_str: str):
+def export_all_data_to_global_csvs(base_export_path_str: str = None):
     """
-    Generates/Overwrites global CSV files with all data from the databases,
-    plus dictionary tables for stabilimenti and KPI descriptions.
-    Includes more robust error handling for each export step.
+    Generates/Overwrites global CSV files with all data, fetched via data_retriever.
     """
     func_name = "export_all_data_to_global_csvs"
+
+    target_export_path = _CSV_EXPORT_BASE_PATH_OBJ
+    if base_export_path_str:  # Allow overriding the default from app_config
+        target_export_path = Path(base_export_path_str)
+
     print(
-        f"INFO [{func_name}]: Inizio esportazione globale CSV in: {base_export_path_str}"
+        f"INFO [{func_name}]: Inizio esportazione globale CSV in: {target_export_path}"
     )
 
-    base_export_path = Path(base_export_path_str)
+    if not _data_retriever_available:
+        print(
+            f"CRITICAL ERROR [{func_name}]: data_retriever module not available. Aborting export."
+        )
+        return
+
     try:
-        base_export_path.mkdir(parents=True, exist_ok=True)
+        target_export_path.mkdir(parents=True, exist_ok=True)
     except Exception as e_mkdir:
         print(
-            f"CRITICAL ERROR [{func_name}]: Impossibile creare la cartella di esportazione base '{base_export_path}': {e_mkdir}"
+            f"CRITICAL ERROR [{func_name}]: Impossibile creare la cartella di esportazione '{target_export_path}': {e_mkdir}"
         )
         print(traceback.format_exc())
-        return  # Cannot proceed if base export path cannot be created
+        return
 
     export_successful_count = 0
     export_failed_count = 0
@@ -57,7 +106,7 @@ def export_all_data_to_global_csvs(base_export_path_str: str):
 
     # 1. Export Annual Master Targets
     annual_export_file = GLOBAL_CSV_FILES["annual"]
-    annual_output_filepath = base_export_path / annual_export_file
+    annual_output_filepath = target_export_path / annual_export_file
     print(f"INFO [{func_name}]: Tentativo esportazione {annual_export_file}...")
     try:
         _export_annual_master_to_csv(annual_output_filepath)
@@ -65,114 +114,78 @@ def export_all_data_to_global_csvs(base_export_path_str: str):
         export_successful_count += 1
         export_details.append(f"[SUCCESS] {annual_export_file}")
     except Exception as e_annual:
-        print(
-            f"CRITICAL ERROR [{func_name}]: Fallita esportazione master annuale ({annual_export_file}): {e_annual}"
-        )
+        msg = f"Fallita esportazione master annuale ({annual_export_file}): {e_annual}"
+        print(f"CRITICAL ERROR [{func_name}]: {msg}")
         print(traceback.format_exc())
         export_failed_count += 1
-        export_details.append(f"[FAILED]  {annual_export_file}: {e_annual}")
-        # Optionally, create an empty file with header to indicate attempt
-        try:
-            with open(
-                annual_output_filepath, "w", newline="", encoding="utf-8"
-            ) as f_err:
-                # Attempt to get header if function defines it early, otherwise generic
-                header = [
-                    "annual_target_id",
-                    "year",
-                    "stabilimento_id",
-                    "kpi_id",
-                    "...",
-                ]  # Fallback header
-                if (
-                    hasattr(_export_annual_master_to_csv, "__closure__")
-                    and _export_annual_master_to_csv.__closure__
-                ):  # Risky check for non-locals
-                    # This is generally not a good way to get header, better to define it centrally or pass it
-                    pass
-                csv.writer(f_err).writerow(header)
-        except Exception:
-            pass  # Ignore if even this fails
+        export_details.append(f"[FAILED]  {annual_export_file}: {msg}")
+        _write_empty_csv_with_header(
+            annual_output_filepath,
+            [
+                "annual_target_id",
+                "year",
+                "stabilimento_id",
+                "kpi_id",
+                "annual_target1_value",
+                "annual_target2_value",
+                "distribution_profile",
+                "repartition_logic",
+                "repartition_values_json",
+                "profile_params_json",
+                "is_target1_manual",
+                "is_target2_manual",
+            ],
+        )
 
     # 2. Export Periodic Data (Days, Weeks, Months, Quarters)
-    periodic_db_map = {
-        "days": (db.DB_KPI_DAYS, "daily_targets", "date_value"),
-        "weeks": (db.DB_KPI_WEEKS, "weekly_targets", "week_value"),
-        "months": (db.DB_KPI_MONTHS, "monthly_targets", "month_value"),
-        "quarters": (db.DB_KPI_QUARTERS, "quarterly_targets", "quarter_value"),
+    # The new `get_all_periodic_targets_for_export` in data_retriever should handle
+    # fetching from the correct DB based on period_type.
+    periodic_map_for_export = {
+        "days": ("date_value", GLOBAL_CSV_FILES["days"]),
+        "weeks": ("week_value", GLOBAL_CSV_FILES["weeks"]),
+        "months": ("month_value", GLOBAL_CSV_FILES["months"]),
+        "quarters": ("quarter_value", GLOBAL_CSV_FILES["quarters"]),
     }
 
     for period_key, (
-        db_path_const,
-        table_name,
         period_col_name,
-    ) in periodic_db_map.items():
-        periodic_export_file = GLOBAL_CSV_FILES[period_key]
-        periodic_output_filepath = base_export_path / periodic_export_file
-        print(f"INFO [{func_name}]: Tentativo esportazione {periodic_export_file}...")
+        periodic_file_name,
+    ) in periodic_map_for_export.items():
+        periodic_output_filepath = target_export_path / periodic_file_name
+        print(
+            f"INFO [{func_name}]: Tentativo esportazione {periodic_file_name} (Type: {period_key})..."
+        )
         try:
-            # Ensure the db_path from the constant is valid
-            actual_db_path = None
-            if hasattr(
-                db,
-                (
-                    db_path_const.__name__
-                    if hasattr(db_path_const, "__name__")
-                    else str(db_path_const)
-                ),
-            ):  # Check if constant name exists in db module
-                actual_db_path = getattr(
-                    db,
-                    (
-                        db_path_const.__name__
-                        if hasattr(db_path_const, "__name__")
-                        else str(db_path_const)
-                    ),
-                )
-            elif isinstance(
-                db_path_const, (str, Path)
-            ):  # If it's already a path string/object
-                actual_db_path = db_path_const
-            else:
-                raise ValueError(
-                    f"Percorso DB per '{period_key}' ({db_path_const}) non è valido o non trovato nel modulo 'db'."
-                )
-
             _export_single_period_to_global_csv(
-                actual_db_path, table_name, period_col_name, periodic_output_filepath
+                period_key, period_col_name, periodic_output_filepath
             )
             print(
-                f"SUCCESS [{func_name}]: Esportazione {periodic_export_file} completata."
+                f"SUCCESS [{func_name}]: Esportazione {periodic_file_name} completata."
             )
             export_successful_count += 1
-            export_details.append(f"[SUCCESS] {periodic_export_file}")
+            export_details.append(f"[SUCCESS] {periodic_file_name}")
         except Exception as e_periodic:
-            print(
-                f"CRITICAL ERROR [{func_name}]: Fallita esportazione dati periodici '{period_key}' ({periodic_export_file}): {e_periodic}"
-            )
+            msg = f"Fallita esportazione dati periodici '{period_key}' ({periodic_file_name}): {e_periodic}"
+            print(f"CRITICAL ERROR [{func_name}]: {msg}")
             print(traceback.format_exc())
             export_failed_count += 1
-            export_details.append(f"[FAILED]  {periodic_export_file}: {e_periodic}")
-            try:
-                with open(
-                    periodic_output_filepath, "w", newline="", encoding="utf-8"
-                ) as f_err:
-                    header = [
-                        "kpi_id",
-                        "stabilimento_id",
-                        "year",
-                        period_col_name,
-                        "target1_value",
-                        "target2_value",
-                    ]
-                    csv.writer(f_err).writerow(header)
-            except Exception:
-                pass
+            export_details.append(f"[FAILED]  {periodic_file_name}: {msg}")
+            _write_empty_csv_with_header(
+                periodic_output_filepath,
+                [
+                    "kpi_id",
+                    "stabilimento_id",
+                    "year",
+                    period_col_name,
+                    "target1_value",
+                    "target2_value",
+                ],
+            )
 
     # 3. Export Dictionary Tables
     # Stabilimenti
     stab_export_file = GLOBAL_CSV_FILES["stabilimenti"]
-    stab_output_filepath = base_export_path / stab_export_file
+    stab_output_filepath = target_export_path / stab_export_file
     print(f"INFO [{func_name}]: Tentativo esportazione {stab_export_file}...")
     try:
         _export_stabilimenti_to_csv(stab_output_filepath)
@@ -180,22 +193,18 @@ def export_all_data_to_global_csvs(base_export_path_str: str):
         export_successful_count += 1
         export_details.append(f"[SUCCESS] {stab_export_file}")
     except Exception as e_stab:
-        print(
-            f"CRITICAL ERROR [{func_name}]: Fallita esportazione stabilimenti ({stab_export_file}): {e_stab}"
-        )
+        msg = f"Fallita esportazione stabilimenti ({stab_export_file}): {e_stab}"
+        print(f"CRITICAL ERROR [{func_name}]: {msg}")
         print(traceback.format_exc())
         export_failed_count += 1
-        export_details.append(f"[FAILED]  {stab_export_file}: {e_stab}")
-        try:
-            with open(stab_output_filepath, "w", newline="", encoding="utf-8") as f_err:
-                header = ["id", "name", "description"]
-                csv.writer(f_err).writerow(header)
-        except Exception:
-            pass
+        export_details.append(f"[FAILED]  {stab_export_file}: {msg}")
+        _write_empty_csv_with_header(
+            stab_output_filepath, ["id", "name", "description", "visible"]
+        )
 
     # KPIs
     kpis_export_file = GLOBAL_CSV_FILES["kpis"]
-    kpis_output_filepath = base_export_path / kpis_export_file
+    kpis_output_filepath = target_export_path / kpis_export_file
     print(f"INFO [{func_name}]: Tentativo esportazione {kpis_export_file}...")
     try:
         _export_kpis_to_csv(kpis_output_filepath)
@@ -203,28 +212,30 @@ def export_all_data_to_global_csvs(base_export_path_str: str):
         export_successful_count += 1
         export_details.append(f"[SUCCESS] {kpis_export_file}")
     except Exception as e_kpis:
-        print(
-            f"CRITICAL ERROR [{func_name}]: Fallita esportazione dizionario KPI ({kpis_export_file}): {e_kpis}"
-        )
+        msg = f"Fallita esportazione dizionario KPI ({kpis_export_file}): {e_kpis}"
+        print(f"CRITICAL ERROR [{func_name}]: {msg}")
         print(traceback.format_exc())
         export_failed_count += 1
-        export_details.append(f"[FAILED]  {kpis_export_file}: {e_kpis}")
-        try:
-            with open(kpis_output_filepath, "w", newline="", encoding="utf-8") as f_err:
-                header = [
-                    "id",
-                    "group_id",
-                    "group_name",
-                    "subgroup_id",
-                    "subgroup_name",
-                    "...",
-                ]
-                csv.writer(f_err).writerow(header)
-        except Exception:
-            pass
+        export_details.append(f"[FAILED]  {kpis_export_file}: {msg}")
+        _write_empty_csv_with_header(
+            kpis_output_filepath,
+            [
+                "id",
+                "group_id",
+                "group_name",
+                "subgroup_id",
+                "subgroup_name",
+                "indicator_name",
+                "description",
+                "calculation_type",
+                "unit_of_measure",
+                "visible",
+            ],
+        )
 
+    # --- Summary ---
     print(f"INFO [{func_name}]: Esportazione globale CSV terminata.")
-    print(f"INFO [{func_name}]: Riepilogo esportazioni:")
+    print(f"INFO [{func_name}]: Riepilogo esportazioni in '{target_export_path}':")
     for detail in export_details:
         print(f"    {detail}")
     print(
@@ -240,234 +251,98 @@ def export_all_data_to_global_csvs(base_export_path_str: str):
         )
 
 
-def _export_annual_master_to_csv(output_filepath: Path):
-    """
-    Exports specified records from the annual_targets table.
-    Focuses on exporting IDs and core target data.
-    """
-    func_name = "_export_annual_master_to_csv"
-    print(f"DEBUG [{func_name}]: Starting export to {output_filepath}")
+def _write_empty_csv_with_header(filepath: Path, header: list):
+    """Helper to write an empty CSV file with just a header, typically on error."""
+    try:
+        with open(filepath, "w", newline="", encoding="utf-8") as f_err:
+            csv.writer(f_err).writerow(header)
+        print(f"    INFO: Scritto file CSV vuoto con header: {filepath.name}")
+    except Exception as e_write_empty:
+        print(
+            f"    WARN: Impossibile scrivere file CSV vuoto con header per {filepath.name}: {e_write_empty}"
+        )
 
+
+def _export_annual_master_to_csv(output_filepath: Path):
+    """Exports all annual_targets records, fetched via data_retriever."""
     header = [
-        "annual_target_id",  # annual_targets.id
-        "year",  # annual_targets.year
-        "stabilimento_id",  # annual_targets.stabilimento_id (FK)
-        "kpi_id",  # annual_targets.kpi_id (FK to kpis.id)
+        "annual_target_id",
+        "year",
+        "stabilimento_id",
+        "kpi_id",
         "annual_target1_value",
         "annual_target2_value",
         "distribution_profile",
         "repartition_logic",
         "repartition_values_json",
         "profile_params_json",
-        "is_target1_manual",  # boolean (0 or 1)
-        "is_target2_manual",  # boolean (0 or 1)
+        "is_target1_manual",
+        "is_target2_manual",
+        "target1_is_formula_based",
+        "target1_formula",
+        "target1_formula_inputs",
+        "target2_is_formula_based",
+        "target2_formula",
+        "target2_formula_inputs",
     ]
 
-    all_annual_targets_rows = []
-    db_path_resolved_str = "UNKNOWN_DB_PATH"
-    sql_query_executed = "NOT_YET_DEFINED"
-
-    try:
-        if not hasattr(db, "DB_TARGETS") or not db.DB_TARGETS:
-            print(
-                f"CRITICAL ERROR [{func_name}]: db.DB_TARGETS is not defined or is empty in database_manager module."
-            )
-            raise ValueError(
-                "DB_TARGETS path is not configured."
-            )  # Raise error to be caught by generic except
-
-        # Ensure db.DB_TARGETS is a Path object or string path and resolve it
-        db_path = Path(db.DB_TARGETS)
-        if not db_path.is_absolute():
-            # Attempt to resolve relative to a known base if necessary, or assume CWD
-            # For simplicity, we'll resolve it directly. If it's relative, ensure it's correct.
-            db_path_resolved_str = str(db_path.resolve())
-        else:
-            db_path_resolved_str = str(db_path)
-
+    # data_retriever.get_all_annual_target_entries_for_export() should return a list of dicts or Row objects
+    all_annual_targets_rows = get_all_annual_target_entries_for_export()
+    if all_annual_targets_rows is None:  # Check if data_retriever indicated an error
         print(
-            f"DEBUG [{func_name}]: Connecting to DB_TARGETS at resolved path: {db_path_resolved_str}"
+            f"    WARN (_export_annual_master): Data retriever returned None. Cannot export."
         )
+        all_annual_targets_rows = []  # Treat as empty
 
-        if not Path(db_path_resolved_str).exists():
-            print(
-                f"CRITICAL ERROR [{func_name}]: Database file does not exist at {db_path_resolved_str}"
-            )
-            raise FileNotFoundError(
-                f"DB_TARGETS file not found: {db_path_resolved_str}"
-            )
-
-        with sqlite3.connect(db_path_resolved_str) as conn:  # Use resolved path
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-
-            # Explicitly list all columns to be fetched
-            sql_query_executed = """
-                SELECT id, year, stabilimento_id, kpi_id,
-                       annual_target1, annual_target2,
-                       distribution_profile, repartition_logic,
-                       repartition_values, profile_params,
-                       is_target1_manual, is_target2_manual
-                FROM annual_targets
-                ORDER BY year, stabilimento_id, kpi_id;
-            """
-            print(f"DEBUG [{func_name}]: Executing query: {sql_query_executed}")
-
-            cursor.execute(sql_query_executed)
-            all_annual_targets_rows = cursor.fetchall()
-
-            print(
-                f"DEBUG [{func_name}]: Fetched {len(all_annual_targets_rows)} rows from annual_targets."
-            )
-            if all_annual_targets_rows and len(all_annual_targets_rows) > 0:
-                try:
-                    # Attempt to convert the first row to dict for debugging
-                    # This can fail if row_factory was not set or fetchall returned non-Row objects
-                    first_row_dict = dict(all_annual_targets_rows[0])
-                    print(f"DEBUG [{func_name}]: First row fetched: {first_row_dict}")
-                except Exception as e_dict:
-                    print(
-                        f"DEBUG [{func_name}]: Could not convert first row to dict for debug print: {e_dict}"
-                    )
-                    print(
-                        f"DEBUG [{func_name}]: First row raw type: {type(all_annual_targets_rows[0])}, content: {all_annual_targets_rows[0]}"
-                    )
-
-    except sqlite3.Error as sqle:
-        print(
-            f"CRITICAL SQLITE ERROR [{func_name}] on DB '{db_path_resolved_str}': {sqle}"
-        )
-        print(f"   Query was: {sql_query_executed}")
-        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile_err:
-            csv.writer(csvfile_err).writerow(header)
-        return  # Exit function after logging error and writing header
-    except FileNotFoundError as fnfe:  # Specific handling for file not found
-        print(f"CRITICAL FILE NOT FOUND ERROR [{func_name}]: {fnfe}")
-        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile_err:
-            csv.writer(csvfile_err).writerow(header)
-        return
-    except Exception as e:
-        print(
-            f"UNEXPECTED ERROR [{func_name}] during data retrieval (DB: '{db_path_resolved_str}'): {e}"
-        )
-        print(traceback.format_exc())
-        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile_err:
-            csv.writer(csvfile_err).writerow(header)
-        return
-
-    # --- Proceed to write CSV content ---
     print(
-        f"DEBUG [{func_name}]: Proceeding to write CSV. Rows fetched: {len(all_annual_targets_rows)}"
+        f"DEBUG (_export_annual_master): Fetched {len(all_annual_targets_rows)} rows for annual targets."
     )
-    try:
-        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(header)
 
-            if not all_annual_targets_rows:
-                print(
-                    f"INFO [{func_name}]: Nessun dato trovato in annual_targets (DB: {db_path_resolved_str}) per il file {output_filepath.name}."
-                )
-                # No return here, an empty CSV with only a header is a valid state if table is empty.
-            else:
-                for i, at_row in enumerate(all_annual_targets_rows):
-                    try:
-                        # Safely get values, providing defaults for None where appropriate for formatting
-                        annual_target_id = at_row["id"]
-                        year = at_row["year"]
-                        stabilimento_id = at_row["stabilimento_id"]
-                        kpi_id = at_row["kpi_id"]
-
-                        annual_target1 = at_row["annual_target1"]
-                        annual_target1_str = (
-                            f"{annual_target1:.2f}"
-                            if annual_target1 is not None
-                            else ""
-                        )
-
-                        annual_target2 = at_row["annual_target2"]
-                        annual_target2_str = (
-                            f"{annual_target2:.2f}"
-                            if annual_target2 is not None
-                            else ""
-                        )
-
-                        distribution_profile = (
-                            at_row["distribution_profile"]
-                            if at_row["distribution_profile"] is not None
-                            else ""
-                        )
-                        repartition_logic = (
-                            at_row["repartition_logic"]
-                            if at_row["repartition_logic"] is not None
-                            else ""
-                        )
-
-                        # These are expected to be JSON strings from the DB or None
-                        repartition_values_json = (
-                            at_row["repartition_values"]
-                            if at_row["repartition_values"] is not None
-                            else "{}"
-                        )
-
-                        profile_params_json = "{}"  # Default for profile_params
-                        if (
-                            "profile_params" in at_row.keys()
-                            and at_row["profile_params"] is not None
-                        ):
-                            profile_params_json = at_row["profile_params"]
-
-                        is_target1_manual = 1 if at_row["is_target1_manual"] else 0
-                        is_target2_manual = 1 if at_row["is_target2_manual"] else 0
-
-                        writer.writerow(
-                            [
-                                annual_target_id,
-                                year,
-                                stabilimento_id,
-                                kpi_id,
-                                annual_target1_str,
-                                annual_target2_str,
-                                distribution_profile,
-                                repartition_logic,
-                                repartition_values_json,
-                                profile_params_json,
-                                is_target1_manual,
-                                is_target2_manual,
-                            ]
-                        )
-                    except KeyError as ke:
-                        print(
-                            f"ERROR [{func_name}]: KeyError while processing row {i+1} (ID: {at_row.get('id', 'N/A')}): '{ke}'. Row data: {dict(at_row)}. Skipping row."
-                        )
-                        continue  # Skip this problematic row
-                    except Exception as e_row:
-                        print(
-                            f"ERROR [{func_name}]: Unexpected error processing row {i+1} (ID: {at_row.get('id', 'N/A')}): {e_row}. Row data: {dict(at_row)}. Skipping row."
-                        )
-                        print(traceback.format_exc())
-                        continue  # Skip this problematic row
-
-        print(
-            f"INFO [{func_name}]: Esportazione per {output_filepath.name} completata."
-        )
-
-    except IOError as ioe:
-        print(
-            f"CRITICAL IO_ERROR [{func_name}] writing CSV file {output_filepath}: {ioe}"
-        )
-        print(traceback.format_exc())
-    except Exception as e_csv:
-        print(
-            f"UNEXPECTED ERROR [{func_name}] during CSV writing to {output_filepath}: {e_csv}"
-        )
-        print(traceback.format_exc())
+    with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(header)
+        for row_data in all_annual_targets_rows:
+            # Assuming row_data is a dict-like object (e.g., from sqlite3.Row or a manually constructed dict)
+            # Ensure all keys exist, provide defaults for missing ones for robustness
+            writer.writerow(
+                [
+                    row_data.get("id"),
+                    row_data.get("year"),
+                    row_data.get("stabilimento_id"),
+                    row_data.get("kpi_id"),
+                    (
+                        f"{row_data.get('annual_target1'):.2f}"
+                        if row_data.get("annual_target1") is not None
+                        else ""
+                    ),
+                    (
+                        f"{row_data.get('annual_target2'):.2f}"
+                        if row_data.get("annual_target2") is not None
+                        else ""
+                    ),
+                    row_data.get("distribution_profile", ""),
+                    row_data.get("repartition_logic", ""),
+                    row_data.get("repartition_values", "{}"),
+                    row_data.get("profile_params", "{}"),
+                    1 if row_data.get("is_target1_manual") else 0,
+                    1 if row_data.get("is_target2_manual") else 0,
+                    1 if row_data.get("target1_is_formula_based") else 0,
+                    row_data.get("target1_formula", ""),
+                    row_data.get("target1_formula_inputs", "[]"),
+                    1 if row_data.get("target2_is_formula_based") else 0,
+                    row_data.get("target2_formula", ""),
+                    row_data.get("target2_formula_inputs", "[]"),
+                ]
+            )
 
 
 def _export_single_period_to_global_csv(
-    db_path, table_name, period_col_name, output_filepath
+    period_type: str, period_col_name: str, output_filepath: Path
 ):
-    merged_data = {}
+    """
+    Exports all periodic target data for a given period_type (days, weeks, etc.),
+    fetched via data_retriever. Merges Target1 and Target2 onto the same row.
+    """
     header = [
         "kpi_id",
         "stabilimento_id",
@@ -476,80 +351,85 @@ def _export_single_period_to_global_csv(
         "target1_value",
         "target2_value",
     ]
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            # ... (order clause logic remains the same) ...
-            order_clause_periodic = f"ORDER BY year, stabilimento_id, kpi_id, {period_col_name}, target_number"
-            if period_col_name == "month_value":
-                month_order_cases = " ".join(
-                    [f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)]
-                )
-                order_clause_periodic = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {month_order_cases} END, target_number"
-            elif period_col_name == "quarter_value":
-                quarter_order_cases = " ".join(
-                    [f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)]
-                )
-                order_clause_periodic = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {quarter_order_cases} END, target_number"
-            elif period_col_name == "week_value":
-                order_clause_periodic = f"ORDER BY year, stabilimento_id, kpi_id, SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER), target_number"
 
-            query = (
-                f"SELECT kpi_id, stabilimento_id, year, {period_col_name}, target_number, target_value "
-                f"FROM {table_name} {order_clause_periodic}"
-            )
-            cursor.execute(query)
-            for row in cursor.fetchall():
-                key = (
-                    row["kpi_id"],
-                    row["stabilimento_id"],
-                    row["year"],
-                    row[period_col_name],
-                )
-                if key not in merged_data:
-                    merged_data[key] = {"target1_value": None, "target2_value": None}
-                if row["target_number"] == 1:
-                    merged_data[key]["target1_value"] = row["target_value"]
-                elif row["target_number"] == 2:
-                    merged_data[key]["target2_value"] = row["target_value"]
-    except Exception as e:
+    # data_retriever.get_all_periodic_targets_for_export(period_type)
+    # This new function should return all rows for that period type, including 'target_number'.
+    # Example row from retriever: {'kpi_id':1, 'stabilimento_id':1, 'year':2023, period_col_name:'2023-01-01', 'target_number':1, 'target_value':100}
+    all_periodic_rows = get_all_periodic_targets_for_export(period_type=period_type)
+    if all_periodic_rows is None:
         print(
-            f"ERRORE (Export Periodic {table_name}): Impossibile recuperare dati da {db_path}: {e}"
+            f"    WARN (_export_single_period {period_type}): Data retriever returned None. Cannot export."
         )
-        with open(output_filepath, "w", newline="", encoding="utf-8") as f_err:
-            csv.writer(f_err).writerow(header)
-        return
+        all_periodic_rows = []
+
+    print(
+        f"DEBUG (_export_single_period {period_type}): Fetched {len(all_periodic_rows)} raw rows for {period_type} targets."
+    )
+
+    merged_data = (
+        {}
+    )  # Key: (kpi_id, stab_id, year, period_value), Value: {'target1_value': V, 'target2_value': V}
+    for row in all_periodic_rows:
+        # Ensure row is dict-like
+        row_dict = dict(row) if not isinstance(row, dict) else row
+        key = (
+            row_dict.get("kpi_id"),
+            row_dict.get("stabilimento_id"),
+            row_dict.get("year"),
+            row_dict.get(
+                period_col_name
+            ),  # period_col_name holds the actual period value like '2023-01-01' or 'January'
+        )
+        if None in key:  # Skip if key components are missing
+            print(
+                f"    WARN (_export_single_period {period_type}): Skipping row with missing key components: {row_dict}"
+            )
+            continue
+
+        if key not in merged_data:
+            merged_data[key] = {"target1_value": None, "target2_value": None}
+
+        target_number = row_dict.get("target_number")
+        target_value = row_dict.get("target_value")
+
+        if target_number == 1:
+            merged_data[key]["target1_value"] = target_value
+        elif target_number == 2:
+            merged_data[key]["target2_value"] = target_value
+
+    # Sorting logic for keys (important for consistent output)
+    def sort_key_periodic(k_tuple):
+        # k_tuple = (kpi_id, stab_id, year, period_value_str)
+        year_val = k_tuple[2]
+        stab_id_val = k_tuple[1]
+        kpi_id_val = k_tuple[0]
+        period_val_str = k_tuple[3]
+
+        period_sort_metric = period_val_str  # Default for dates, week strings
+        if period_type == "months":
+            try:  # Robust month name to number for sorting
+                period_sort_metric = list(calendar.month_name).index(period_val_str)
+            except ValueError:
+                period_sort_metric = 0  # Fallback
+        elif period_type == "quarters":
+            try:
+                period_sort_metric = (
+                    int(period_val_str[1:]) if period_val_str.startswith("Q") else 0
+                )
+            except ValueError:
+                period_sort_metric = 0  # Fallback
+        return (year_val, stab_id_val, kpi_id_val, period_sort_metric)
+
+    sorted_keys = sorted(merged_data.keys(), key=sort_key_periodic)
 
     with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(header)
-        if not merged_data:
-            print(f"Nessun dato trovato in {table_name} per {output_filepath.name}")
-            return
-        # ... (sorting logic for keys remains the same) ...
-        sorted_keys = sorted(
-            merged_data.keys(),
-            key=lambda x: (
-                x[2],
-                x[1],
-                x[0],
-                (
-                    calendar.month_name[:].index(x[3])
-                    if period_col_name == "month_value" and x[3] in calendar.month_name
-                    else (
-                        int(x[3][1:])
-                        if period_col_name == "quarter_value"
-                        and x[3].startswith("Q")
-                        and x[3][1:].isdigit()
-                        else x[3]
-                    )
-                ),
-            ),
-        )
-        for key in sorted_keys:
-            kpi_id_val, stab_id_val, yr_val, period_val_str = key
-            targets = merged_data[key]
+        for key_tuple in sorted_keys:
+            kpi_id_val, stab_id_val, yr_val, period_val_output = (
+                key_tuple  # period_val_output is the actual string value
+            )
+            targets = merged_data[key_tuple]
             t1_str = (
                 f"{targets['target1_value']:.2f}"
                 if targets["target1_value"] is not None
@@ -561,64 +441,44 @@ def _export_single_period_to_global_csv(
                 else ""
             )
             writer.writerow(
-                [kpi_id_val, stab_id_val, yr_val, period_val_str, t1_str, t2_str]
+                [kpi_id_val, stab_id_val, yr_val, period_val_output, t1_str, t2_str]
             )
-    print(f"Completata esportazione per: {output_filepath.name}")
 
 
-def _export_stabilimenti_to_csv(output_filepath):
-    """
-    Exports all records from the stabilimenti table.
-    """
-    header = ["id", "name", "description"]
-    all_stabilimenti_rows = []  # Changed variable name for clarity
-    try:
-        with sqlite3.connect(db.DB_STABILIMENTI) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id, name, description FROM stabilimenti ORDER BY name"
-            )
-            all_stabilimenti_rows = cursor.fetchall()
-    except Exception as e:
-        print(
-            f"ERRORE (Export Stabilimenti): Impossibile recuperare dati da {db.DB_STABILIMENTI}: {e}"
-        )
-        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile_err:
-            csv.writer(csvfile_err).writerow(header)
-        return
+def _export_stabilimenti_to_csv(output_filepath: Path):
+    """Exports all stabilimenti records, fetched via data_retriever."""
+    header = ["id", "name", "description", "visible"]
+    all_stabilimenti_rows = get_all_stabilimenti(
+        only_visible=False
+    )  # Fetch all for dictionary
+    if all_stabilimenti_rows is None:
+        all_stabilimenti_rows = []
+    print(
+        f"DEBUG (_export_stabilimenti): Fetched {len(all_stabilimenti_rows)} rows for stabilimenti."
+    )
 
     with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(header)
-
-        if not all_stabilimenti_rows:
-            print(f"Nessun dato trovato in stabilimenti per {output_filepath.name}")
-            return
-
-        for row in all_stabilimenti_rows:
-            # Safely access 'description'
-            description_val = ""  # Default to empty string
-            try:
-                # Check if 'description' key exists and is not None
-                if "description" in row.keys() and row["description"] is not None:
-                    description_val = row["description"]
-            except KeyError:
-                # This handles if 'description' is somehow not a key in the row
-                # (should be rare if schema and query are correct)
-                pass  # description_val remains ""
-
+        for row_data in all_stabilimenti_rows:
             writer.writerow(
-                [row["id"], row["name"], description_val]  # Use the safe variable
+                [
+                    row_data.get("id"),
+                    row_data.get("name"),
+                    row_data.get(
+                        "description", ""
+                    ),  # Ensure description exists, default to empty
+                    1 if row_data.get("visible") else 0,
+                ]
             )
-    print(f"Completata esportazione per: {output_filepath.name}")
 
-def _export_kpis_to_csv(output_filepath):
+
+def _export_kpis_to_csv(output_filepath: Path):
+    """Exports all detailed KPI records, fetched via data_retriever."""
     header = [
-        "id",
-        "group_id",
+        "kpi_spec_id",  # This is kpis.id
+        "indicator_id",  # This is kpi_indicators.id
         "group_name",
-        "subgroup_id",
         "subgroup_name",
         "indicator_name",
         "description",
@@ -626,66 +486,59 @@ def _export_kpis_to_csv(output_filepath):
         "unit_of_measure",
         "visible",
     ]
-    all_kpis_data = []
-    try:
-        with sqlite3.connect(db.DB_KPIS) as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            query = """
-                SELECT
-                    k.id, ksg.group_id, kg.name AS group_name, ki.subgroup_id,
-                    ksg.name AS subgroup_name, ki.name AS indicator_name, k.description,
-                    k.calculation_type, k.unit_of_measure, k.visible
-                FROM kpis k
-                JOIN kpi_indicators ki ON k.indicator_id = ki.id
-                JOIN kpi_subgroups ksg ON ki.subgroup_id = ksg.id
-                JOIN kpi_groups kg ON ksg.group_id = kg.id
-                ORDER BY group_name, subgroup_name, indicator_name;
-            """
-            cursor.execute(query)
-            all_kpis_data = cursor.fetchall()
-    except Exception as e:
-        print(f"ERRORE (Export KPIs): Impossibile recuperare dati da {db.DB_KPIS}: {e}")
-        with open(output_filepath, "w", newline="", encoding="utf-8") as f_err:
-            csv.writer(f_err).writerow(header)
-        return
+    # get_all_kpis_detailed should return list of dicts/Rows with keys like:
+    # id (kpis.id), actual_indicator_id (kpi_indicators.id), group_name, subgroup_name, indicator_name, etc.
+    all_kpis_data = get_all_kpis_detailed(
+        only_visible=False
+    )  # Fetch all for dictionary
+    if all_kpis_data is None:
+        all_kpis_data = []
+    print(f"DEBUG (_export_kpis): Fetched {len(all_kpis_data)} rows for KPIs.")
 
     with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(header)
-        if not all_kpis_data:
-            print(f"Nessun dato trovato in kpis per {output_filepath.name}")
-            return
-        for row in all_kpis_data:
+        for row_data in all_kpis_data:
             writer.writerow(
                 [
-                    row["id"],
-                    row["group_id"],
-                    row["group_name"],
-                    row["subgroup_id"],
-                    row["subgroup_name"],
-                    row["indicator_name"],
-                    row["description"],
-                    row["calculation_type"],
-                    row["unit_of_measure"],
-                    "Sì" if row["visible"] else "No",
+                    row_data.get("id"),  # This is kpis.id -> kpi_spec_id
+                    row_data.get("actual_indicator_id"),  # This is kpi_indicators.id
+                    row_data.get("group_name"),
+                    row_data.get("subgroup_name"),
+                    row_data.get("indicator_name"),
+                    row_data.get("description"),
+                    row_data.get("calculation_type"),
+                    row_data.get("unit_of_measure"),
+                    1 if row_data.get("visible") else 0,
                 ]
             )
-    print(f"Completata esportazione per: {output_filepath.name}")
 
 
 def package_all_csvs_as_zip(
-    csv_base_path_str, output_zip_filepath_str=None, return_bytes_for_streamlit=False
+    csv_base_path_str: str = None,
+    output_zip_filepath_str: str = None,
+    return_bytes_for_streamlit: bool = False,
 ):
-    csv_base_path = Path(csv_base_path_str)
+    """
+    Packages all globally defined CSV files from the csv_base_path into a ZIP archive.
+    Can save to a file or return as bytes for Streamlit download.
+    """
+    func_name = "package_all_csvs_as_zip"
+
+    source_csv_path = _CSV_EXPORT_BASE_PATH_OBJ
+    if csv_base_path_str:  # Allow override
+        source_csv_path = Path(csv_base_path_str)
+
     files_to_zip = [
-        csv_base_path / fname
+        source_csv_path / fname
         for fname in GLOBAL_CSV_FILES.values()
-        if (csv_base_path / fname).exists()
+        if (source_csv_path / fname).exists()
     ]
+
     if not files_to_zip:
-        msg = f"Nessun file CSV globale trovato in {csv_base_path} per l'esportazione ZIP."
-        return False, msg
+        msg = f"Nessun file CSV globale trovato in {source_csv_path} per l'esportazione ZIP."
+        print(f"INFO [{func_name}]: {msg}")
+        return False, (None if return_bytes_for_streamlit else msg)
 
     zip_buffer = io.BytesIO() if return_bytes_for_streamlit else None
     actual_zip_filepath = (
@@ -693,75 +546,120 @@ def package_all_csvs_as_zip(
     )
     zip_target = zip_buffer if zip_buffer else actual_zip_filepath
 
-    if not zip_target:
-        return False, "Nessuna destinazione ZIP specificata."
+    if not zip_target:  # Should not happen if one of the options is chosen
+        msg = "Nessuna destinazione ZIP specificata (né file, né buffer)."
+        print(f"ERROR [{func_name}]: {msg}")
+        return False, (None if return_bytes_for_streamlit else msg)
 
     try:
         with zipfile.ZipFile(zip_target, "w", zipfile.ZIP_DEFLATED) as zipf:
             for file_path_abs in files_to_zip:
-                zipf.write(file_path_abs, arcname=file_path_abs.name)
+                zipf.write(
+                    file_path_abs, arcname=file_path_abs.name
+                )  # Use relative name in ZIP
 
+        num_files = len(files_to_zip)
         if (
             zip_buffer and actual_zip_filepath
-        ):  # If bytes were requested AND a file path was given
+        ):  # Bytes requested AND file path given (save and return bytes)
             with open(actual_zip_filepath, "wb") as f_out:
                 f_out.write(zip_buffer.getvalue())
-            msg = f"File ZIP ({len(files_to_zip)} files) creato: {actual_zip_filepath} e pronto per download."
+            msg = f"File ZIP ({num_files} files) creato: {actual_zip_filepath} e buffer pronto."
+            print(f"INFO [{func_name}]: {msg}")
+            return True, zip_buffer.getvalue()
         elif actual_zip_filepath:  # Only file path given
-            msg = f"File ZIP ({len(files_to_zip)} files) creato: {actual_zip_filepath}"
-        else:  # Only bytes requested
-            msg = f"Archivio ZIP ({len(files_to_zip)} files) pronto per il download."
+            msg = f"File ZIP ({num_files} files) creato: {actual_zip_filepath}"
+            print(f"INFO [{func_name}]: {msg}")
+            return True, msg
+        elif zip_buffer:  # Only bytes requested
+            msg = f"Archivio ZIP ({num_files} files) creato in memoria."
+            print(f"INFO [{func_name}]: {msg}")
+            return True, zip_buffer.getvalue()
+        else:  # Should not be reached if logic above is correct
+            return False, "Logica ZIP imprevista."
 
-        return True, zip_buffer.getvalue() if zip_buffer else msg
-    except Exception as e:
-        msg = f"Errore creazione ZIP: {e}"
-        return False, msg
+    except Exception as e_zip:
+        msg = f"Errore creazione ZIP: {e_zip}"
+        print(f"ERROR [{func_name}]: {msg}")
+        print(traceback.format_exc())
+        return False, (None if return_bytes_for_streamlit else msg)
 
 
-# Example of how you might call this from your main script, if needed for testing:
 if __name__ == "__main__":
-    # This assumes your database_manager.py has initialized the DBs
-    # and app_config.py has CSV_EXPORT_BASE_PATH defined
-    # and that database_manager defines DB_STABILIMENTI, DB_KPIS, DB_TARGETS etc.
-    # For standalone testing, you might need to mock db or set up paths manually.
-
-    # Ensure app_config constants are accessible, if not already imported in db.
-    # from app_config import CSV_EXPORT_BASE_PATH
-
-    # Check if database_manager populates 'data_retriever' or if it's a separate module.
-    # If `db.data_retriever` is not how you access it, adjust the calls in `_export_annual_master_to_csv`
-
-    # Initialize databases if not already done by another script
-    # db.setup_databases() # Call this if the DBs might not exist/be set up
-
     print("Running export_manager.py for testing...")
-    # You'll need to define a test export path
-    test_export_dir = Path("./test_csv_exports")
+    # This test assumes app_config.CSV_EXPORT_BASE_PATH is defined.
+    # It also assumes data_retriever can provide data or mocks are active.
 
-    # Make sure you have constants like db.DB_TARGETS, db.DB_STABILIMENTI, db.DB_KPIS
-    # correctly pointing to your database files. These would typically come from app_config.py
-    # and be available through your 'db' (database_manager) import.
+    # Use the path from app_config by default for the test
+    test_export_dir = _CSV_EXPORT_BASE_PATH_OBJ
+    test_zip_file = test_export_dir / "test_global_data_export.zip"
 
-    # Mock or ensure data exists in your databases before running this.
-    # For example, using the test data generation from your database_manager.py.
+    print(f"Test export directory: {test_export_dir}")
+    print(f"Test ZIP output file: {test_zip_file}")
 
-    if hasattr(db, "CSV_EXPORT_BASE_PATH"):
-        export_path = db.CSV_EXPORT_BASE_PATH
-    else:
-        # Fallback if CSV_EXPORT_BASE_PATH is not directly on db object
-        # You might need to import it from app_config directly
-        try:
-            from app_config import CSV_EXPORT_BASE_PATH
+    # Create dummy data for data_retriever mocks if not available
+    if not _data_retriever_available:
+        print("INFO: data_retriever not available, using mocks for export test.")
 
-            export_path = CSV_EXPORT_BASE_PATH
-        except ImportError:
-            print(
-                "CSV_EXPORT_BASE_PATH not found. Using local test_csv_exports directory."
-            )
-            export_path = test_export_dir
+        # Provide some minimal mock data structure if needed by export functions
+        def get_all_annual_target_entries_for_export():
+            return [
+                {
+                    "id": 1,
+                    "year": 2023,
+                    "stabilimento_id": 1,
+                    "kpi_id": 1,
+                    "annual_target1": 100,
+                    "annual_target2": 200,
+                }
+            ]
 
-    export_all_data_to_global_csvs(str(export_path))
-    package_all_csvs_as_zip(
-        str(export_path), str(export_path / "global_data_export.zip")
+        def get_all_periodic_targets_for_export(period_type: str):
+            if period_type == "days":
+                return [
+                    {
+                        "kpi_id": 1,
+                        "stabilimento_id": 1,
+                        "year": 2023,
+                        "date_value": "2023-01-01",
+                        "target_number": 1,
+                        "target_value": 10,
+                    }
+                ]
+            return []
+
+        def get_all_stabilimenti(only_visible=False):
+            return [
+                {"id": 1, "name": "Test Stab", "description": "Desc", "visible": True}
+            ]
+
+        def get_all_kpis_detailed(only_visible=False):
+            return [
+                {
+                    "id": 1,
+                    "actual_indicator_id": 101,
+                    "group_name": "Grp",
+                    "subgroup_name": "Sub",
+                    "indicator_name": "Ind",
+                }
+            ]
+
+    # Run the main export function
+    export_all_data_to_global_csvs(str(test_export_dir))
+
+    # Run the ZIP packaging function
+    success, result = package_all_csvs_as_zip(
+        csv_base_path_str=str(test_export_dir),
+        output_zip_filepath_str=str(test_zip_file),
+        return_bytes_for_streamlit=False,  # For file output in test
     )
-    print("Test export complete.")
+
+    if success:
+        print(f"Test ZIP packaging successful: {result}")
+    else:
+        print(f"Test ZIP packaging failed: {result}")
+
+    print("\nTest export_manager.py complete.")
+    print(
+        f"Please check the directory '{test_export_dir}' for output CSVs and ZIP file."
+    )

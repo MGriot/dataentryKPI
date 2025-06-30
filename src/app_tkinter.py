@@ -1,25 +1,69 @@
 # app_tkinter.py
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog, filedialog
-import database_manager as db_manager
-import data_retriever as db_retriever
-import export_manager
-
 import json
 import datetime
 import calendar
 from pathlib import Path
-import sqlite3
+import sqlite3  # Keep for potential direct use if some UI logic requires it, though aim to reduce
 import os
 import sys
 import subprocess
 import traceback
-from app_config import *
+
+# --- Configuration Imports ---
+try:
+    from app_config import * # Imports all constants like DB paths, PROFILE_*, CALC_TYPE_*, etc.
+except ImportError:
+    print("CRITICAL ERROR (app_tkinter.py): app_config.py not found. Ensure it's in PYTHONPATH.")
+    # In a real app, you might have a try-except here to show a GUI error message.
+    sys.exit(1)
+
+# --- Refactored Module Imports ---
+try:
+    # KPI Management modules
+    from kpi_management import groups as kpi_groups_manager
+    from kpi_management import subgroups as kpi_subgroups_manager
+    from kpi_management import indicators as kpi_indicators_manager
+    from kpi_management import specs as kpi_specs_manager
+    from kpi_management import templates as kpi_templates_manager
+    from kpi_management import links as kpi_links_manager
+
+    # Stabilimenti Management
+    from stabilimenti_management import crud as stabilimenti_manager
+
+    # Target Management modules
+    from target_management import annual as annual_targets_manager
+
+    # Data Retriever (main source for fetching data for UI)
+    import data_retriever as db_retriever # Keep alias for consistency, or change 'dr' to 'db_retriever' everywhere
+
+    # Export Manager
+    import export_manager
+
+    # Database Setup (to be called once at startup)
+    from db_core.setup import setup_databases
+
+except ImportError as e:
+    # A simple Tkinter window to show the error if the main app can't even start
+    root_err = tk.Tk()
+    root_err.withdraw()
+    messagebox.showerror(
+        "Errore Critico Importazione",
+        f"Impossibile avviare l'applicazione. Modulo mancante o errore di percorso:\n{e}\n\n"
+        "Assicurarsi che la struttura delle cartelle del progetto sia corretta e che __init__.py sia presente nelle cartelle dei package.",
+        parent=root_err
+    )
+    root_err.destroy()
+    print(f"CRITICAL ERROR (app_tkinter.py): Failed to import one or more refactored modules: {e}")
+    print(traceback.format_exc())
+    sys.exit(1)
+
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-import matplotlib.dates as mdates  # For better date formatting if needed later
 
+# import matplotlib.dates as mdates # Keep if used
 # --- Helper Function ---
 def get_kpi_display_name(
     kpi_data_row,
@@ -70,26 +114,11 @@ def safe_get_from_row(row, key, default=None):
         return default
 
 
-def _set_kpi_spec_fields_from_data(self, kpi_data_row):
-    if kpi_data_row is None:
-        return
-    self.kpi_spec_desc_var.set(safe_get_from_row(kpi_data_row, "description", ""))
-    self.kpi_spec_type_var.set(
-        safe_get_from_row(
-            kpi_data_row, "calculation_type", self.kpi_calc_type_options_tk[0]
-        )
-    )
-    self.kpi_spec_unit_var.set(safe_get_from_row(kpi_data_row, "unit_of_measure", ""))
-    self.kpi_spec_visible_var.set(
-        bool(safe_get_from_row(kpi_data_row, "visible", True))
-    )
-
-
 class KpiApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Gestione Target KPI (TKinter version)")
-        self.geometry("1600x950") # Consider making this adaptable or larger if needed
+        self.geometry("1600x950")
 
         self._populating_kpi_spec_combos = False
         self._populating_target_kpi_entries = False
@@ -97,7 +126,7 @@ class KpiApp(tk.Tk):
 
         style = ttk.Style(self)
         available_themes = style.theme_names()
-        preferred_themes = ["clam", "alt", "default", "vista", "xpnative"] # Added default earlier
+        preferred_themes = ["clam", "alt", "default", "vista", "xpnative"]
         theme_set_successfully = False
         for theme_name_attempt in preferred_themes:
             if theme_name_attempt in available_themes:
@@ -109,45 +138,10 @@ class KpiApp(tk.Tk):
                 except tk.TclError:
                     print(f"Failed to set theme: {theme_name_attempt}, trying next.")
         if not theme_set_successfully:
-            print(
-                "CRITICAL: No ttk theme could be explicitly set. Using system default."
-            )
+            print("CRITICAL: No ttk theme could be explicitly set. Using system default.")
 
-        current_theme_in_use = style.theme_use()
-        print(f"Final theme in use: {current_theme_in_use}")
-
-        self.style_defaults = {}
-        try:
-            self.style_defaults["TLabelFrame_relief"] = style.lookup(
-                "TLabelFrame", "relief"
-            )
-            self.style_defaults["TLabelFrame_borderwidth"] = style.lookup(
-                "TLabelFrame", "borderwidth"
-            )
-            self.style_defaults["TLabelframe.Label_background"] = style.lookup(
-                "TLabelframe.Label", "background"
-            )
-            self.style_defaults["TLabelframe.Label_foreground"] = style.lookup(
-                "TLabelframe.Label", "foreground"
-            )
-            self.default_app_bg = self.cget("bg")
-        except tk.TclError as e:
-            print(
-                f"Warning: Could not lookup some default style properties for theme '{current_theme_in_use}': {e}"
-            )
-            self.style_defaults.setdefault("TLabelFrame_relief", "groove")
-            self.style_defaults.setdefault("TLabelFrame_borderwidth", 2)
-            self.style_defaults.setdefault("TLabelframe.Label_background", "#f0f0f0") # Fallback background
-            self.style_defaults.setdefault("TLabelframe.Label_foreground", "black")  # Fallback foreground
-            self.default_app_bg = "#f0f0f0" # Fallback app background
-
-
-        style.configure(
-            "Accent.TButton",
-            foreground="white",
-            background="#007bff",
-            font=("Calibri", 10),
-        )
+        # --- STYLE DEFINITIONS (FIXED SECTION) ---
+        style.configure("Accent.TButton", foreground="white", background="#007bff", font=("Calibri", 10))
         style.configure("Treeview.Heading", font=("Calibri", 10, "bold"))
         style.configure("TListbox", font=("Calibri", 10))
         style.configure("TCombobox", font=("Calibri", 10))
@@ -160,21 +154,20 @@ class KpiApp(tk.Tk):
         style.configure("TLabelframe.Label", font=("Calibri", 10, "bold"))
         style.configure("TLabelframe", font=("Calibri", 10))
 
-        # Define styles for different states of KPI target frames
-        style.configure(
-            "ManualState.TLabelframe.Label", background="#FFEBCC", foreground="black" # Light Orange/Peach
-        )
-        style.configure(
-            "FormulaState.TLabelframe.Label", background="#D6EAF8", foreground="black" # Light Blue
-        )
-        style.configure(
-            "DerivedState.TLabelframe.Label",
-            background=self.style_defaults.get("TLabelframe.Label_background", "#E0E0E0"), # Default or Light Grey
-            foreground=self.style_defaults.get("TLabelframe.Label_foreground", "black"),
-        )
+        # Define styles for the LABEL of the LabelFrame (text part)
+        style.configure("ManualState.TLabelframe.Label", background="#FFEBCC", foreground="black") # Light Orange/Peach
+        style.configure("FormulaState.TLabelframe.Label", background="#D6EAF8", foreground="black") # Light Blue
+        style.configure("DerivedState.TLabelframe.Label", background="#E0E0E0", foreground="black") # Light Grey
 
+        # Define styles for the ENTIRE LabelFrame widget (including the border)
+        # We can inherit from the default TLabelframe and just change the labelstyle.
+        style.configure("Manual.TLabelframe", labelstyle="ManualState.TLabelframe.Label")
+        style.configure("Formula.TLabelframe", labelstyle="FormulaState.TLabelframe.Label")
+        style.configure("Derived.TLabelframe", labelstyle="DerivedState.TLabelframe.Label")
+        # --- END OF FIXED STYLE SECTION ---
 
         self.notebook = ttk.Notebook(self)
+        # ... (rest of __init__ remains the same)
         self.notebook.pack(expand=True, fill="both", padx=10, pady=10)
 
         self.target_frame = ttk.Frame(self.notebook, padding="10")
@@ -189,39 +182,26 @@ class KpiApp(tk.Tk):
 
         self.notebook.add(self.target_frame, text="🎯 Inserimento Target")
         self.notebook.add(self.kpi_hierarchy_frame, text="🗂️ Gestione Gerarchia KPI")
-        self.notebook.add(
-            self.kpi_template_frame, text="📋 Gestione Template Indicatori"
-        )
+        self.notebook.add(self.kpi_template_frame, text="📋 Gestione Template Indicatori")
         self.notebook.add(self.kpi_spec_frame, text="⚙️ Gestione Specifiche KPI")
-        self.notebook.add(
-            self.master_sub_link_frame, text="🔗 Gestione Link Master/Sub"
-        )
+        self.notebook.add(self.master_sub_link_frame, text="🔗 Gestione Link Master/Sub")
         self.notebook.add(self.stabilimenti_frame, text="🏭 Gestione Stabilimenti")
         self.notebook.add(self.results_frame, text="📈 Visualizzazione Risultati")
         self.notebook.add(self.dashboard_frame, text="📊 Dashboard Globale KPI")
         self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
 
         self.distribution_profile_options_tk = [
-            PROFILE_EVEN,
-            PROFILE_ANNUAL_PROGRESSIVE,
-            PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-            PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-            PROFILE_MONTHLY_SINUSOIDAL,
-            PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
-            PROFILE_QUARTERLY_PROGRESSIVE,
-            PROFILE_QUARTERLY_SINUSOIDAL,
-            "event_based_spikes_or_dips",
+            PROFILE_EVEN, PROFILE_ANNUAL_PROGRESSIVE, PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
+            PROFILE_TRUE_ANNUAL_SINUSOIDAL, PROFILE_MONTHLY_SINUSOIDAL,
+            PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE, PROFILE_QUARTERLY_PROGRESSIVE,
+            PROFILE_QUARTERLY_SINUSOIDAL, "event_based_spikes_or_dips",
         ]
         self.repartition_logic_options_tk = [
-            REPARTITION_LOGIC_ANNO,
-            REPARTITION_LOGIC_MESE,
-            REPARTITION_LOGIC_TRIMESTRE,
-            REPARTITION_LOGIC_SETTIMANA,
+            REPARTITION_LOGIC_ANNO, REPARTITION_LOGIC_MESE,
+            REPARTITION_LOGIC_TRIMESTRE, REPARTITION_LOGIC_SETTIMANA,
         ]
         self.kpi_calc_type_options_tk = [CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA]
 
-        # Cache for all KPI spec details for formula input dialog
-        # Format: {kpi_spec_id: "display_name"}
         self.all_kpis_for_formula_selection_cache = {}
 
         self.create_target_widgets()
@@ -283,6 +263,18 @@ class KpiApp(tk.Tk):
         self.refresh_stabilimenti_tree()
         self.populate_target_comboboxes() # This will call load_kpi_targets_for_entry_target
         self.populate_results_comboboxes()
+
+    def _set_kpi_spec_fields_from_data(self, kpi_data_row_obj):
+        if kpi_data_row_obj is None:
+            self.kpi_spec_desc_var.set("")
+            self.kpi_spec_type_var.set(self.kpi_calc_type_options_tk[0])
+            self.kpi_spec_unit_var.set("")
+            self.kpi_spec_visible_var.set(True)
+            return
+        self.kpi_spec_desc_var.set(safe_get_from_row(kpi_data_row_obj, "description", ""))
+        self.kpi_spec_type_var.set(safe_get_from_row(kpi_data_row_obj, "calculation_type", self.kpi_calc_type_options_tk[0]))
+        self.kpi_spec_unit_var.set(safe_get_from_row(kpi_data_row_obj, "unit_of_measure", ""))
+        self.kpi_spec_visible_var.set(bool(safe_get_from_row(kpi_data_row_obj, "visible", True)))
 
     # --- Scheda Gestione Gerarchia KPI ---
     # ... (code for this tab remains unchanged) ...
@@ -560,7 +552,7 @@ class KpiApp(tk.Tk):
         name = simpledialog.askstring("Nuovo Gruppo", "Nome Gruppo KPI:", parent=self)
         if name:
             try:
-                db_manager.add_kpi_group(name)
+                kpi_groups_manager.add_kpi_group(name) # Corrected
                 self.refresh_all_relevant_data()
                 self.after(
                     100,
@@ -580,7 +572,7 @@ class KpiApp(tk.Tk):
         )
         if new_name and new_name != old_name:
             try:
-                db_manager.update_kpi_group(group_id, new_name)
+                kpi_groups_manager.update_kpi_group(group_id, new_name)
                 self.refresh_all_relevant_data()
                 self.after(
                     100,
@@ -603,7 +595,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db_manager.delete_kpi_group(group_id)
+                kpi_groups_manager.delete_kpi_group(group_id)
                 self.refresh_all_relevant_data()
             except Exception as e:
                 messagebox.showerror(
@@ -625,7 +617,7 @@ class KpiApp(tk.Tk):
         )
         if dialog.result_name and dialog.result_template_id is not False:
             try:
-                db_manager.add_kpi_subgroup(
+                kpi_groups_manager.add_kpi_subgroup(
                     dialog.result_name, group_id, dialog.result_template_id
                 )
                 self.refresh_all_relevant_data()
@@ -673,7 +665,7 @@ class KpiApp(tk.Tk):
                 or dialog.result_template_id != subgroup_details.get("template_id")
             ):
                 try:
-                    db_manager.update_kpi_subgroup(
+                    kpi_groups_manager.update_kpi_subgroup(
                         subgroup_details["id"],
                         dialog.result_name,
                         group_id,
@@ -718,7 +710,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db_manager.delete_kpi_subgroup(subgroup_id)
+                kpi_groups_manager.delete_kpi_subgroup(subgroup_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self.after(
@@ -763,7 +755,7 @@ class KpiApp(tk.Tk):
         )
         if name:
             try:
-                db_manager.add_kpi_indicator(name, subgroup_id)
+                kpi_groups_manager.add_kpi_indicator(name, subgroup_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self._select_item_in_listbox(
@@ -816,7 +808,7 @@ class KpiApp(tk.Tk):
         )
         if new_name and new_name != old_name:
             try:
-                db_manager.update_kpi_indicator(indicator_id, new_name, subgroup_id)
+                kpi_groups_manager.update_kpi_indicator(indicator_id, new_name, subgroup_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self._select_item_in_listbox(
@@ -872,7 +864,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db_manager.delete_kpi_indicator(indicator_id)
+                kpi_groups_manager.delete_kpi_indicator(indicator_id)
                 self.refresh_all_relevant_data()
                 if group_name_for_refresh:
                     self._select_item_in_listbox(
@@ -1072,7 +1064,7 @@ class KpiApp(tk.Tk):
                 or ""
             )
             try:
-                db_manager.add_kpi_indicator_template(name, desc)
+                kpi_groups_manager.add_kpi_indicator_template(name, desc)
                 self.refresh_kpi_templates_display(pre_selected_template_name=name)
             except Exception as e:
                 messagebox.showerror("Errore", f"Impossibile aggiungere template: {e}")
@@ -1101,7 +1093,7 @@ class KpiApp(tk.Tk):
             )
             if new_name != old_name or new_desc != template_data["description"]:
                 try:
-                    db_manager.update_kpi_indicator_template(
+                    kpi_groups_manager.update_kpi_indicator_template(
                         template_id, new_name, new_desc
                     )
                     self.refresh_kpi_templates_display(
@@ -1125,7 +1117,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db_manager.delete_kpi_indicator_template(template_id)
+                kpi_groups_manager.delete_kpi_indicator_template(template_id)
                 self.refresh_kpi_templates_display()
                 self.refresh_all_relevant_data()
             except Exception as e:
@@ -1148,7 +1140,7 @@ class KpiApp(tk.Tk):
         if dialog.result_data:
             data = dialog.result_data
             try:
-                db_manager.add_indicator_definition_to_template(
+                kpi_groups_manager.add_indicator_definition_to_template(
                     template_id,
                     data["name"],
                     data["calc_type"],
@@ -1188,7 +1180,7 @@ class KpiApp(tk.Tk):
         if dialog.result_data:
             data = dialog.result_data
             try:
-                db_manager.update_indicator_definition_in_template(
+                kpi_groups_manager.update_indicator_definition_in_template(
                     definition_id_to_edit,
                     data["name"],
                     data["calc_type"],
@@ -1216,7 +1208,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db_manager.remove_indicator_definition_from_template(
+                kpi_groups_manager.remove_indicator_definition_from_template(
                     definition_id_to_remove
                 )
                 self.on_template_select()
@@ -1685,7 +1677,7 @@ class KpiApp(tk.Tk):
         visible = self.kpi_spec_visible_var.get()
         try:
             if self.current_editing_kpi_id is not None:
-                db_manager.update_kpi_spec(
+                kpi_groups_manager.update_kpi_spec(
                     self.current_editing_kpi_id,
                     self.selected_indicator_id_for_spec,
                     desc,
@@ -1695,7 +1687,7 @@ class KpiApp(tk.Tk):
                 )
                 messagebox.showinfo("Successo", "Specifica KPI aggiornata!")
             else:
-                db_manager.add_kpi_spec(
+                kpi_groups_manager.add_kpi_spec(
                     self.selected_indicator_id_for_spec, desc, calc_type, unit, visible
                 )
                 messagebox.showinfo(
@@ -1751,7 +1743,7 @@ class KpiApp(tk.Tk):
                     )
                     return
                 actual_indicator_id_to_delete = kpi_spec_details["actual_indicator_id"]
-                db_manager.delete_kpi_indicator(actual_indicator_id_to_delete)
+                kpi_groups_manager.delete_kpi_indicator(actual_indicator_id_to_delete)
                 messagebox.showinfo(
                     "Successo", "Specifica KPI e relativi dati eliminati."
                 )
@@ -1990,13 +1982,13 @@ class KpiApp(tk.Tk):
                 return
             try:
                 if s_id is not None:
-                    # Call db_manager.update_stabilimento with description
-                    db_manager.update_stabilimento(
+                    # Call kpi_groups_manager.update_stabilimento with description
+                    kpi_groups_manager.update_stabilimento(
                         s_id, nome_val, desc_val, visible_var.get()
                     )
                 else:
-                    # Call db_manager.add_stabilimento with description
-                    db_manager.add_stabilimento(nome_val, desc_val, visible_var.get())
+                    # Call kpi_groups_manager.add_stabilimento with description
+                    kpi_groups_manager.add_stabilimento(nome_val, desc_val, visible_var.get())
                 self.refresh_all_relevant_data()  # This will call refresh_stabilimenti_tree
                 win.destroy()
             except sqlite3.IntegrityError:
@@ -2134,56 +2126,68 @@ class KpiApp(tk.Tk):
         for widget in container_frame.winfo_children():
             widget.destroy()
         repartition_vars_dict.clear()
+
         selected_profile = profile_var.get()
         selected_logic_from_var = logic_var.get()
+
         show_logic_radios = True
         effective_logic_for_db = selected_logic_from_var
+
+        # Logic to determine which repartition controls to show based on the selected distribution profile.
+        # This now uses the directly imported constants.
         if selected_profile in [
-            db_manager.PROFILE_ANNUAL_PROGRESSIVE,
-            db_manager.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-            db_manager.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-            db_manager.PROFILE_EVEN,
-            "event_based_spikes_or_dips",
+            PROFILE_ANNUAL_PROGRESSIVE,
+            PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
+            PROFILE_TRUE_ANNUAL_SINUSOIDAL,
+            PROFILE_EVEN,
+            "event_based_spikes_or_dips", # This custom profile also dictates an annual logic
         ]:
             show_logic_radios = False
-            effective_logic_for_db = db_manager.REPARTITION_LOGIC_ANNO
-            logic_var.set(db_manager.REPARTITION_LOGIC_ANNO)
+            effective_logic_for_db = REPARTITION_LOGIC_ANNO # Use constant directly
+            logic_var.set(REPARTITION_LOGIC_ANNO) # Use constant directly
         elif selected_profile in [
-            db_manager.PROFILE_QUARTERLY_PROGRESSIVE,
-            db_manager.PROFILE_QUARTERLY_SINUSOIDAL,
+            PROFILE_QUARTERLY_PROGRESSIVE,
+            PROFILE_QUARTERLY_SINUSOIDAL,
         ]:
+            # These profiles work best with quarter-based repartition logic.
+            # Force logic to Quarter if it's not already a valid choice for this profile.
             if selected_logic_from_var not in [
-                db_manager.REPARTITION_LOGIC_MESE,
-                db_manager.REPARTITION_LOGIC_TRIMESTRE,
-                db_manager.REPARTITION_LOGIC_SETTIMANA,
+                REPARTITION_LOGIC_MESE, # Technically works, but less intuitive
+                REPARTITION_LOGIC_TRIMESTRE,
+                # REPARTITION_LOGIC_SETTIMANA, # Week logic doesn't align with quarters
             ]:
-                logic_var.set(db_manager.REPARTITION_LOGIC_TRIMESTRE)
+                logic_var.set(REPARTITION_LOGIC_TRIMESTRE) # Default to quarter
             effective_logic_for_db = logic_var.get()
         elif selected_profile in [
-            db_manager.PROFILE_MONTHLY_SINUSOIDAL,
-            db_manager.PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
+            PROFILE_MONTHLY_SINUSOIDAL,
+            PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
         ]:
+            # These profiles work best with month-based repartition logic.
             if selected_logic_from_var not in [
-                db_manager.REPARTITION_LOGIC_MESE,
-                db_manager.REPARTITION_LOGIC_TRIMESTRE,
-                db_manager.REPARTITION_LOGIC_SETTIMANA,
+                REPARTITION_LOGIC_MESE,
+                REPARTITION_LOGIC_TRIMESTRE,
             ]:
-                logic_var.set(db_manager.REPARTITION_LOGIC_MESE)
+                logic_var.set(REPARTITION_LOGIC_MESE) # Default to month
             effective_logic_for_db = logic_var.get()
         else:
+            # For other profiles, use the selected logic.
             effective_logic_for_db = selected_logic_from_var
-            if not effective_logic_for_db:
-                logic_var.set(db_manager.REPARTITION_LOGIC_ANNO)
-                effective_logic_for_db = db_manager.REPARTITION_LOGIC_ANNO
+            if not effective_logic_for_db: # Ensure it's not empty
+                logic_var.set(REPARTITION_LOGIC_ANNO)
+                effective_logic_for_db = REPARTITION_LOGIC_ANNO
+
+        # --- Create UI Widgets based on the logic determined above ---
+        
         if show_logic_radios:
             logic_selection_frame = ttk.Frame(container_frame)
             logic_selection_frame.pack(fill="x", pady=(5, 2))
-            ttk.Label(logic_selection_frame, text="Logica Rip. Valori:", width=18).pack(
-                side="left", padx=(0, 5)
+            ttk.Label(logic_selection_frame, text="Logica Rip. Valori:", width=18).pack(side="left", padx=(0, 5))
+            
+            # Define the command for the radio buttons
+            radio_cmd = lambda: self._update_repartition_input_area_tk(
+                container_frame, profile_var, logic_var, repartition_vars_dict, default_repartition_map_from_db
             )
-            radio_cmd = lambda pv=profile_var, lv=logic_var, rvars=repartition_vars_dict, cf=container_frame, dmap=default_repartition_map_from_db: self._update_repartition_input_area_tk(
-                cf, pv, lv, rvars, dmap
-            )
+            
             for logic_option in self.repartition_logic_options_tk:
                 ttk.Radiobutton(
                     logic_selection_frame,
@@ -2192,12 +2196,12 @@ class KpiApp(tk.Tk):
                     value=logic_option,
                     command=radio_cmd,
                 ).pack(side="left", padx=2)
+
         input_details_frame = ttk.Frame(container_frame)
         input_details_frame.pack(fill="x", expand=True, pady=(5, 0))
-        if (
-            effective_logic_for_db == db_manager.REPARTITION_LOGIC_MESE
-            and show_logic_radios
-        ):
+
+        # Show detailed input fields only if a repartition logic other than "Annuale" is chosen
+        if effective_logic_for_db == REPARTITION_LOGIC_MESE:
             periods = [calendar.month_name[i] for i in range(1, 13)]
             num_cols = 4
             default_val = 100.0 / len(periods)
@@ -2207,18 +2211,12 @@ class KpiApp(tk.Tk):
                 pf.grid(row=row, column=col, padx=2, pady=1, sticky="ew")
                 input_details_frame.columnconfigure(col, weight=1)
                 ttk.Label(pf, text=f"{period_name[:3]}:", width=5).pack(side="left")
-                val_from_db = default_repartition_map_from_db.get(
-                    period_name, default_val
-                )
+                val_from_db = default_repartition_map_from_db.get(period_name, default_val)
                 var = tk.DoubleVar(value=round(float(val_from_db), 2))
                 repartition_vars_dict[period_name] = var
-                ttk.Entry(pf, textvariable=var, width=6).pack(
-                    side="left", fill="x", expand=True
-                )
-        elif (
-            effective_logic_for_db == db_manager.REPARTITION_LOGIC_TRIMESTRE
-            and show_logic_radios
-        ):
+                ttk.Entry(pf, textvariable=var, width=6).pack(side="left", fill="x", expand=True)
+
+        elif effective_logic_for_db == REPARTITION_LOGIC_TRIMESTRE:
             periods = ["Q1", "Q2", "Q3", "Q4"]
             num_cols = 4
             default_val = 100.0 / len(periods)
@@ -2228,82 +2226,52 @@ class KpiApp(tk.Tk):
                 pf.grid(row=row, column=col, padx=2, pady=1, sticky="ew")
                 input_details_frame.columnconfigure(col, weight=1)
                 ttk.Label(pf, text=f"{period_name}:", width=5).pack(side="left")
-                val_from_db = default_repartition_map_from_db.get(
-                    period_name, default_val
-                )
+                val_from_db = default_repartition_map_from_db.get(period_name, default_val)
                 var = tk.DoubleVar(value=round(float(val_from_db), 2))
                 repartition_vars_dict[period_name] = var
-                ttk.Entry(pf, textvariable=var, width=6).pack(
-                    side="left", fill="x", expand=True
-                )
-        elif (
-            effective_logic_for_db == db_manager.REPARTITION_LOGIC_SETTIMANA
-            and show_logic_radios
-        ):
-            ttk.Label(input_details_frame, text="Valori Settimanali (JSON):").pack(
-                side="top", anchor="w", pady=(0, 2)
-            )
-            json_text_widget = tk.Text(
-                input_details_frame, height=3, width=50, relief=tk.SOLID, borderwidth=1
-            )
+                ttk.Entry(pf, textvariable=var, width=6).pack(side="left", fill="x", expand=True)
+                
+        elif effective_logic_for_db == REPARTITION_LOGIC_SETTIMANA:
+            ttk.Label(input_details_frame, text="Valori Settimanali (JSON):").pack(side="top", anchor="w", pady=(0, 2))
+            json_text_widget = tk.Text(input_details_frame, height=3, width=50, relief=tk.SOLID, borderwidth=1)
             json_text_widget.pack(side="top", fill="x", expand=True, pady=(0, 2))
-            json_str_from_db = default_repartition_map_from_db.get(
-                "weekly_json", json.dumps({"Info": 'Es: {"2024-W01": 2.5}'}, indent=2)
-            )
-            if (
-                isinstance(default_repartition_map_from_db, dict)
-                and "weekly_json" not in default_repartition_map_from_db
-                and any(
-                    k.count("-W") > 0 for k in default_repartition_map_from_db.keys()
-                )
-            ):
+            
+            # Intelligent default value for JSON text box
+            json_str_from_db = default_repartition_map_from_db.get("weekly_json", json.dumps({"Info": 'Es: {"2024-W01": 2.5}'}, indent=2))
+            if (isinstance(default_repartition_map_from_db, dict) and "weekly_json" not in default_repartition_map_from_db and
+                any(k.count("-W") > 0 for k in default_repartition_map_from_db.keys())):
                 json_str_from_db = json.dumps(default_repartition_map_from_db, indent=2)
+            
             try:
                 pretty_json_str = json.dumps(json.loads(json_str_from_db), indent=2)
                 json_text_widget.insert("1.0", pretty_json_str)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 json_text_widget.insert("1.0", json_str_from_db)
+            
             repartition_vars_dict["weekly_json_text_widget"] = json_text_widget
-            ttk.Label(
-                input_details_frame,
-                text='Formato: {"ANNO-Wnum": valore_percentuale, ...}',
-                font=("Calibri", 8, "italic"),
-            ).pack(side="top", anchor="w")
+            ttk.Label(input_details_frame, text='Formato: {"ANNO-Wnum": valore_percentuale, ...}', font=("Calibri", 8, "italic")).pack(side="top", anchor="w")
+
+        # Display Event JSON input only if the specific profile is selected
         if selected_profile == "event_based_spikes_or_dips":
-            ttk.Label(input_details_frame, text="Parametri Eventi (JSON):").pack(
-                side="top", anchor="w", pady=(5, 2)
-            )
-            event_json_widget = tk.Text(
-                input_details_frame, height=4, width=50, relief=tk.SOLID, borderwidth=1
-            )
+            ttk.Label(input_details_frame, text="Parametri Eventi (JSON):").pack(side="top", anchor="w", pady=(5, 2))
+            event_json_widget = tk.Text(input_details_frame, height=4, width=50, relief=tk.SOLID, borderwidth=1)
             event_json_widget.pack(side="top", fill="x", expand=True, pady=(0, 2))
+            
+            # Get event data from profile_params if it exists there
             event_json_from_db = default_repartition_map_from_db.get(
-                "event_json",
-                json.dumps(
-                    [
-                        {
-                            "start_date": "YYYY-MM-DD",
-                            "end_date": "YYYY-MM-DD",
-                            "multiplier": 1.0,
-                            "addition": 0.0,
-                            "comment": "Esempio",
-                        }
-                    ],
-                    indent=2,
-                ),
+                "event_json", json.dumps([{"start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD", "multiplier": 1.0, "addition": 0.0, "comment": "Esempio"}], indent=2)
             )
+            
             try:
                 pretty_event_json = json.dumps(json.loads(event_json_from_db), indent=2)
                 event_json_widget.insert("1.0", pretty_event_json)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 event_json_widget.insert("1.0", event_json_from_db)
-            repartition_vars_dict["event_json_text_widget"] = event_json_widget
-            ttk.Label(
-                input_details_frame,
-                text="Lista: [{start_date, end_date, multiplier, addition}]",
-                font=("Calibri", 8, "italic"),
-            ).pack(side="top", anchor="w")
 
+            repartition_vars_dict["event_json_text_widget"] = event_json_widget
+            ttk.Label(input_details_frame, text="Lista: [{start_date, end_date, multiplier, addition}]", font=("Calibri", 8, "italic")).pack(side="top", anchor="w")
+
+    # --- _on_use_formula_toggle (FIXED) ---
     def _on_use_formula_toggle(self, kpi_spec_id, target_num):
         widgets = self.kpi_target_entry_widgets.get(kpi_spec_id)
         if not widgets: return
@@ -2314,84 +2282,37 @@ class KpiApp(tk.Tk):
         target_entry = widgets.get(f"target{target_num}_entry")
         manual_var = widgets.get(f"force_manual{target_num}_var")
         manual_cb = widgets.get(f"force_manual{target_num}_cb")
-        entry_frame = widgets.get("entry_frame")
+        entry_frame = widgets.get("entry_frame") # The LabelFrame
 
-
-        if not all([use_formula_var, formula_entry, define_inputs_btn, target_entry, manual_var, manual_cb, entry_frame]):
-            # Allow manual_cb to be None for non-sub KPIs
-            if manual_cb is None and not widgets.get("is_sub_kpi", False):
-                pass # It's okay for master/non-sub KPIs not to have manual_cb here
+        if not all([use_formula_var, formula_entry, define_inputs_btn, target_entry, manual_var, entry_frame]):
+            if manual_cb is None and not widgets.get("is_sub_kpi", False): pass # OK for non-sub
             else:
                 print(f"WARN: Missing formula/manual widgets for KPI {kpi_spec_id}, T{target_num} in _on_use_formula_toggle")
                 return
 
         is_sub_kpi = widgets.get("is_sub_kpi", False)
-        label_widget_to_style = getattr(entry_frame, "labelwidget", None) # Get the actual label of the LabelFrame
 
-
-        if use_formula_var.get():  # Formula is now active
+        if use_formula_var.get():
             formula_entry.config(state="normal")
             define_inputs_btn.config(state="normal")
-            target_entry.config(state="disabled")  # Value will come from formula calculation backend
-            if manual_var: manual_var.set(False) # Formula implies not manually set value for the target
-            if manual_cb: manual_cb.config(state="disabled") # Disable manual checkbox if formula is used
-
-            if label_widget_to_style:
-                label_widget_to_style.configure(style="FormulaState.TLabelframe.Label")
-            else: # Fallback if direct labelwidget access isn't standard
-                try: entry_frame.configure(labelstyle="FormulaState.TLabelframe.Label") # For older ttk an Tcl versions
-                except tk.TclError: print(f"Fallback labelstyle failed for {kpi_spec_id}")
-
-
-        else:  # Formula is now inactive
+            target_entry.config(state="disabled")
+            if manual_var: manual_var.set(False)
+            if manual_cb: manual_cb.config(state="disabled")
+            entry_frame.config(style="Formula.TLabelframe") # <-- APPLY THE STYLE TO THE LABELFRAME
+        else:
             formula_entry.config(state="disabled")
             define_inputs_btn.config(state="disabled")
-
             if is_sub_kpi:
-                if manual_cb: manual_cb.config(state="normal") # Re-enable manual toggle for sub-KPI
-                # The state of target_entry for sub-KPIs is handled by _update_sub_kpi_target_field_state
-                # which considers the manual_var state.
+                if manual_cb: manual_cb.config(state="normal")
                 self._update_sub_kpi_target_field_state(kpi_spec_id, target_num)
-            else: # Not a sub-KPI
-                target_entry.config(state="normal") # Directly settable
-                if manual_var: manual_var.set(True) # Non-subs default to manual if no formula
-                # No manual_cb for non-sub KPIs to disable/enable
-                if label_widget_to_style:
-                    label_widget_to_style.configure(style="ManualState.TLabelframe.Label") # Back to manual style
-                else:
-                    try: entry_frame.configure(labelstyle="ManualState.TLabelframe.Label")
-                    except tk.TclError: print(f"Fallback labelstyle failed for {kpi_spec_id}")
+            else:
+                target_entry.config(state="normal")
+                if manual_var: manual_var.set(True)
+                entry_frame.config(style="Manual.TLabelframe") # <-- APPLY THE STYLE TO THE LABELFRAME
 
-
-        # If it's a sub-KPI, and the formula is now OFF,
-        # we might need to re-evaluate master/sub distribution as it might become derivable
         if is_sub_kpi and not use_formula_var.get() and widgets.get("master_kpi_id"):
-            if not manual_var.get(): # Only redistribute if it's now also not manual
-                 self._distribute_master_target_to_subs_ui(widgets["master_kpi_id"], target_num)
-    def _open_formula_inputs_dialog(self, kpi_spec_id, target_num):
-        widgets = self.kpi_target_entry_widgets.get(kpi_spec_id)
-        if not widgets:
-            messagebox.showerror("Errore Interno", f"Widget non trovati per KPI Spec ID {kpi_spec_id}.")
-            return
-
-        current_json_var = widgets.get(f"target{target_num}_formula_inputs_json_var")
-        if not current_json_var:
-            messagebox.showerror("Errore Interno", f"Variabile JSON per input formula T{target_num} non trovata.")
-            return
-
-        # Pass the cache of all available KPIs
-        # Ensure all_kpis_for_formula_selection_cache is up-to-date if KPIs can be added/deleted dynamically
-        # while the target entry tab is open (refresh_all_relevant_data handles this on tab changes/major ops)
-        dialog = FormulaInputsDialog(self,
-                                     f"Definisci Input Formula per Target {target_num} di '{widgets['kpi_display_name']}'",
-                                     current_json_var.get(),
-                                     self.all_kpis_for_formula_selection_cache) # Pass the map
-
-        if dialog.result_json_str is not None: # Check if dialog was confirmed (apply was called)
-             current_json_var.set(dialog.result_json_str)
-             print(f"DEBUG: Nuovi input formula per KPI {kpi_spec_id}, T{target_num}: {dialog.result_json_str}")
-        # If dialog was cancelled, result_json_str might be the original or None depending on dialog logic
-        # current_json_var retains its old value if dialog was cancelled or apply failed.
+            if not manual_var.get():
+                self._distribute_master_target_to_subs_ui(widgets["master_kpi_id"], target_num)
         
     def load_kpi_targets_for_entry_target(self, event=None):
         if self._populating_target_kpi_entries:
@@ -2447,8 +2368,8 @@ class KpiApp(tk.Tk):
             )
             # Defaults
             def_t1, def_t2 = 0.0, 0.0
-            def_profile = db_manager.PROFILE_ANNUAL_PROGRESSIVE
-            def_logic = db_manager.REPARTITION_LOGIC_ANNO
+            def_profile = PROFILE_ANNUAL_PROGRESSIVE
+            def_logic = REPARTITION_LOGIC_ANNO
             def_repart_map_for_ui = {}
             def_is_manual1, def_is_manual2 = True, True
             def_t1_is_formula, def_t1_formula, def_t1_formula_inputs_json = False, "", "[]"
@@ -2462,7 +2383,7 @@ class KpiApp(tk.Tk):
                 db_profile_val = existing_target_db_row["distribution_profile"]
                 if db_profile_val and db_profile_val in self.distribution_profile_options_tk:
                     def_profile = db_profile_val
-                def_logic = existing_target_db_row["repartition_logic"] or db_manager.REPARTITION_LOGIC_ANNO
+                def_logic = existing_target_db_row["repartition_logic"] or REPARTITION_LOGIC_ANNO
 
                 # Load formula data - **CORRECTED ACCESS**
                 try:
@@ -2701,35 +2622,26 @@ class KpiApp(tk.Tk):
 
     def _update_sub_kpi_target_field_state(self, sub_kpi_id, target_number):
         widgets = self.kpi_target_entry_widgets.get(sub_kpi_id)
-        if not widgets or not widgets.get("is_sub_kpi"):
-            return
+        if not widgets or not widgets.get("is_sub_kpi"): return
 
         manual_var = widgets.get(f"force_manual{target_number}_var")
         target_entry_widget = widgets.get(f"target{target_number}_entry")
-        entry_frame_widget = widgets.get("entry_frame")
+        entry_frame_widget = widgets.get("entry_frame") # The LabelFrame
         use_formula_var = widgets.get(f"target{target_number}_use_formula_var")
 
         if not all([manual_var, target_entry_widget, entry_frame_widget, use_formula_var]):
             print(f"WARN: Missing widget references for sub_kpi_id {sub_kpi_id}, T{target_number} in _update_sub_kpi_target_field_state.")
             return
 
-        label_widget_to_style = getattr(entry_frame_widget, "labelwidget", None)
-        current_style_applied = ""
-
-        if use_formula_var.get(): # Formula is active, takes highest precedence
+        if use_formula_var.get():
             target_entry_widget.config(state="disabled")
-            if label_widget_to_style: label_widget_to_style.configure(style="FormulaState.TLabelframe.Label")
-            else: entry_frame_widget.configure(labelstyle="FormulaState.TLabelframe.Label")
-            current_style_applied = "FormulaState"
-        elif manual_var.get(): # Manual is active (and formula is not)
+            entry_frame_widget.config(style="Formula.TLabelframe") # Apply style to the whole frame
+        elif manual_var.get():
             target_entry_widget.config(state="normal")
-            if label_widget_to_style: label_widget_to_style.configure(style="ManualState.TLabelframe.Label")
-            else: entry_frame_widget.configure(labelstyle="ManualState.TLabelframe.Label")
-            current_style_applied = "ManualState"
-        else: # Derived from master (neither formula nor manual)
+            entry_frame_widget.config(style="Manual.TLabelframe") # Apply style to the whole frame
+        else:
             target_entry_widget.config(state="disabled")
-            if label_widget_to_style: label_widget_to_style.configure(style="DerivedState.TLabelframe.Label")
-            else: entry_frame_widget.configure(labelstyle="DerivedState.TLabelframe.Label")
+            entry_frame_widget.config(style="Derived.TLabelframe")
             current_style_applied = "DerivedState"
         # print(f"Debug Style: KPI {sub_kpi_id}, T{target_number}, Style: {current_style_applied}")
 
@@ -2855,13 +2767,14 @@ class KpiApp(tk.Tk):
         except (ValueError, KeyError, TypeError):
             messagebox.showerror("Errore", "Anno o stabilimento non validi.")
             return
+
         if stabilimento_id is None:
             messagebox.showerror("Errore", "Stabilimento non selezionato.")
             return
+
         targets_to_save_db = {}
         all_inputs_valid = True
-        # initiator_kpi_id_for_save = None # Let db_manager handle global evaluation order
-
+        
         for kpi_id, kpi_widgets in self.kpi_target_entry_widgets.items():
             try:
                 t1_val = kpi_widgets["target1_var"].get()
@@ -2872,31 +2785,32 @@ class KpiApp(tk.Tk):
                     f"KPI '{kpi_widgets['kpi_display_name']}': Target non numerico.",
                 )
                 all_inputs_valid = False
-                break
+                break # Exit loop on first error
+            
             profile_ui = kpi_widgets["profile_var"].get()
             logic_ui = kpi_widgets["logic_var"].get()
+            
             repart_values_for_db = {}
-            profile_params_for_db = {} # For events, etc.
+            profile_params_for_db = {}
             effective_logic_db = logic_ui
 
+            # Determine the effective logic based on the distribution profile
+            # This uses the constants directly imported from app_config.py
             if profile_ui in [
-                db_manager.PROFILE_ANNUAL_PROGRESSIVE,
-                db_manager.PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-                db_manager.PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-                db_manager.PROFILE_EVEN,
-                "event_based_spikes_or_dips", # This profile uses REPARTITION_LOGIC_ANNO for its base distribution
+                PROFILE_ANNUAL_PROGRESSIVE,
+                PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
+                PROFILE_TRUE_ANNUAL_SINUSOIDAL,
+                PROFILE_EVEN,
+                "event_based_spikes_or_dips",
             ]:
-                effective_logic_db = db_manager.REPARTITION_LOGIC_ANNO
-
-
-            if effective_logic_db in [
-                db_manager.REPARTITION_LOGIC_MESE,
-                db_manager.REPARTITION_LOGIC_TRIMESTRE,
-            ]:
+                effective_logic_db = REPARTITION_LOGIC_ANNO
+            
+            # --- Gather repartition and profile_params data from UI ---
+            if effective_logic_db in [REPARTITION_LOGIC_MESE, REPARTITION_LOGIC_TRIMESTRE]:
                 sum_percent = 0.0
                 num_periods = 0
                 for period_key, tk_var in kpi_widgets["repartition_vars"].items():
-                    if isinstance(tk_var, tk.DoubleVar): # Make sure it's a repartition value var
+                    if isinstance(tk_var, tk.DoubleVar):
                         try:
                             val = tk_var.get()
                             repart_values_for_db[period_key] = val
@@ -2910,100 +2824,106 @@ class KpiApp(tk.Tk):
                             all_inputs_valid = False; break
                 if not all_inputs_valid: break
 
-                # Check sum only for incremental KPIs and if a target is actually set
+                # Check sum for incremental KPIs, but only if a target value is actually set
                 is_target_set_for_sum_check = (abs(t1_val) > 1e-9 or abs(t2_val) > 1e-9)
-                if (
-                    kpi_widgets["calc_type"] == db_manager.CALC_TYPE_INCREMENTALE
-                    and num_periods > 0 and is_target_set_for_sum_check
-                    and not (99.9 <= sum_percent <= 100.1)
-                ):
+                if (kpi_widgets["calc_type"] == CALC_TYPE_INCREMENTALE and num_periods > 0 and 
+                    is_target_set_for_sum_check and not (99.9 <= sum_percent <= 100.1)):
                     messagebox.showerror(
                         "Errore",
-                        f"KPI '{kpi_widgets['kpi_display_name']}' ({db_manager.CALC_TYPE_INCREMENTALE}): Somma ripartizioni {effective_logic_db} è {sum_percent:.2f}%. Deve essere 100%.",
+                        f"KPI '{kpi_widgets['kpi_display_name']}' ({CALC_TYPE_INCREMENTALE}): "
+                        f"Somma ripartizioni {effective_logic_db} è {sum_percent:.2f}%. Deve essere 100%.",
                     )
                     all_inputs_valid = False; break
-            elif effective_logic_db == db_manager.REPARTITION_LOGIC_SETTIMANA:
+            
+            elif effective_logic_db == REPARTITION_LOGIC_SETTIMANA:
                 json_text_widget = kpi_widgets["repartition_vars"].get("weekly_json_text_widget")
                 if json_text_widget:
                     json_str = json_text_widget.get("1.0", tk.END).strip()
                     if json_str:
-                        try: repart_values_for_db = json.loads(json_str)
+                        try:
+                            repart_values_for_db = json.loads(json_str)
                         except json.JSONDecodeError:
                             messagebox.showerror("Errore", f"KPI '{kpi_widgets['kpi_display_name']}': JSON settimanale non valido.")
                             all_inputs_valid = False; break
-            # Profile params (like events)
+            
+            # Gather event params if the profile is event-based
             if profile_ui == "event_based_spikes_or_dips":
                 event_text_widget = kpi_widgets["repartition_vars"].get("event_json_text_widget")
                 if event_text_widget:
                     event_json_str = event_text_widget.get("1.0", tk.END).strip()
                     if event_json_str:
-                        try: profile_params_for_db["events"] = json.loads(event_json_str)
+                        try:
+                            profile_params_for_db["events"] = json.loads(event_json_str)
                         except json.JSONDecodeError:
                             messagebox.showerror("Errore", f"KPI '{kpi_widgets['kpi_display_name']}': JSON eventi non valido.")
                             all_inputs_valid = False; break
+            
             if not all_inputs_valid: break # check after each potential error
 
-            # Get formula data
+            # --- Gather formula data ---
             t1_use_formula = kpi_widgets["target1_use_formula_var"].get()
             t1_formula_str = kpi_widgets["target1_formula_str_var"].get() if t1_use_formula else None
             t1_formula_inputs_json = kpi_widgets["target1_formula_inputs_json_var"].get() if t1_use_formula else "[]"
-            try: t1_formula_inputs_list = json.loads(t1_formula_inputs_json)
+            try:
+                t1_formula_inputs_list = json.loads(t1_formula_inputs_json)
             except json.JSONDecodeError:
                 messagebox.showerror("Errore Interno", f"JSON input formula T1 per KPI {kpi_id} corrotto.")
-                all_inputs_valid=False; break
+                all_inputs_valid = False; break
 
             t2_use_formula = kpi_widgets["target2_use_formula_var"].get()
             t2_formula_str = kpi_widgets["target2_formula_str_var"].get() if t2_use_formula else None
             t2_formula_inputs_json = kpi_widgets["target2_formula_inputs_json_var"].get() if t2_use_formula else "[]"
-            try: t2_formula_inputs_list = json.loads(t2_formula_inputs_json)
+            try:
+                t2_formula_inputs_list = json.loads(t2_formula_inputs_json)
             except json.JSONDecodeError:
                 messagebox.showerror("Errore Interno", f"JSON input formula T2 per KPI {kpi_id} corrotto.")
-                all_inputs_valid=False; break
+                all_inputs_valid = False; break
 
-            # Determine manual flags
+            # --- Determine final manual flags ---
             is_manual1_final, is_manual2_final = True, True
             if t1_use_formula:
                 is_manual1_final = False
             elif kpi_widgets["is_sub_kpi"] and "force_manual1_var" in kpi_widgets:
                 is_manual1_final = kpi_widgets["force_manual1_var"].get()
-            # else: it's a non-sub KPI without formula, so it's effectively manual (True)
-
+            
             if t2_use_formula:
                 is_manual2_final = False
             elif kpi_widgets["is_sub_kpi"] and "force_manual2_var" in kpi_widgets:
                 is_manual2_final = kpi_widgets["force_manual2_var"].get()
-            # else: non-sub KPI without formula, effectively manual (True)
 
-
-            targets_to_save_db[str(kpi_id)] = { # Ensure kpi_id is string for JSON keys if ever needed
-                "annual_target1": t1_val, "annual_target2": t2_val,
+            # --- Assemble the dictionary for this KPI ---
+            targets_to_save_db[str(kpi_id)] = {
+                "annual_target1": t1_val,
+                "annual_target2": t2_val,
                 "repartition_logic": effective_logic_db,
                 "repartition_values": repart_values_for_db,
                 "distribution_profile": profile_ui,
                 "profile_params": profile_params_for_db,
                 "is_target1_manual": is_manual1_final,
                 "is_target2_manual": is_manual2_final,
-                # Add formula fields
                 "target1_is_formula_based": t1_use_formula,
                 "target1_formula": t1_formula_str,
-                "target1_formula_inputs": t1_formula_inputs_list, # Pass as Python list
+                "target1_formula_inputs": t1_formula_inputs_list, # Pass as Python list/dict
                 "target2_is_formula_based": t2_use_formula,
                 "target2_formula": t2_formula_str,
-                "target2_formula_inputs": t2_formula_inputs_list, # Pass as Python list
+                "target2_formula_inputs": t2_formula_inputs_list, # Pass as Python list/dict
             }
+        
         if not all_inputs_valid:
             return
+        
         if not targets_to_save_db:
             messagebox.showwarning("Attenzione", "Nessun target valido da salvare.")
             return
+            
         try:
-            # The initiator_kpi_spec_id is tricky here because any KPI could be the initiator.
-            # The backend save_annual_targets is designed to evaluate all masters and formulas iteratively.
-            db_manager.save_annual_targets(
+            # --- Call the new annual targets manager ---
+            # The initiator_kpi_spec_id is not strictly necessary as the backend
+            # is designed to evaluate all masters and formulas iteratively.
+            annual_targets_manager.save_annual_targets(
                 year,
                 stabilimento_id,
                 targets_to_save_db
-                # initiator_kpi_spec_id=None, # Let backend handle full evaluation
             )
             messagebox.showinfo("Successo", "Target salvati!")
             self.load_kpi_targets_for_entry_target() # Reload to reflect any calculated values by backend
@@ -3578,20 +3498,20 @@ class KpiApp(tk.Tk):
             if count_t1_table > 0:
                 agg_t1 = (
                     total_sum_t1_table
-                    if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE
+                    if calc_type_res == CALC_TYPE_INCREMENTALE
                     else (total_sum_t1_table / count_t1_table)
                 )
                 summary_parts.append(
-                    f"{'Tot T1' if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}"
+                    f"{'Tot T1' if calc_type_res == CALC_TYPE_INCREMENTALE else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}"
                 )
             if count_t2_table > 0:
                 agg_t2 = (
                     total_sum_t2_table
-                    if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE
+                    if calc_type_res == CALC_TYPE_INCREMENTALE
                     else (total_sum_t2_table / count_t2_table)
                 )
                 summary_parts.append(
-                    f"{'Tot T2' if calc_type_res == db_manager.CALC_TYPE_INCREMENTALE else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}"
+                    f"{'Tot T2' if calc_type_res == CALC_TYPE_INCREMENTALE else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}"
                 )
             self.summary_label_var_vis.set(" | ".join(summary_parts))
 
@@ -3627,10 +3547,10 @@ class KpiApp(tk.Tk):
         try:
             # Try to get it via db_manager if it's an attribute there (e.g., imported from app_config)
             if (
-                hasattr(db_manager, "CSV_EXPORT_BASE_PATH")
-                and db_manager.CSV_EXPORT_BASE_PATH
+                hasattr("CSV_EXPORT_BASE_PATH")
+                and CSV_EXPORT_BASE_PATH
             ):
-                csv_export_path_obj = Path(db_manager.CSV_EXPORT_BASE_PATH)
+                csv_export_path_obj = Path(CSV_EXPORT_BASE_PATH)
             else:  # Fallback to importing directly from app_config
                 from app_config import (
                     CSV_EXPORT_BASE_PATH as APP_CONFIG_CSV_EXPORT_BASE_PATH,
@@ -3685,8 +3605,8 @@ class KpiApp(tk.Tk):
     def _get_csv_export_base_path_obj(self):
         """Helper to safely get the CSV_EXPORT_BASE_PATH as a Path object."""
         try:
-            if hasattr(db_manager, "CSV_EXPORT_BASE_PATH") and db_manager.CSV_EXPORT_BASE_PATH:
-                return Path(db_manager.CSV_EXPORT_BASE_PATH)
+            if hasattr("CSV_EXPORT_BASE_PATH") and CSV_EXPORT_BASE_PATH:
+                return Path(CSV_EXPORT_BASE_PATH)
             else:
                 from app_config import CSV_EXPORT_BASE_PATH as APP_CONFIG_CSV_EXPORT_BASE_PATH
                 return Path(APP_CONFIG_CSV_EXPORT_BASE_PATH)
@@ -3857,7 +3777,7 @@ class KpiApp(tk.Tk):
 
     def open_export_folder(self):
         try:
-            export_path = Path(db_manager.CSV_EXPORT_BASE_PATH).resolve()
+            export_path = Path(CSV_EXPORT_BASE_PATH).resolve()
         except AttributeError:
             messagebox.showerror(
                 "Errore Config.",
@@ -3881,7 +3801,7 @@ class KpiApp(tk.Tk):
 
     def export_all_data_to_zip(self):
         try:
-            export_base_path_str = db_manager.CSV_EXPORT_BASE_PATH
+            export_base_path_str = CSV_EXPORT_BASE_PATH
         except AttributeError:
             messagebox.showerror(
                 "Errore Config.",
@@ -4206,7 +4126,7 @@ class KpiApp(tk.Tk):
                     )
                     return
 
-                db_manager.add_master_sub_kpi_link(
+                kpi_groups_manager.add_master_sub_kpi_link(
                     master_kpi_spec_id, dialog.result_sub_kpi_id, dialog.result_weight
                 )
                 self.refresh_all_relevant_data()
@@ -4282,7 +4202,7 @@ class KpiApp(tk.Tk):
                     )
                     return
 
-                db_manager.update_master_sub_kpi_link_weight(
+                kpi_groups_manager.update_master_sub_kpi_link_weight(
                     master_kpi_spec_id, sub_kpi_spec_id, new_weight
                 )
                 messagebox.showinfo(
@@ -4391,7 +4311,7 @@ class KpiApp(tk.Tk):
                                     break
 
                             if all_valid_for_save and targets_data_from_ui:
-                                db_manager.save_annual_targets(
+                                kpi_groups_manager.save_annual_targets(
                                     year,
                                     stab_id,
                                     targets_data_from_ui,  # Pass all current UI data
@@ -4471,7 +4391,7 @@ class KpiApp(tk.Tk):
             parent=self,
         ):
             try:
-                db_manager.remove_master_sub_kpi_link(
+                kpi_groups_manager.remove_master_sub_kpi_link(
                     master_kpi_spec_id, sub_kpi_spec_id
                 )
 
@@ -4525,7 +4445,7 @@ class KpiApp(tk.Tk):
                                 "is_target2_manual": True,
                             }
                         }
-                        db_manager.save_annual_targets(
+                        kpi_groups_manager.save_annual_targets(
                             year,
                             stabilimento_id_for_targets,
                             updated_data_for_sub,
@@ -4866,8 +4786,8 @@ class TemplateDefinitionEditorDialog(simpledialog.Dialog):
         self.initial_data = initial_data if initial_data else {}
         self.result_data = None
         self.kpi_calc_type_options = [
-            db_manager.CALC_TYPE_INCREMENTALE,
-            db_manager.CALC_TYPE_MEDIA,
+            CALC_TYPE_INCREMENTALE,
+            CALC_TYPE_MEDIA,
         ]
         super().__init__(parent, title)
 
@@ -5211,7 +5131,7 @@ class FormulaInputsDialog(simpledialog.Dialog):
 
 if __name__ == "__main__":
     try:
-        db_manager.setup_databases()
+        setup_databases()  # Call the setup function from db_core.setup
         app = KpiApp()
         app.mainloop()
     except Exception as e:
