@@ -1,20 +1,26 @@
-# your_project_root/stabilimenti_management/crud.py
+# src/stabilimenti_management/crud.py
 import sqlite3
 import traceback
+from pathlib import Path
 
-# Configuration import
+# --- Configuration Imports ---
 try:
-    from app_config import (
-        DB_STABILIMENTI,
-        DB_TARGETS,
-    )  # DB_TARGETS needed for delete check
+    from app_config import DB_STABILIMENTI, DB_TARGETS
 except ImportError:
     print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB_STABILIMENTI or DB_TARGETS will not be correctly defined. "
+        "CRITICAL WARNING: app_config.py not found in stabilimenti_management/crud.py"
     )
-    DB_STABILIMENTI = ":memory_stabilimenti_error:"
-    DB_TARGETS = ":memory_targets_for_stabilimenti_error:"
+    DB_STABILIMENTI = Path(":memory_stabilimenti_error.sqlite")
+    DB_TARGETS = Path(":memory_targets_for_stabilimenti_error.sqlite")
+
+
+# --- Helper to check DB path ---
+def _validate_db_path(db_path_obj, db_name_str):
+    """Validates if the provided DB path object is usable."""
+    path_str = str(db_path_obj)
+    if path_str.startswith(":memory_") or "error_db" in path_str:
+        raise ConnectionError(f"{db_name_str} is not properly configured ({path_str}).")
+
 
 # --- Stabilimento CRUD Operations ---
 
@@ -40,60 +46,34 @@ def add_stabilimento(name: str, description: str = "", visible: bool = True) -> 
             f"DB_STABILIMENTI is not properly configured ({DB_STABILIMENTI}). Cannot add stabilimento."
         )
 
+# --- Stabilimento CRUD Operations ---
+
+
+def add_stabilimento(name: str, description: str = "", visible: bool = True) -> int:
+    """Adds a new stabilimento to the database."""
+    _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")  # FIX: Use helper
     with sqlite3.connect(DB_STABILIMENTI) as conn:
         try:
             cursor = conn.cursor()
-            # The schema ensures 'visible' defaults to 1 if not provided,
-            # but explicit True/False to 1/0 conversion is good practice.
             cursor.execute(
                 "INSERT INTO stabilimenti (name, description, visible) VALUES (?,?,?)",
                 (name, description, 1 if visible else 0),
             )
             conn.commit()
-            stabilimento_id = cursor.lastrowid
-            print(
-                f"INFO: Stabilimento '{name}' added successfully with ID: {stabilimento_id}."
-            )
-            return stabilimento_id
+            return cursor.lastrowid
         except sqlite3.IntegrityError as e:
-            # This typically means "UNIQUE constraint failed: stabilimenti.name"
-            print(
-                f"ERROR: Could not add stabilimento '{name}'. It likely already exists. Details: {e}"
-            )
-            raise
-        except sqlite3.Error as e_general:
-            print(
-                f"ERROR: Database error while adding stabilimento '{name}'. Details: {e_general}"
-            )
-            print(traceback.format_exc())
+            raise Exception(f"Uno stabilimento con nome '{name}' esiste già.") from e
+        except Exception as e_general:
             raise Exception(
-                f"A database error occurred while adding stabilimento '{name}'."
+                "Errore database durante l'aggiunta dello stabilimento."
             ) from e_general
 
 
 def update_stabilimento(
     stabilimento_id: int, name: str, description: str, visible: bool
 ):
-    """
-    Updates an existing stabilimento's details.
-    Note: Your original update_stabilimento didn't include 'description'. Added it for consistency.
-          If you only want to update name and visible, remove 'description' param and SQL field.
-
-    Args:
-        stabilimento_id (int): The ID of the stabilimento to update.
-        name (str): The new unique name for the stabilimento.
-        description (str): The new description for the stabilimento.
-        visible (bool): The new visibility state.
-
-    Raises:
-        sqlite3.IntegrityError: If the new name already exists for another stabilimento.
-        Exception: If the stabilimento_id does not exist or for other database errors.
-    """
-    if DB_STABILIMENTI.startswith(":memory_") or "error_db" in str(DB_STABILIMENTI):
-        raise ConnectionError(
-            f"DB_STABILIMENTI is not properly configured ({DB_STABILIMENTI}). Cannot update stabilimento."
-        )
-
+    """Updates an existing stabilimento's details."""
+    _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")  # FIX: Use helper
     with sqlite3.connect(DB_STABILIMENTI) as conn:
         try:
             cursor = conn.cursor()
@@ -106,24 +86,13 @@ def update_stabilimento(
                 print(
                     f"WARNING: No stabilimento found with ID {stabilimento_id}. Update had no effect."
                 )
-                # Consider raising ValueError("Stabilimento not found for update.")
-            else:
-                print(
-                    f"INFO: Stabilimento ID {stabilimento_id} updated to name '{name}', visible: {visible}."
-                )
         except sqlite3.IntegrityError as e:
-            print(
-                f"ERROR: Could not update stabilimento ID {stabilimento_id} to name '{name}'. "
-                f"New name might already exist. Details: {e}"
-            )
-            raise
-        except sqlite3.Error as e_general:
-            print(
-                f"ERROR: Database error while updating stabilimento ID {stabilimento_id}. Details: {e_general}"
-            )
-            print(traceback.format_exc())
             raise Exception(
-                f"A database error occurred while updating stabilimento ID {stabilimento_id}."
+                f"Il nome '{name}' è già utilizzato da un altro stabilimento."
+            ) from e
+        except Exception as e_general:
+            raise Exception(
+                "Errore database durante l'aggiornamento dello stabilimento."
             ) from e_general
 
 
@@ -154,43 +123,34 @@ def is_stabilimento_referenced(stabilimento_id: int) -> bool:
         return True  # Assume referenced to be safe on error
 
 
+def is_stabilimento_referenced(stabilimento_id: int) -> bool:
+    """Checks if a stabilimento is referenced in the annual_targets table."""
+    _validate_db_path(DB_TARGETS, "DB_TARGETS")  # FIX: Use helper
+    try:
+        with sqlite3.connect(DB_TARGETS) as conn_targets:
+            cursor = conn_targets.cursor()
+            cursor.execute(
+                "SELECT 1 FROM annual_targets WHERE stabilimento_id = ? LIMIT 1",
+                (stabilimento_id,),
+            )
+            return cursor.fetchone() is not None
+    except sqlite3.Error as e:
+        print(
+            f"ERROR: Database error while checking references for stabilimento ID {stabilimento_id}: {e}"
+        )
+        return True  # Assume referenced to be safe on error
+
+
 def delete_stabilimento(stabilimento_id: int, force_delete_if_referenced: bool = False):
     """
-    Deletes a stabilimento.
-
-    By default, deletion is prevented if the stabilimento is referenced in annual_targets.
-    If `force_delete_if_referenced` is True, it will proceed with deletion,
-    which might orphan target records if not handled by other cleanup mechanisms.
-    (Currently, this function does NOT clean up related targets itself if forced).
-
-    Args:
-        stabilimento_id (int): The ID of the stabilimento to delete.
-        force_delete_if_referenced (bool): If True, will attempt deletion even if targets reference it.
-                                           USE WITH EXTREME CAUTION.
-
-    Raises:
-        ValueError: If the stabilimento is referenced and force_delete is False.
-        Exception: For database errors or if the stabilimento doesn't exist.
+    Deletes a stabilimento. By default, deletion is prevented if referenced in targets.
     """
-    if DB_STABILIMENTI.startswith(":memory_") or "error_db" in str(DB_STABILIMENTI):
-        raise ConnectionError(
-            f"DB_STABILIMENTI is not properly configured ({DB_STABILIMENTI}). Cannot delete stabilimento."
-        )
-
+    _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")  # FIX: Use helper
     if not force_delete_if_referenced:
         if is_stabilimento_referenced(stabilimento_id):
-            msg = (
-                f"Stabilimento ID {stabilimento_id} is referenced in annual targets "
-                "and cannot be deleted. To force deletion (with potential data integrity issues), "
-                "use force_delete_if_referenced=True or clean up target data first."
+            raise ValueError(
+                f"Stabilimento ID {stabilimento_id} è referenziato nei target e non può essere eliminato."
             )
-            print(f"ERROR: {msg}")
-            raise ValueError(msg)
-    elif force_delete_if_referenced:
-        print(
-            f"WARNING: Force deleting stabilimento ID {stabilimento_id} even if referenced in targets. "
-            "This may lead to orphaned target records if not handled elsewhere."
-        )
 
     with sqlite3.connect(DB_STABILIMENTI) as conn:
         try:
@@ -201,18 +161,9 @@ def delete_stabilimento(stabilimento_id: int, force_delete_if_referenced: bool =
                 print(
                     f"WARNING: No stabilimento found with ID {stabilimento_id} to delete."
                 )
-                # Consider raising ValueError("Stabilimento not found for deletion.")
-            else:
-                print(f"INFO: Stabilimento ID {stabilimento_id} deleted successfully.")
-        except (
-            sqlite3.Error
-        ) as e:  # Catches IntegrityError if other tables have FKs to stabilimenti in *this* DB
-            print(
-                f"ERROR: Database error while deleting stabilimento ID {stabilimento_id}. Details: {e}"
-            )
-            print(traceback.format_exc())
+        except sqlite3.Error as e:
             raise Exception(
-                f"A database error occurred while deleting stabilimento ID {stabilimento_id}."
+                "Errore database durante l'eliminazione dello stabilimento."
             ) from e
 
 

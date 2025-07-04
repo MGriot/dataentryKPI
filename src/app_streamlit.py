@@ -436,7 +436,7 @@ tab_titles = [
     tab_export,
 ) = st.tabs(tab_titles)
 
-# --- 🏭 Gestione Stabilimenti ---
+# --- 🏭 Gestione Stabilimenti (Corrected and with Delete Functionality) ---
 with tab_stabilimenti:
     st.header("Gestione Stabilimenti")
     col1_stab, col2_stab = st.columns([2, 1.5])
@@ -452,14 +452,17 @@ with tab_stabilimenti:
                 if "description" in df_stabilimenti.columns:
                     display_cols_stab.append("description")
                 display_cols_stab.append("visible")
+
                 df_stabilimenti_display = df_stabilimenti[display_cols_stab].copy()
                 df_stabilimenti_display["visible"] = df_stabilimenti_display[
                     "visible"
                 ].apply(lambda x: "Sì" if bool(x) else "No")
+
                 rename_map_stab = {"id": "ID", "name": "Nome", "visible": "Visibile"}
                 if "description" in df_stabilimenti_display.columns:
                     rename_map_stab["description"] = "Descrizione"
                 df_stabilimenti_display.rename(columns=rename_map_stab, inplace=True)
+
                 st.dataframe(
                     df_stabilimenti_display,
                     on_select="rerun",
@@ -467,6 +470,7 @@ with tab_stabilimenti:
                     hide_index=True,
                     key="stabilimenti_df_selection_state",
                 )
+
                 selection_info_stab = st.session_state.get(
                     "stabilimenti_df_selection_state"
                 )
@@ -522,10 +526,7 @@ with tab_stabilimenti:
             initial_visible_stab = True
             editing_id_stab = None
 
-        with st.form(
-            key="stabilimento_master_form_st",
-            clear_on_submit=True if not editing_id_stab else False,
-        ):
+        with st.form(key="stabilimento_master_form_st", clear_on_submit=False):
             stab_name_input_val = st.text_input(
                 "Nome Stabilimento",
                 value=initial_name_stab,
@@ -542,7 +543,24 @@ with tab_stabilimenti:
                 value=initial_visible_stab,
                 key="stab_visible_input_field_st",
             )
-            submitted_stabilimento_form = st.form_submit_button(button_text_stab)
+
+            # --- FIX: Add columns for Save and Delete buttons ---
+            col_save_stab, col_delete_stab = st.columns(2)
+
+            with col_save_stab:
+                submitted_stabilimento_form = st.form_submit_button(
+                    button_text_stab,
+                    use_container_width=True,
+                    type="primary" if not editing_id_stab else "secondary",
+                )
+
+            with col_delete_stab:
+                delete_stabilimento_submitted = st.form_submit_button(
+                    "🗑️ Elimina",
+                    use_container_width=True,
+                    type="secondary",
+                    disabled=not editing_id_stab,
+                )
 
             if submitted_stabilimento_form:
                 if not stab_name_input_val.strip():
@@ -577,6 +595,27 @@ with tab_stabilimenti:
                     except Exception as e:
                         st.error(f"Errore durante il salvataggio: {e}")
                         st.error(traceback.format_exc())
+
+            # --- FIX: Handle the delete button submission ---
+            if delete_stabilimento_submitted:
+                if editing_id_stab:
+                    try:
+                        # The manager function raises ValueError if referenced, which we can catch
+                        stabilimenti_manager.delete_stabilimento(editing_id_stab)
+                        st.success(
+                            f"Stabilimento '{initial_name_stab}' eliminato con successo."
+                        )
+                        st.session_state.editing_stabilimento = None
+                        st.rerun()
+                    except ValueError as ve:
+                        st.error(f"Impossibile eliminare: {ve}")
+                        st.info(
+                            "Per eliminare, prima rimuovere tutti i target associati a questo stabilimento."
+                        )
+                    except Exception as e:
+                        st.error(f"Errore durante l'eliminazione: {e}")
+                        st.error(traceback.format_exc())
+
         if current_editing_data_stab:
             if st.button(
                 "Pulisci / Nuovo Stabilimento", key="clear_stab_form_button_st"
