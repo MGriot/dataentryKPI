@@ -84,12 +84,13 @@ def add_kpi_group(name: str) -> int:
         sqlite3.IntegrityError: If the group name already exists.
         Exception: For other database errors.
     """
-    if DB_KPIS == ":memory:" or "error_db_kpis_not_found" in str(DB_KPIS):
+    db_kpis_str = str(DB_KPIS)
+    if db_kpis_str == ":memory:" or "error_db_kpis_not_found" in db_kpis_str:
         raise ConnectionError(
             f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot add group."
         )
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(str(DB_KPIS)) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO kpi_groups (name) VALUES (?)", (name,))
@@ -125,12 +126,13 @@ def update_kpi_group(group_id: int, new_name: str):
         sqlite3.IntegrityError: If the new name already exists for another group.
         Exception: If the group_id does not exist or for other database errors.
     """
-    if DB_KPIS == ":memory:" or "error_db_kpis_not_found" in str(DB_KPIS):
+    db_kpis_str = str(DB_KPIS)
+    if db_kpis_str == ":memory:" or "error_db_kpis_not_found" in db_kpis_str:
         raise ConnectionError(
             f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot update group."
         )
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(str(DB_KPIS)) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -187,7 +189,8 @@ def delete_kpi_group(group_id: int):
         print(msg)
         raise ImportError(msg)
 
-    if DB_KPIS == ":memory:" or "error_db_kpis_not_found" in str(DB_KPIS):
+    db_kpis_str = str(DB_KPIS)
+    if db_kpis_str == ":memory:" or "error_db_kpis_not_found" in db_kpis_str:
         raise ConnectionError(
             f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot delete group."
         )
@@ -204,7 +207,7 @@ def delete_kpi_group(group_id: int):
             )
 
         # Collect all indicator IDs from these subgroups
-        with sqlite3.connect(DB_KPIS) as conn_read:
+        with sqlite3.connect(str(DB_KPIS)) as conn_read:
             conn_read.row_factory = sqlite3.Row
             for sg_dict in subgroups_in_group:
                 print(
@@ -260,7 +263,7 @@ def delete_kpi_group(group_id: int):
     # delete the kpi_group itself. SQLite's `ON DELETE CASCADE` from kpi_groups
     # to kpi_subgroups will clean up the (now empty of indicators) subgroups.
     print(f"INFO: Proceeding to delete the kpi_groups entry for ID {group_id}.")
-    with sqlite3.connect(DB_KPIS) as conn_delete_group:
+    with sqlite3.connect(str(DB_KPIS)) as conn_delete_group:
         try:
             conn_delete_group.execute("PRAGMA foreign_keys = ON;")
             cursor = conn_delete_group.cursor()
@@ -311,7 +314,7 @@ if __name__ == "__main__":
         # Re-initialize basic tables for kpi_groups for testing if mocks are active
         try:
             with sqlite3.connect(
-                DB_KPIS if DB_KPIS != ":memory:" else "test_groups_module.sqlite"
+                str(DB_KPIS) if DB_KPIS != ":memory:" else "test_groups_module.sqlite"
             ) as conn_test_setup:  # Use a file for :memory: persistence during test
                 if DB_KPIS == ":memory:":
                     DB_KPIS = "test_groups_module.sqlite"  # for cleanup
@@ -370,7 +373,7 @@ if __name__ == "__main__":
         print(f"\nTest 4: Update group ID {g_id} ('Finance') to 'Financial Planning'")
         update_kpi_group(g_id, "Financial Planning")
         # Verification (manual query)
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(str(DB_KPIS)) as conn:
             name = conn.execute(
                 "SELECT name FROM kpi_groups WHERE id = ?", (g_id,)
             ).fetchone()[0]
@@ -382,7 +385,7 @@ if __name__ == "__main__":
             "\nTest 5: Update group 'Operations' to 'Financial Planning' (expecting IntegrityError)"
         )
         ops_id = None
-        with sqlite3.connect(DB_KPIS) as conn:  # Get ID for "Operations"
+        with sqlite3.connect(str(DB_KPIS)) as conn:  # Get ID for "Operations"
             ops_id_row = conn.execute(
                 "SELECT id FROM kpi_groups WHERE name = 'Operations'"
             ).fetchone()
@@ -408,7 +411,7 @@ if __name__ == "__main__":
         print(f"\nTest 6: Delete group ID {g_id} ('Financial Planning')")
         delete_kpi_group(g_id)
         # Verification (manual query)
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(str(DB_KPIS)) as conn:
             row = conn.execute(
                 "SELECT name FROM kpi_groups WHERE id = ?", (g_id,)
             ).fetchone()

@@ -143,7 +143,7 @@ def add_kpi_subgroup(name: str, group_id: int, indicator_template_id: int = None
 
 
     subgroup_id = None
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(str(DB_KPIS)) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -201,7 +201,8 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
         sqlite3.IntegrityError: For constraint violations (e.g. duplicate name/group, invalid group_id).
         Exception: For other errors.
     """
-    if DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
+    db_kpis_str = str(DB_KPIS)
+    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
          raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot update subgroup.")
     if not _data_retriever_available or not _templates_module_propagate_available:
          print("WARNING: Data retriever or templates._propagate module not available. Template change logic will be skipped or mocked.")
@@ -218,7 +219,7 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
     else: # If data_retriever is mocked, we can't get current state easily. Proceed with caution.
         print(f"WARNING: Cannot fetch current subgroup info for ID {subgroup_id} due to missing data_retriever.")
         # We need at least the old template ID for comparison. We'll have to query it directly if possible.
-        with sqlite3.connect(DB_KPIS) as conn_read_old_tpl:
+        with sqlite3.connect(str(DB_KPIS)) as conn_read_old_tpl:
             row = conn_read_old_tpl.execute("SELECT indicator_template_id, name FROM kpi_subgroups WHERE id = ?", (subgroup_id,)).fetchone()
             if not row:
                 print(f"ERROR: KPI Subgroup with ID {subgroup_id} not found (direct query). Cannot update.")
@@ -228,7 +229,7 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
 
     old_template_id = current_subgroup_info_dict.get("indicator_template_id") if current_subgroup_info_dict else None
 
-    with sqlite3.connect(DB_KPIS) as conn_update:
+    with sqlite3.connect(str(DB_KPIS)) as conn_update:
         try:
             cursor = conn_update.cursor()
             cursor.execute(
@@ -322,13 +323,14 @@ def delete_kpi_subgroup(subgroup_id: int):
         msg = "ERROR: Cannot proceed with delete_kpi_subgroup. Missing dependency: kpi_management.indicators.delete_kpi_indicator."
         print(msg)
         raise ImportError(msg)
-    if DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
+    db_kpis_str = str(DB_KPIS)
+    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
          raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot delete subgroup.")
 
 
     indicators_in_subgroup_ids = []
     try:
-        with sqlite3.connect(DB_KPIS) as conn_read:
+        with sqlite3.connect(str(DB_KPIS)) as conn_read:
             conn_read.row_factory = sqlite3.Row
             indicators_rows = conn_read.execute(
                 "SELECT id FROM kpi_indicators WHERE subgroup_id = ?", (subgroup_id,)
@@ -353,7 +355,7 @@ def delete_kpi_subgroup(subgroup_id: int):
 
     # After all indicators are deleted, delete the subgroup itself.
     print(f"  Proceeding to delete the kpi_subgroups entry for ID {subgroup_id}.")
-    with sqlite3.connect(DB_KPIS) as conn_delete_sg:
+    with sqlite3.connect(str(DB_KPIS)) as conn_delete_sg:
         try:
             conn_delete_sg.execute("PRAGMA foreign_keys = ON;") # Good practice
             cursor = conn_delete_sg.cursor()

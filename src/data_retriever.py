@@ -329,10 +329,13 @@ def get_kpi_detailed_by_id(kpi_spec_id: int): # -> dict or None
     return kpi_dict
 
 # --- Stabilimenti ---
-def get_all_stabilimenti(only_visible=False) -> list:
+def get_all_stabilimenti(visible_only=False) -> list:
     """Fetches all stabilimenti, optionally filtering by visibility, ordered by name."""
     if _handle_db_connection_error("DB_STABILIMENTI", "get_all_stabilimenti"): return []
-    query = "SELECT * FROM stabilimenti" + (" WHERE visible = 1" if only_visible else "") + " ORDER BY name"
+    query = "SELECT * FROM stabilimenti"
+    if visible_only:
+        query += " WHERE visible = 1"
+    query += " ORDER BY name"
     try:
         with sqlite3.connect(DB_STABILIMENTI) as conn:
             conn.row_factory = sqlite3.Row
@@ -342,6 +345,12 @@ def get_all_stabilimenti(only_visible=False) -> list:
         return []
 
 # --- Fact Table Access Functions (Targets) ---
+
+def get_linked_sub_kpis(master_kpi_id):
+    """Retrieves all Sub-KPIs linked to a Master KPI."""
+    with sqlite3.connect(DB_KPIS) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM kpi_master_sub_links WHERE master_kpi_id = ?", (master_kpi_id,)).fetchall()
 
 def get_annual_target_entry(year: int, stabilimento_id: int, kpi_spec_id: int): # -> sqlite3.Row or None
     """
@@ -358,6 +367,12 @@ def get_annual_target_entry(year: int, stabilimento_id: int, kpi_spec_id: int): 
     except sqlite3.Error as e:
         print(f"ERROR (get_annual_target_entry): Database error for Y{year},S{stabilimento_id},K{kpi_spec_id}: {e}")
         return None
+
+def get_annual_targets(stabilimento_id, year):
+    """Retrieves annual targets for a given stabilimento and year."""
+    with sqlite3.connect(DB_TARGETS) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM annual_targets WHERE stabilimento_id = ? AND year = ?", (stabilimento_id, year)).fetchall()
 
 def get_periodic_targets_for_kpi(
     year: int, stabilimento_id: int, kpi_spec_id: int, period_type: str, target_number: int
@@ -400,7 +415,11 @@ def get_periodic_targets_for_kpi(
         print(f"ERROR (get_periodic_targets_for_kpi {period_type}): Database error: {e}")
         return []
 
-# --- Master/Sub KPI Link Retrieval Functions ---
+def get_linked_sub_kpis(master_kpi_id):
+    """Retrieves all Sub-KPIs linked to a Master KPI."""
+    with sqlite3.connect(DB_KPIS) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM kpi_master_sub_links WHERE master_kpi_id = ?", (master_kpi_id,)).fetchall()
 def get_sub_kpis_for_master(master_kpi_spec_id: int) -> list:
     """Returns a list of sub_kpi_spec_id linked to a master_kpi_spec_id."""
     if _handle_db_connection_error("DB_KPIS", "get_sub_kpis_for_master"): return []

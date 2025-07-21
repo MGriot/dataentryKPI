@@ -1,0 +1,319 @@
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  > analize this src and subfolders @C:\Users\Admin\Documents\Coding\dataentryKPI\src , is for a dataentry        │
+│    application for target of KPI. i want that you analyze the wole code excluding gui parts. use                 │
+│    @C:\Users\Admin\Documents\Coding\dataentryKPI\README.md and                                                   │
+│    @C:\Users\Admin\Documents\Coding\dataentryKPI\docs as support for return a detailed istruction and logic for  │
+│    code a GUI in tkinter. this must cover all the optinion and feature grant in database managment code and      │
+│    logics.                                                                                                       │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+ ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+ │ ✔  ReadManyFiles Will attempt to read and concatenate files using patterns: `C:\Users\Admin\Documents\Coding\…  │
+ │                                                                                                                 │
+ │    ### ReadManyFiles Result (Target Dir: `C:\Users\Admin`)                                                      │
+ │                                                                                                                 │
+ │    Successfully read and concatenated content from **95 file(s)**.                                              │
+ │                                                                                                                 │
+ │    **Processed Files (first 10 shown):**                                                                        │
+ │    - `Documents/Coding/dataentryKPI/README.md`                                                                  │
+ │    - `Documents/Coding/dataentryKPI/docs/architecture.md`                                                       │
+ │    - `Documents/Coding/dataentryKPI/docs/streamlit_gui.md`                                                      │
+ │    - `Documents/Coding/dataentryKPI/docs/target_generation.md`                                                  │
+ │    - `Documents/Coding/dataentryKPI/docs/tkinter_gui.md`                                                        │
+ │    - `Documents/Coding/dataentryKPI/docs/usage_streamlit.md`                                                    │
+ │    - `Documents/Coding/dataentryKPI/docs/usage_tkinter.md`                                                      │
+ │    - `Documents/Coding/dataentryKPI/src/__init__.py`                                                            │
+ │    - `Documents/Coding/dataentryKPI/src/app_config.py`                                                          │
+ │    - `Documents/Coding/dataentryKPI/src/config.ini`                                                             │
+ │    - ...and 85 more.                                                                                            │
+ ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+✦ Of course. Based on the comprehensive analysis of your project's source code and documentation, here is a
+  detailed set of instructions and logic for building a robust and feature-complete Tkinter GUI.
+
+  Project Setup and Main Application Window
+
+  The foundation of your Tkinter application will be the main window, which houses a ttk.Notebook to manage the
+  different functional areas as tabs.
+
+  1. Main Application File (`main_gui.py` or similar):
+      - Create a main class, e.g., KpiApp, that inherits from tk.Tk.
+      - In the __init__ method:
+        - Set up the main window title and geometry.
+        - Crucially, call db_core.setup.setup_databases() right at the start. This ensures all database tables are
+          created and up-to-date before any other operation is performed.
+        - Create a ttk.Notebook widget that will contain all the functional tabs.
+        - Create a ttk.Frame for each major feature and add it as a tab to the notebook. The tabs should correspond
+          to the features outlined in your documentation:
+          - 🎯 Inserimento Target (Target Entry)
+          - 🗂️ Gestione Gerarchia KPI (KPI Hierarchy Management)
+          - 📋 Gestione Template Indicatori (Indicator Template Management)
+          - ⚙️ Gestione Specifiche KPI (KPI Specification Management)
+          - 🔗 Gestione Link Master/Sub (Master/Sub KPI Linking)
+          - 🏭 Gestione Stabilimenti (Facility Management)
+          - 📦 Esportazione Dati (Data Export)
+
+  2. Central Data Refresh Method:
+      - Implement a central refresh method within your main KpiApp class, for example, refresh_all_data().
+      - This method will be called after any data modification (add, edit, delete) to ensure all parts of the GUI
+        reflect the latest data. It should call the individual refresh methods of each tab.
+
+  ---
+
+  Tab 1: 🏭 Facility Management (`Gestione Stabilimenti`)
+
+  Purpose: Basic CRUD (Create, Read, Update, Delete) operations for facilities.
+
+  UI Components:
+   - A ttk.Treeview to display the list of facilities with columns: ID, Name, Description, Visible.
+   - Buttons: Add New, Edit Selected, Delete Selected.
+
+  Logic and Data Flow:
+   1. Populate Treeview:
+       - Create a refresh_stabilimenti_tree() method.
+       - Inside, clear the Treeview.
+       - Call data_retriever.get_all_stabilimenti() to fetch all facility records.
+       - Iterate through the returned list of rows and insert each one into the Treeview.
+
+   2. Add Facility:
+       - The Add New button opens a Toplevel dialog window.
+       - The dialog contains ttk.Entry widgets for the name and description, and a ttk.Checkbutton for the visible
+         flag.
+       - On dialog submission, call stabilimenti_management.crud.add_stabilimento() with the input values.
+       - After the call, invoke the main refresh_all_data() method to update the UI.
+
+   3. Edit Facility:
+       - The Edit Selected button is enabled only when an item in the Treeview is selected.
+       - It opens the same dialog, populated with the data from the selected row.
+       - On submission, it calls stabilimenti_management.crud.update_stabilimento(), passing the facility ID and
+         the new values.
+       - Refresh the UI.
+
+   4. Delete Facility:
+       - The Delete Selected button is also selection-dependent.
+       - Show a messagebox.askyesno to confirm the deletion.
+       - If confirmed, call stabilimenti_management.crud.delete_stabilimento().
+       - Important: The backend delete_stabilimento function checks if the facility is referenced in any targets.
+         You must wrap the call in a try...except ValueError block. If a ValueError is caught, display a
+         messagebox.showerror to the user explaining that the facility cannot be deleted because it has associated
+         targets.
+       - Refresh the UI.
+
+  ---
+
+  Tab 2: 🗂️ KPI Hierarchy Management
+
+  Purpose: Define the core structure of KPIs: Groups, Subgroups, and Indicators.
+
+  UI Components:
+   - Three main ttk.LabelFrame widgets side-by-side: "Groups", "Subgroups", "Indicators".
+   - Each frame contains a tk.Listbox to display the items.
+   - Each frame has "Add", "Edit", and "Delete" buttons.
+
+  Logic and Data Flow:
+   1. Populate Lists (Chained Selection):
+       - Groups: On tab load, populate the Groups Listbox by calling data_retriever.get_kpi_groups().
+       - On Group Select: Bind an event to the Groups Listbox. When a group is selected, get its ID and call
+         data_retriever.get_kpi_subgroups_by_group_revised() to populate the Subgroups Listbox. Clear the
+         Indicators Listbox.
+       - On Subgroup Select: Bind an event to the Subgroups Listbox. When a subgroup is selected, get its ID and
+         call data_retriever.get_kpi_indicators_by_subgroup() to populate the Indicators Listbox.
+
+   2. CRUD Operations:
+       - Groups: Use simpledialog.askstring for input. Call the corresponding functions from kpi_management.groups.
+       - Subgroups:
+           - The "Add"/"Edit" action should open a custom dialog (Toplevel).
+           - This dialog must contain an Entry for the name and a Combobox to link an Indicator Template.
+           - Populate the template Combobox by calling data_retriever.get_kpi_indicator_templates().
+           - On save, call kpi_management.subgroups.add_kpi_subgroup() or update_kpi_subgroup(). The backend will
+             automatically handle the creation of indicators if a template is linked.
+       - Indicators:
+           - The "Add"/"Edit"/"Delete" buttons should be disabled if the selected parent subgroup is linked to a
+             template (as indicators are managed by the template). You can check this using the data from
+             get_kpi_subgroups_by_group_revised().
+           - If the subgroup is not templated, use simpledialog and call the corresponding functions from
+             kpi_management.indicators.
+
+  ---
+
+  Tab 3: 📋 Indicator Template Management
+
+  Purpose: Create reusable templates for indicators to enforce consistency.
+
+  UI Components:
+   - A ttk.LabelFrame on the left containing a Listbox for templates and its CRUD buttons.
+   - A ttk.LabelFrame on the right containing a Treeview to show the indicator definitions within the selected
+     template, and its CRUD buttons.
+
+  Logic and Data Flow:
+   1. Populate Template List: Call data_retriever.get_kpi_indicator_templates() to fill the Listbox.
+   2. On Template Select: Get the selected template's ID. Call data_retriever.get_template_defined_indicators()
+      and populate the Treeview on the right with the definitions.
+   3. Template CRUD:
+       - Use simpledialog for the template name and description.
+       - Call kpi_management.templates.add_kpi_indicator_template(), update_kpi_indicator_template(), and
+         delete_kpi_indicator_template().
+       - The delete operation is significant. The backend handles the complex logic of unlinking subgroups and
+         removing propagated indicators. The GUI should simply call the function after a clear confirmation
+         message.
+   4. Indicator Definition CRUD:
+       - Use a custom Toplevel dialog to manage the fields of a definition: indicator_name_in_template,
+         default_description, default_calculation_type (Combobox), default_unit_of_measure, default_visible
+         (Checkbutton).
+       - Add/Edit: Call kpi_management.templates.add_indicator_definition_to_template() or
+         update_indicator_definition_in_template().
+       - Remove: Call kpi_management.templates.remove_indicator_definition_from_template().
+       - Key Feature: The backend templates module automatically handles propagating these changes to all subgroups
+         linked to the template. The GUI does not need to manage this logic, only trigger the backend function.
+
+  ---
+
+  Tab 4: ⚙️ KPI Specification Management
+
+  Purpose: Define the specific properties (calculation type, unit, etc.) for each individual indicator.
+
+  UI Components:
+   - A form at the top with three chained Combobox widgets (Group -> Subgroup -> Indicator) to select a KPI.
+   - Entry, Combobox, and Checkbutton widgets below to edit the properties of the selected KPI.
+   - A ttk.Treeview at the bottom displaying all currently defined KPI specifications.
+
+  Logic and Data Flow:
+   1. Populate Treeview: Call data_retriever.get_all_kpis_detailed() to fill the Treeview. This gives a complete
+      overview. Double-clicking an item in the tree should populate the form above for editing.
+   2. Chained Comboboxes:
+       - Populate the "Group" Combobox using data_retriever.get_kpi_groups().
+       - On selection, populate the "Subgroup" Combobox using data_retriever.get_kpi_subgroups_by_group_revised().
+       - On selection, populate the "Indicator" Combobox using data_retriever.get_kpi_indicators_by_subgroup().
+   3. Form Logic:
+       - When an indicator is selected in the final Combobox, the application must check if a specification already
+         exists for it.
+       - If a spec exists (data_retriever.get_all_kpis_detailed() can be filtered in memory), populate the form
+         fields with its data and set the "Save" button text to "Update Spec".
+       - If no spec exists, clear the fields. If the parent subgroup is linked to a template, pre-fill the form
+         with the default values from that template definition
+         (data_retriever.get_template_indicator_definition_by_name()). Set the "Save" button text to "Add Spec".
+   4. Save/Update:
+       - On button click, call either kpi_management.specs.add_kpi_spec() or update_kpi_spec() with the form data.
+   5. Delete: Deleting a spec is equivalent to deleting the indicator itself. The button should act on the
+      Treeview selection. After confirmation, get the indicator_id from the selected row and call
+      kpi_management.indicators.delete_kpi_indicator(). The database cascade will handle removing the spec record.
+
+  ---
+
+  Tab 5: 🔗 Master/Sub KPI Linking
+
+  Purpose: Establish and manage weighted, dependent relationships between KPIs.
+
+  UI Components:
+   - A main Combobox to select the primary KPI to manage.
+   - A Label to display the selected KPI's current role (Master, Sub, or None).
+   - A Treeview to display its current links (e.g., "Linked Sub-KPIs" or "Is Sub-KPI of").
+   - A form to create a new link, containing another Combobox to select the Sub-KPI and an Entry for the
+     distribution weight.
+
+  Logic and Data Flow:
+   1. Populate Main KPI Combobox: Call data_retriever.get_all_kpis_detailed() and use a helper to create a full
+      display name (e.g., "Group > Subgroup > Indicator") for each item.
+   2. On KPI Select:
+       - Get the selected kpi_spec_id.
+       - Call data_retriever.get_kpi_role_details() to determine its role.
+       - Update the UI to show the role and populate the Treeview with its links by calling
+         data_retriever.get_all_master_sub_kpi_links() and filtering the results.
+   3. Populate "Available Sub-KPIs" Combobox: This requires client-side logic. Fetch all KPIs
+      (get_all_kpis_detailed) and all links (get_all_master_sub_kpi_links). A KPI is eligible to become a sub-KPI
+      if it is not already a master and not already a sub of a different master.
+   4. Link/Unlink/Update Weight:
+       - Link: Call kpi_management.links.add_master_sub_kpi_link().
+       - Unlink: Call kpi_management.links.remove_master_sub_kpi_link().
+       - Update Weight: Call kpi_management.links.update_master_sub_kpi_link_weight().
+       - Refresh the view after each operation.
+
+  ---
+
+  Tab 6: 🎯 Target Entry
+
+  This is the most critical and complex tab.
+
+  UI Components:
+   - Filters: Combobox for Year and Combobox for Facility.
+   - Main Area: A scrollable Canvas containing a Frame.
+   - KPI Entries: For each visible KPI, a ttk.LabelFrame is dynamically created inside the scrollable frame. Each
+     LabelFrame contains:
+       - Entry widgets for annual_target1 and annual_target2.
+       - Checkbutton for "Manual" override (only for sub-KPIs).
+       - Checkbutton to enable "Use Formula".
+       - Entry for the formula string.
+       - Button to open a "Formula Inputs" dialog.
+       - Combobox for the distribution_profile.
+       - Combobox for the repartition_logic.
+   - Global Save Button: A single "Save All Targets" button at the bottom.
+
+  Logic and Data Flow:
+   1. Data Loading (on filter change):
+       - When Year or Facility changes, clear and rebuild the entire scrollable frame.
+       - Fetch all visible KPIs: data_retriever.get_all_kpis_detailed(only_visible=True).
+       - For each KPI, call data_retriever.get_annual_target_entry() to get its saved target data for the current
+         context (year/facility).
+       - Call data_retriever.get_kpi_role_details() to determine its role.
+       - Dynamically create the LabelFrame and all its child widgets, populating them with the fetched data. Store
+         widget references in a dictionary keyed by kpi_spec_id for later access.
+       - Enable/disable widgets based on the KPI's role (e.g., if a sub-KPI is not "manual", its target entry
+         should be disabled).
+
+   2. Real-time Master/Sub UI Distribution:
+       - This is a UI-only calculation for immediate feedback.
+       - When a master KPI's target Entry is modified, trigger a function that:
+           - Gets the master's new value.
+           - Iterates through its sub-KPIs (using the widget dictionary to find them).
+           - Sums the values of any sub-KPIs marked as "Manual" or "Formula".
+           - Calculates the remaining target value to be distributed.
+           - Calculates the total weight of the remaining "derived" sub-KPIs.
+           - Distributes the remaining value among the derived sub-KPIs according to their weights and updates
+             their Entry widgets.
+
+   3. Formula Input Dialog:
+       - This Toplevel dialog allows the user to define the variables for a formula.
+       - It should display the current inputs in a Listbox.
+       - It needs a Combobox (populated with all KPIs) to select the source KPI, another Combobox to select the
+         source target (annual_target1 or annual_target2), and an Entry for the variable name (e.g., var_A).
+       - Clicking "Add" appends a dictionary {'kpi_id': ..., 'target_source': ..., 'variable_name': ...} to a list.
+       - On "OK", this list is serialized to a JSON string and stored in a hidden tk.StringVar associated with the
+         main KPI's entry.
+
+   4. Global Save Action:
+       - This is the primary action that persists all data.
+       - When the "Save All Targets" button is clicked:
+           - Iterate through the widget dictionary for every KPI.
+           - Gather all the values from the widgets (targets, manual flags, formula definitions, profiles, etc.)
+             into a single large dictionary, targets_data_map.
+           - Make a single call to target_management.annual.save_annual_targets(year, stabilimento_id,
+             targets_data_map).
+           - The backend save_annual_targets function is responsible for the entire complex workflow:
+               1. Saving all the raw data.
+               2. Evaluating all formula-based targets in the correct dependency order.
+               3. Distributing master KPI targets to derived sub-KPIs.
+               4. Calling target_management.repartition.calculate_and_save_all_repartitions for every KPI whose
+                  annual target was created or changed.
+           - After the call returns, call your GUI's refresh_all_data() method to reload the target entry tab and
+             display the final, calculated values.
+
+  ---
+
+  Tab 7: 📦 Data Export
+
+  Purpose: Allow users to export all data for external analysis.
+
+  UI Components:
+   - A Button labeled "Export All Data to CSVs".
+   - A Button labeled "Package All CSVs into ZIP".
+   - A Label to show the configured export directory (app_config.CSV_EXPORT_BASE_PATH).
+
+  Logic and Data Flow:
+   1. Export CSVs:
+       - The button calls export_manager.export_all_data_to_global_csvs().
+       - This backend function handles fetching all data from all tables and writing them to the correct CSV files
+         in the export directory.
+       - Use a messagebox.showinfo to notify the user of completion.
+   2. Package ZIP:
+       - The button calls export_manager.package_all_csvs_as_zip().
+       - This function finds the generated CSVs and packages them into a single ZIP archive.
+       - Notify the user upon completion.

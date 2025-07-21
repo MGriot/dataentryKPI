@@ -50,7 +50,7 @@ def add_kpi_indicator(name: str, subgroup_id: int) -> int:
     if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
          raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot add indicator.")
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(str(DB_KPIS)) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -106,10 +106,11 @@ def update_kpi_indicator(indicator_id: int, new_name: str, subgroup_id: int):
                                 or if the new subgroup_id is invalid.
         Exception: If the indicator_id does not exist or for other database errors.
     """
-    if DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
+    db_kpis_str = str(DB_KPIS)
+    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
          raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot update indicator.")
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(str(DB_KPIS)) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -170,7 +171,7 @@ def delete_kpi_indicator(indicator_id: int):
     kpi_spec_id_to_delete = None
     try:
         # Step 1: Find the kpis.id (kpi_spec_id) associated with this kpi_indicators.id
-        with sqlite3.connect(DB_KPIS) as conn_kpis_read:
+        with sqlite3.connect(str(DB_KPIS)) as conn_kpis_read:
             # conn_kpis_read.row_factory = sqlite3.Row # Not strictly needed if only fetching one column
             kpi_spec_row = conn_kpis_read.execute(
                 "SELECT id FROM kpis WHERE indicator_id = ?", (indicator_id,)
@@ -193,7 +194,7 @@ def delete_kpi_indicator(indicator_id: int):
 
         # Delete from annual_targets (DB_TARGETS)
         try:
-            with sqlite3.connect(DB_TARGETS) as conn_targets:
+            with sqlite3.connect(str(DB_TARGETS)) as conn_targets:
                 cursor_targets = conn_targets.cursor()
                 cursor_targets.execute(
                     "DELETE FROM annual_targets WHERE kpi_id = ?", (kpi_spec_id_to_delete,)
@@ -214,7 +215,7 @@ def delete_kpi_indicator(indicator_id: int):
         ]
         for db_path_del, table_name_del in periodic_dbs_info:
             try:
-                with sqlite3.connect(db_path_del) as conn_periodic:
+                with sqlite3.connect(str(db_path_del)) as conn_periodic:
                     cursor_periodic = conn_periodic.cursor()
                     cursor_periodic.execute(
                         f"DELETE FROM {table_name_del} WHERE kpi_id = ?",
@@ -238,7 +239,7 @@ def delete_kpi_indicator(indicator_id: int):
     # This will also trigger ON DELETE CASCADE for the associated kpis record (if any was left or found),
     # which in turn triggers ON DELETE CASCADE for kpi_master_sub_links.
     print(f"  Proceeding to delete kpi_indicators entry for ID {indicator_id}.")
-    with sqlite3.connect(DB_KPIS) as conn_kpis_delete:
+    with sqlite3.connect(str(DB_KPIS)) as conn_kpis_delete:
         try:
             conn_kpis_delete.execute("PRAGMA foreign_keys = ON;") # Ensure FKs are active
             cursor_delete_indicator = conn_kpis_delete.cursor()
@@ -275,7 +276,7 @@ if __name__ == "__main__":
 
     # Helper to set up a minimal kpi_groups and kpi_subgroups for testing
     def setup_minimal_parent_tables_for_indicators(db_path, subgroup_id_to_ensure):
-        with sqlite3.connect(db_path) as conn:
+        with sqlite3.connect(str(db_path)) as conn:
             cur = conn.cursor()
             # Ensure kpi_groups table and a group
             cur.execute("CREATE TABLE IF NOT EXISTS kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);")
@@ -307,10 +308,10 @@ if __name__ == "__main__":
             """)
             conn.commit()
 
-    if any(db_path.startswith(":memory_") or "error_db" in str(db_path) for db_path in [DB_KPIS, DB_TARGETS, DB_KPI_DAYS]):
+    if any(str(db_path).startswith(":memory_") or "error_db" in str(db_path) for db_path in [DB_KPIS, DB_TARGETS, DB_KPI_DAYS]):
         print("WARNING: One or more database paths are placeholders. Testing might be limited or use in-memory instances.")
         # For :memory: or placeholder, attempt to set up minimal kpi_indicators related schema in DB_KPIS
-        if DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
+        if str(DB_KPIS).startswith(":memory_") or "error_db" in str(DB_KPIS):
              DB_KPIS_TEST_FILE = "test_indicators_kpis.sqlite"
              print(f"INFO: Using '{DB_KPIS_TEST_FILE}' for DB_KPIS during testing.")
              setup_minimal_parent_tables_for_indicators(DB_KPIS_TEST_FILE, TEST_SUBGROUP_ID)
@@ -319,8 +320,8 @@ if __name__ == "__main__":
              DB_KPIS = DB_KPIS_TEST_FILE
         # Similar minimal setup for other DBs if needed for delete test, e.g., creating dummy tables
         for db_path_placeholder_check in [DB_TARGETS, DB_KPI_DAYS, DB_KPI_WEEKS, DB_KPI_MONTHS, DB_KPI_QUARTERS]:
-            if db_path_placeholder_check.startswith(":memory_") or "error_db" in str(db_path_placeholder_check):
-                temp_db_file = f"test_indicators_{db_path_placeholder_check.split('_')[1]}.sqlite" # e.g. test_indicators_targets.sqlite
+            if str(db_path_placeholder_check).startswith(":memory_") or "error_db" in str(db_path_placeholder_check):
+                temp_db_file = f"test_indicators_{str(db_path_placeholder_check).split('_')[1]}.sqlite" # e.g. test_indicators_targets.sqlite
                 print(f"INFO: Initializing dummy table in '{temp_db_file}' for {db_path_placeholder_check}")
                 with sqlite3.connect(temp_db_file) as conn_other_db:
                     if "targets" in temp_db_file:
@@ -340,7 +341,7 @@ if __name__ == "__main__":
         print(f"  SUCCESS: Added 'Revenue' with ID {indicator_id_test}")
 
         # Add a corresponding kpis spec for deletion test
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(str(DB_KPIS)) as conn:
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO kpis (indicator_id, calculation_type, unit_of_measure) VALUES (?, ?, ?)",
@@ -357,7 +358,7 @@ if __name__ == "__main__":
 
         print(f"\nTest 3: Update indicator ID {indicator_id_test} to 'Net Revenue' in subgroup {TEST_SUBGROUP_ID}")
         update_kpi_indicator(indicator_id_test, "Net Revenue", TEST_SUBGROUP_ID)
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(str(DB_KPIS)) as conn:
             name = conn.execute("SELECT name FROM kpi_indicators WHERE id = ?", (indicator_id_test,)).fetchone()[0]
             assert name == "Net Revenue", "Indicator name was not updated."
         print(f"  SUCCESS: Indicator ID {indicator_id_test} updated.")
@@ -367,15 +368,15 @@ if __name__ == "__main__":
         print(f"\nTest 4: Delete indicator ID {indicator_id_test} ('Net Revenue')")
         # Add some dummy data to related tables to check deletion
         if kpi_spec_id_for_test_indicator:
-            with sqlite3.connect(DB_TARGETS) as conn_t:
+            with sqlite3.connect(str(DB_TARGETS)) as conn_t:
                 conn_t.execute("INSERT OR IGNORE INTO annual_targets (kpi_id, year) VALUES (?, ?)", (kpi_spec_id_for_test_indicator, 2023))
                 conn_t.commit()
-            with sqlite3.connect(DB_KPI_DAYS) as conn_d:
+            with sqlite3.connect(str(DB_KPI_DAYS)) as conn_d:
                 conn_d.execute("INSERT OR IGNORE INTO daily_targets (kpi_id, date_value) VALUES (?, ?)", (kpi_spec_id_for_test_indicator, "2023-01-01"))
                 conn_d.commit()
 
         delete_kpi_indicator(indicator_id_test)
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(str(DB_KPIS)) as conn:
             row = conn.execute("SELECT name FROM kpi_indicators WHERE id = ?", (indicator_id_test,)).fetchone()
             assert row is None, "Indicator was not deleted from kpi_indicators."
             if kpi_spec_id_for_test_indicator:
@@ -383,10 +384,10 @@ if __name__ == "__main__":
                 assert spec_row is None, "Associated kpis spec was not deleted by cascade."
         # Check other DBs
         if kpi_spec_id_for_test_indicator:
-            with sqlite3.connect(DB_TARGETS) as conn_t:
+            with sqlite3.connect(str(DB_TARGETS)) as conn_t:
                 target_row = conn_t.execute("SELECT id FROM annual_targets WHERE kpi_id = ?", (kpi_spec_id_for_test_indicator,)).fetchone()
                 assert target_row is None, "Annual target was not deleted."
-            with sqlite3.connect(DB_KPI_DAYS) as conn_d:
+            with sqlite3.connect(str(DB_KPI_DAYS)) as conn_d:
                 day_row = conn_d.execute("SELECT id FROM daily_targets WHERE kpi_id = ?", (kpi_spec_id_for_test_indicator,)).fetchone()
                 assert day_row is None, "Daily target was not deleted."
 
