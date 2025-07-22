@@ -24,7 +24,7 @@ def _validate_db_path():
 
 # --- Master/Sub KPI Link CRUD Operations ---
 
-def add_master_sub_kpi_link(master_kpi_spec_id: int, sub_kpi_spec_id: int, weight: float = 1.0):
+def link_sub_kpi(master_kpi_spec_id: int, sub_kpi_spec_id: int, weight: float = 1.0):
     """
     Adds a link between a master KPI and a sub KPI with a given distribution weight.
     If the link already exists, it attempts to update the weight.
@@ -94,7 +94,7 @@ def add_master_sub_kpi_link(master_kpi_spec_id: int, sub_kpi_spec_id: int, weigh
             print(traceback.format_exc())
             raise Exception("A database error occurred while adding master-sub link.") from e_general
 
-def update_master_sub_kpi_link_weight(master_kpi_spec_id: int, sub_kpi_spec_id: int, new_weight: float):
+def update_link_weight(master_kpi_spec_id: int, sub_kpi_spec_id: int, new_weight: float):
     """
     Updates the distribution weight of an existing link between a master and a sub KPI.
 
@@ -138,7 +138,7 @@ def update_master_sub_kpi_link_weight(master_kpi_spec_id: int, sub_kpi_spec_id: 
             print(traceback.format_exc())
             raise Exception("A database error occurred while updating link weight.") from e
 
-def remove_master_sub_kpi_link(master_kpi_spec_id: int, sub_kpi_spec_id: int):
+def unlink_sub_kpi(master_kpi_spec_id: int, sub_kpi_spec_id: int):
     """
     Removes a specific link between a master and a sub KPI.
 

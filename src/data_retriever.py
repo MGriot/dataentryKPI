@@ -346,11 +346,43 @@ def get_all_stabilimenti(visible_only=False) -> list:
 
 # --- Fact Table Access Functions (Targets) ---
 
-def get_linked_sub_kpis(master_kpi_id):
-    """Retrieves all Sub-KPIs linked to a Master KPI."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_master_sub_links WHERE master_kpi_id = ?", (master_kpi_id,)).fetchall()
+def get_linked_sub_kpis_detailed(master_kpi_spec_id: int) -> list:
+    """
+    Fetches detailed information for all Sub-KPIs linked to a Master KPI.
+
+    Args:
+        master_kpi_spec_id: The ID of the master KPI.
+
+    Returns:
+        A list of sqlite3.Row objects, each containing the full details of a linked
+        sub-KPI plus the 'distribution_weight' of the link.
+    """
+    if _handle_db_connection_error("DB_KPIS", "get_linked_sub_kpis_detailed"):
+        return []
+
+    query = """
+        SELECT
+            k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
+            k.indicator_id, i.id as actual_indicator_id,
+            k.description, k.calculation_type, k.unit_of_measure, k.visible,
+            sg.id as subgroup_id, sg.indicator_template_id,
+            l.distribution_weight
+        FROM kpi_master_sub_links l
+        JOIN kpis k ON l.sub_kpi_spec_id = k.id
+        JOIN kpi_indicators i ON k.indicator_id = i.id
+        JOIN kpi_subgroups sg ON i.subgroup_id = sg.id
+        JOIN kpi_groups g ON sg.group_id = g.id
+        WHERE l.master_kpi_spec_id = ?
+        ORDER BY g.name, sg.name, i.name
+    """
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query, (master_kpi_spec_id,)).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_linked_sub_kpis_detailed): Database error for master ID {master_kpi_spec_id}: {e}")
+        print(traceback.format_exc())
+        return []
 
 def get_annual_target_entry(year: int, stabilimento_id: int, kpi_spec_id: int): # -> sqlite3.Row or None
     """
@@ -415,11 +447,43 @@ def get_periodic_targets_for_kpi(
         print(f"ERROR (get_periodic_targets_for_kpi {period_type}): Database error: {e}")
         return []
 
-def get_linked_sub_kpis(master_kpi_id):
-    """Retrieves all Sub-KPIs linked to a Master KPI."""
-    with sqlite3.connect(DB_KPIS) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_master_sub_links WHERE master_kpi_id = ?", (master_kpi_id,)).fetchall()
+def get_linked_sub_kpis_detailed(master_kpi_spec_id: int) -> list:
+    """
+    Fetches detailed information for all Sub-KPIs linked to a Master KPI.
+
+    Args:
+        master_kpi_spec_id: The ID of the master KPI.
+
+    Returns:
+        A list of sqlite3.Row objects, each containing the full details of a linked
+        sub-KPI plus the 'distribution_weight' of the link.
+    """
+    if _handle_db_connection_error("DB_KPIS", "get_linked_sub_kpis_detailed"):
+        return []
+
+    query = """
+        SELECT
+            k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
+            k.indicator_id, i.id as actual_indicator_id,
+            k.description, k.calculation_type, k.unit_of_measure, k.visible,
+            sg.id as subgroup_id, sg.indicator_template_id,
+            l.distribution_weight
+        FROM kpi_master_sub_links l
+        JOIN kpis k ON l.sub_kpi_spec_id = k.id
+        JOIN kpi_indicators i ON k.indicator_id = i.id
+        JOIN kpi_subgroups sg ON i.subgroup_id = sg.id
+        JOIN kpi_groups g ON sg.group_id = g.id
+        WHERE l.master_kpi_spec_id = ?
+        ORDER BY g.name, sg.name, i.name
+    """
+    try:
+        with sqlite3.connect(DB_KPIS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute(query, (master_kpi_spec_id,)).fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_linked_sub_kpis_detailed): Database error for master ID {master_kpi_spec_id}: {e}")
+        print(traceback.format_exc())
+        return []
 def get_sub_kpis_for_master(master_kpi_spec_id: int) -> list:
     """Returns a list of sub_kpi_spec_id linked to a master_kpi_spec_id."""
     if _handle_db_connection_error("DB_KPIS", "get_sub_kpis_for_master"): return []
@@ -547,6 +611,19 @@ def get_all_periodic_targets_for_export(period_type: str) -> list:
         print(f"ERROR (get_all_periodic_targets_for_export - {period_type}): Database error: {e}")
         print(traceback.format_exc())
         return []
+
+
+def get_dashboard_data(stabilimento_id, year):
+    """Retrieves aggregated data for the dashboard."""
+    # This is a placeholder. You need to implement the actual query.
+    # This query should join annual_targets with aggregated actuals.
+    return []
+
+def get_periodic_data_for_kpi(kpi_id, stabilimento_id, year):
+    """Retrieves periodic data for a specific KPI."""
+    # This is a placeholder. You need to implement the actual query.
+    # This query should join periodic targets with actuals.
+    return []
 
 
 if __name__ == "__main__":

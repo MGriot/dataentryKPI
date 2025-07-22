@@ -54,10 +54,10 @@ class MasterSubLinkTab(ttk.Frame):
         if not selected_item: return
 
         master_kpi_id = int(selected_item)
-        linked_subs = db_retriever.get_linked_sub_kpis(master_kpi_id)
+        linked_subs = db_retriever.get_linked_sub_kpis_detailed(master_kpi_id)
         for sub in linked_subs:
             display_name = get_kpi_display_name(sub)
-            self.sub_kpi_listbox.insert(tk.END, f"{display_name} (Weight: {sub['weight']})")
+            self.sub_kpi_listbox.insert(tk.END, f"{display_name} (Weight: {sub['distribution_weight']})")
 
     def link_sub_kpi(self):
         selected_master_item = self.master_kpi_tree.focus()
@@ -69,7 +69,7 @@ class MasterSubLinkTab(ttk.Frame):
         all_kpis = db_retriever.get_all_kpis_detailed(only_visible=False)
         
         # Exclude master and already linked subs
-        linked_sub_ids = {sub['sub_kpi_id'] for sub in db_retriever.get_linked_sub_kpis(master_kpi_id)}
+        linked_sub_ids = {sub['id'] for sub in db_retriever.get_linked_sub_kpis_detailed(master_kpi_id)}
         available_kpis = [kpi for kpi in all_kpis if kpi["id"] != master_kpi_id and kpi["id"] not in linked_sub_ids]
 
         # Simple dialog for now, can be improved
@@ -99,9 +99,9 @@ class MasterSubLinkTab(ttk.Frame):
             messagebox.showwarning("Attenzione", "Seleziona uno o più Sub-KPI da scollegare.")
             return
 
-        linked_subs = db_retriever.get_linked_sub_kpis(master_kpi_id)
+        linked_subs = db_retriever.get_linked_sub_kpis_detailed(master_kpi_id)
         for index in selected_sub_indices:
-            sub_kpi_id_to_unlink = linked_subs[index]['sub_kpi_id']
+            sub_kpi_id_to_unlink = linked_subs[index]['id']
             try:
                 kpi_links_manager.unlink_sub_kpi(master_kpi_id, sub_kpi_id_to_unlink)
             except Exception as e:
@@ -118,13 +118,13 @@ class MasterSubLinkTab(ttk.Frame):
             messagebox.showwarning("Attenzione", "Seleziona un solo Sub-KPI per aggiornare il peso.")
             return
 
-        linked_subs = db_retriever.get_linked_sub_kpis(master_kpi_id)
+        linked_subs = db_retriever.get_linked_sub_kpis_detailed(master_kpi_id)
         sub_kpi_to_update = linked_subs[selected_sub_index[0]]
 
-        new_weight = simpledialog.askfloat("Update Weight", "Enter new weight:", initialvalue=sub_kpi_to_update['weight'])
+        new_weight = simpledialog.askfloat("Update Weight", "Enter new weight:", initialvalue=sub_kpi_to_update['distribution_weight'])
         if new_weight is not None:
             try:
-                kpi_links_manager.update_link_weight(master_kpi_id, sub_kpi_to_update['sub_kpi_id'], new_weight)
+                kpi_links_manager.update_link_weight(master_kpi_id, sub_kpi_to_update['id'], new_weight)
                 self.on_kpi_select()
             except Exception as e:
                 messagebox.showerror("Errore", f"Impossibile aggiornare il peso: {e}")
