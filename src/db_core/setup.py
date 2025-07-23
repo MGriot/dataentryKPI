@@ -18,10 +18,22 @@ from app_config import (
     DB_KPI_QUARTERS,
     DB_KPI_TEMPLATES,
     CSV_EXPORT_BASE_PATH,  # Make sure this is a Path object in app_config or convert it here
+)
+from gui.shared.constants import (
     CALC_TYPE_INCREMENTALE,
     CALC_TYPE_MEDIA,
-    # Add other constants if they are directly used in table definitions (e.g., specific check constraints beyond calc_type)
-    # For now, only CALC_TYPE_* are directly in CREATE TABLE CHECK constraints.
+    REPARTITION_LOGIC_ANNO,
+    PROFILE_ANNUAL_PROGRESSIVE,
+    WEIGHT_INITIAL_FACTOR_INC,
+    WEIGHT_FINAL_FACTOR_INC,
+    SINE_AMPLITUDE_INCREMENTAL,
+    SINE_PHASE_OFFSET,
+    WEEKDAY_BIAS_FACTOR_INCREMENTAL,
+    WEIGHT_INITIAL_FACTOR_AVG,
+    WEIGHT_FINAL_FACTOR_AVG,
+    DEVIATION_SCALE_FACTOR_AVG,
+    SINE_AMPLITUDE_MEDIA,
+    WEEKDAY_BIAS_FACTOR_MEDIA,
 )
 
 # It's good practice to ensure CSV_EXPORT_BASE_PATH is a Path object if it isn't already.
@@ -229,8 +241,7 @@ def setup_databases():
         with sqlite3.connect(DB_TARGETS) as conn:
             cursor = conn.cursor()
             try:
-                # PROFILE_ANNUAL_PROGRESSIVE should be defined in app_config
-                from app_config import (
+                from gui.shared.constants import (
                     PROFILE_ANNUAL_PROGRESSIVE,
                     REPARTITION_LOGIC_ANNO,
                 )

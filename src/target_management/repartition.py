@@ -14,6 +14,8 @@ try:
         DB_KPI_MONTHS,
         DB_KPI_QUARTERS,
         DB_TARGETS,
+    )
+    from gui.shared.constants import (
         CALC_TYPE_INCREMENTALE,
         CALC_TYPE_MEDIA,
         REPARTITION_LOGIC_ANNO,

@@ -18,13 +18,18 @@ from gui.app_tkinter.components.target_entry_tab import TargetEntryTab
 from gui.app_tkinter.components.export_tab import ExportTab
 from gui.app_tkinter.components.results_tab import ResultsTab
 from gui.app_tkinter.components.dashboard_tab import DashboardTab
+from gui.app_tkinter.components.settings_tab import SettingsTab
 from ..shared.constants import KPI_CALC_TYPE_OPTIONS
+from app_config import SETTINGS, load_settings
 
 class KpiApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Gestione Target KPI")
         self.geometry("1600x950")
+
+        # Load settings
+        self.settings = load_settings()
 
         # Configure styles first
         self.style = ttk.Style(self)
@@ -44,6 +49,12 @@ class KpiApp(tk.Tk):
         self._create_main_notebook()
         
         # Finally, refresh data
+        self.refresh_all_data()
+
+    def load_settings(self):
+        self.settings = load_settings()
+        # Here you could add logic to apply settings, e.g., update styles
+        # For now, we just reload the data.
         self.refresh_all_data()
 
     def _configure_styles(self):
@@ -85,6 +96,7 @@ class KpiApp(tk.Tk):
         self.export_frame = ExportTab(self.notebook, self)
         self.results_frame = ResultsTab(self.notebook, self)
         self.dashboard_frame = DashboardTab(self.notebook, self)
+        self.settings_frame = SettingsTab(self.notebook, self)
 
         self.notebook.add(self.target_entry_frame, text="🎯 Inserimento Target")
         self.notebook.add(self.kpi_hierarchy_frame, text="🗂️ Gestione Gerarchia KPI")
@@ -95,6 +107,7 @@ class KpiApp(tk.Tk):
         self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
         self.notebook.add(self.results_frame, text="📈 Visualizzazione Risultati")
         self.notebook.add(self.dashboard_frame, text="📊 Dashboard Globale KPI")
+        self.notebook.add(self.settings_frame, text="⚙️ Impostazioni")
 
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 

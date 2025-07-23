@@ -7,7 +7,7 @@ try:
     from app_config import DB_KPIS, DB_KPI_TEMPLATES
     # CALC_TYPE constants might be needed by _apply_template_indicator_to_new_subgroup
     # if it directly constructs kpis records.
-    from app_config import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+    from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 except ImportError:
     print(
         "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "

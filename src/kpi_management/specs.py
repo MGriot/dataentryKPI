@@ -5,7 +5,8 @@ from pathlib import Path # Ensure Path is imported
 
 # Configuration import
 try:
-    from app_config import DB_KPIS, CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+    from app_config import DB_KPIS
+    from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 except ImportError:
     print(
         "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "

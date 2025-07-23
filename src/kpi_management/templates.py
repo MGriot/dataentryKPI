@@ -8,16 +8,17 @@ try:
     from app_config import (
         DB_KPI_TEMPLATES,
         DB_KPIS,
-        CALC_TYPE_INCREMENTALE,
-        CALC_TYPE_MEDIA
     )
+    from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 except ImportError:
     print(
         "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB paths or calc_type constants will not be correctly defined. "
+        "DB paths will not be correctly defined. "
     )
     DB_KPI_TEMPLATES = ":memory_templates_error:"
     DB_KPIS = ":memory_kpis_for_templates_error:"
+    # Fallback for constants if gui.shared.constants also fails to import
+    # (though it should be self-contained now)
     CALC_TYPE_INCREMENTALE = "Incrementale_fallback"
     CALC_TYPE_MEDIA = "Media_fallback"
 

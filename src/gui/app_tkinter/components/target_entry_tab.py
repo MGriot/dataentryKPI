@@ -131,7 +131,8 @@ class TargetEntryTab(ttk.Frame):
         ttk.Label(frame, text=f"Target {target_num}:").pack(side='left', padx=(0, 5))
 
         # Target entry
-        target_var = tk.DoubleVar(value=target_data.get(target_key, 0.0) if target_data else 0.0)
+        target_val = target_data.get(target_key) if target_data else None
+        target_var = tk.StringVar(value=str(target_val) if target_val is not None else "")
         target_entry = ttk.Entry(frame, textvariable=target_var, width=15)
         target_entry.pack(side='left', padx=5)
 
@@ -337,9 +338,19 @@ class TargetEntryTab(ttk.Frame):
         
         targets_data_map = {}
         for kpi_id, kpi_widgets in self.kpi_target_entry_widgets.items():
+            try:
+                t1_val_str = kpi_widgets['targets'][1]['target_var'].get()
+                t2_val_str = kpi_widgets['targets'][2]['target_var'].get()
+
+                t1_val = float(t1_val_str) if t1_val_str else None
+                t2_val = float(t2_val_str) if t2_val_str else None
+            except ValueError:
+                messagebox.showerror("Errore", f"Valore non valido per KPI {kpi_id}. Inserire un numero.")
+                return
+
             targets_data = {
-                'annual_target1': kpi_widgets['targets'][1]['target_var'].get(),
-                'annual_target2': kpi_widgets['targets'][2]['target_var'].get(),
+                'annual_target1': t1_val,
+                'annual_target2': t2_val,
                 'is_target1_manual': kpi_widgets['targets'][1]['manual_var'].get() if kpi_widgets['targets'][1]['manual_var'] else True,
                 'is_target2_manual': kpi_widgets['targets'][2]['manual_var'].get() if kpi_widgets['targets'][2]['manual_var'] else True,
                 'target1_is_formula_based': kpi_widgets['targets'][1]['formula_var'].get(),

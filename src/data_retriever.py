@@ -613,11 +613,73 @@ def get_all_periodic_targets_for_export(period_type: str) -> list:
         return []
 
 
+def get_distinct_years() -> list:
+    """Fetches all distinct years from the annual_targets table."""
+    if _handle_db_connection_error("DB_TARGETS", "get_distinct_years"): return []
+    try:
+        with sqlite3.connect(DB_TARGETS) as conn:
+            conn.row_factory = sqlite3.Row
+            return conn.execute("SELECT DISTINCT year FROM annual_targets ORDER BY year DESC").fetchall()
+    except sqlite3.Error as e:
+        print(f"ERROR (get_distinct_years): Database error: {e}")
+        return []
+
+def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type: str, year: int = None) -> list:
+    """
+    Fetches periodic targets for a specific KPI across all stabilimenti.
+    """
+    period_map = {
+        'Giorno': (DB_KPI_DAYS, 'daily_targets', 'date_value', 'DB_KPI_DAYS'),
+        'Settimana': (DB_KPI_WEEKS, 'weekly_targets', 'week_value', 'DB_KPI_WEEKS'),
+        'Mese': (DB_KPI_MONTHS, 'monthly_targets', 'month_value', 'DB_KPI_MONTHS'),
+        'Trimestre': (DB_KPI_QUARTERS, 'quarterly_targets', 'quarter_value', 'DB_KPI_QUARTERS'),
+    }
+    if period_type not in period_map:
+        raise ValueError(f"Invalid period_type: {period_type}")
+
+    db_path, table_name, period_col, db_const = period_map[period_type]
+
+    if _handle_db_connection_error(db_const, "get_periodic_targets_for_kpi_all_stabilimenti") or \
+       _handle_db_connection_error("DB_STABILIMENTI", "get_periodic_targets_for_kpi_all_stabilimenti"):
+        return []
+
+    query = f"""
+        SELECT
+            t.year,
+            t.stabilimento_id,
+            s.name as stabilimento_name,
+            t.{period_col} as period,
+            t.target_number,
+            t.target_value
+        FROM {table_name} t
+        JOIN stab_db.stabilimenti s ON t.stabilimento_id = s.id
+        WHERE t.kpi_id = ?
+    """
+    params = [kpi_spec_id]
+    if year:
+        query += " AND t.year = ?"
+        params.append(year)
+
+    query += f" ORDER BY t.year, s.name, t.{period_col}, t.target_number"
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute(f"ATTACH DATABASE '{str(DB_STABILIMENTI).replace('\\', '/')}' AS stab_db")
+            result = conn.execute(query, params).fetchall()
+            conn.execute("DETACH DATABASE stab_db")
+            return result
+    except sqlite3.Error as e:
+        print(f"ERROR (get_periodic_targets_for_kpi_all_stabilimenti): Database error: {e}")
+        print(traceback.format_exc())
+        return []
+
 def get_dashboard_data(stabilimento_id, year):
     """Retrieves aggregated data for the dashboard."""
     # This is a placeholder. You need to implement the actual query.
     # This query should join annual_targets with aggregated actuals.
     return []
+
 
 def get_periodic_data_for_kpi(kpi_id, stabilimento_id, year):
     """Retrieves periodic data for a specific KPI."""
