@@ -1,13 +1,57 @@
-# Automatic Target Generation Logic
+# Target Generation and Distribution
 
-## Overview
+## Mathematical Models Overview
 
-The system enables **automatic distribution of annual KPI targets** into quarters, months, weeks, and days. This is achieved via mathematical profiles and customizable repartition logic, implemented in `src/database_manager.py`.
+The system implements sophisticated mathematical models for distributing KPI targets across different time periods. Each model is designed to handle specific business scenarios and temporal patterns.
 
-## Key Concepts
+## Distribution Profiles
 
-- **Annual Target**: The user enters a yearly value for each KPI/stabilimento.
-- **Distribution Profiles**: Mathematical models (progressive, sinusoidal, parabolic, etc.) define how the annual value is split across periods.
+### 1. Even Distribution (PROFILE_EVEN)
+The simplest distribution model that splits targets equally:
+
+```python
+w_i = 1/n  # where n is number of periods
+```
+
+**Use Cases:**
+- Stable metrics without seasonal variation
+- Base reference distributions
+- Initial target benchmarking
+
+### 2. Annual Progressive (PROFILE_ANNUAL_PROGRESSIVE)
+Implements linear progression throughout the year:
+
+```python
+# For period i in [1..n]:
+f_i = initial + (final - initial)(i-1)/(n-1)
+w_i = f_i / Σf_j  # where j goes from 1 to n
+```
+
+**Parameters:**
+- `initial`: Starting weight (WEIGHT_INITIAL_FACTOR_INC/AVG)
+- `final`: Ending weight (WEIGHT_FINAL_FACTOR_INC/AVG)
+
+**Use Cases:**
+- Growth-based targets
+- Ramp-up scenarios
+- Learning curve adjustments
+
+### 3. Sinusoidal Distribution (PROFILE_TRUE_ANNUAL_SINUSOIDAL)
+Models seasonal patterns:
+
+```python
+# For period i in [1..n]:
+w_i = (1 + A·sin(2π(i-1)/n + φ)) / Σ(1 + A·sin(2π(j-1)/n + φ))
+```
+
+**Parameters:**
+- `A`: Amplitude (SINE_AMPLITUDE_INCREMENTAL/MEDIA)
+- `φ`: Phase offset (SINE_PHASE_OFFSET)
+
+**Use Cases:**
+- Seasonal business cycles
+- Temperature-dependent metrics
+- Recurring patterns
 - **Repartition Logic**: Determines the granularity (year, quarter, month, week) and allows for custom weights per period.
 
 ---

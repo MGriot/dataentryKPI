@@ -1,10 +1,42 @@
 # Data Entry KPI Target Manager
 
-A modular, extensible platform for managing, distributing, and analyzing Key Performance Indicator (KPI) targets for data entry processes. Supports both desktop (Tkinter) and web (Streamlit) interfaces, with robust database and export capabilities.
+An advanced platform for managing and analyzing Key Performance Indicators (KPIs) with sophisticated target distribution algorithms. The system supports both desktop (Tkinter) and web (Streamlit) interfaces, offering a comprehensive solution for KPI management across different organizational levels.
 
----
+## Core Features
 
-## Project Structure
+### 1. Advanced Target Distribution
+- Multiple mathematical distribution models:
+  - Even distribution
+  - Progressive/regressive
+  - Sinusoidal (seasonal)
+  - Quarterly patterns
+  - Weekly bias adjustments
+- Hierarchical period management:
+  - Annual → Quarterly → Monthly → Weekly → Daily
+- Formula-based calculations with dependencies
+
+### 2. KPI Management
+- Template-based KPI definitions
+- Master/Sub KPI relationships
+- Weighted distributions
+- Custom calculation rules
+- Unit conversion handling
+
+### 3. Multi-Interface Support
+- **Desktop Application (Tkinter)**
+  - Native performance
+  - Rich interactive features
+  - Offline capability
+- **Web Interface (Streamlit)**
+  - Browser-based access
+  - Modern web interface
+  - Easy deployment
+
+### 4. Data Management
+- SQLite database backend
+- CSV export/import
+- Historical data tracking
+- Target vs. Actual analysis
 
 ```
 dataentryKPI/
@@ -42,10 +74,29 @@ dataentryKPI/
 
 ## Documentation
 
-- [Usage: Tkinter Desktop](docs/usage_tkinter.md)
-- [Usage: Streamlit Web](docs/usage_streamlit.md)
+See our [Documentation Index](docs/index.md) for complete documentation, including:
+
+### User Guides
+
+- [Tkinter Desktop Guide](docs/usage_tkinter.md)
+- [Streamlit Web Guide](docs/usage_streamlit.md)
+
+### Technical Documentation
+
 - [Architecture Overview](docs/architecture.md)
-- [Automatic Target Generation Logic](docs/target_generation.md)
+- [Target Generation Logic](docs/target_generation.md)
+- [Theoretical Framework](docs/theoretical_framework.md)
+- [Database Schema](docs/database_schema.md)
+- [Configuration Guide](docs/configuration.md)
+
+### Getting Started
+
+For new users, we recommend following this order:
+
+1. Quick Start Guide (below)
+2. User Guide for your preferred interface
+3. Target Generation Logic for understanding the math
+4. Configuration Guide for customization
 
 ---
 
