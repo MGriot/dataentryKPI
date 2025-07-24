@@ -5,7 +5,9 @@ from pathlib import Path
 
 # --- Configuration Imports ---
 try:
-    from app_config import DB_STABILIMENTI, DB_TARGETS
+    from ..app_config import SETTINGS
+    DB_STABILIMENTI = get_database_path(SETTINGS.get('db_stabilimenti', 'stabilimenti.sqlite'))
+    DB_TARGETS = get_database_path(SETTINGS.get('db_targets', 'targets.sqlite'))
 except ImportError:
     print(
         "CRITICAL WARNING: app_config.py not found in stabilimenti_management/crud.py"

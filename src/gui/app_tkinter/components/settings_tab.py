@@ -3,6 +3,8 @@ from tkinter import ttk, colorchooser, messagebox, filedialog
 import json
 import data_retriever as db_retriever
 
+from app_config import SETTINGS_FILE
+
 class SettingsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -77,7 +79,7 @@ class SettingsTab(ttk.Frame):
         self.settings['stabilimento_colors'] = {name: var.get() for name, var in self.stabilimento_colors_vars.items()}
 
         try:
-            with open('settings.json', 'w') as f:
+            with open(SETTINGS_FILE, 'w') as f:
                 json.dump(self.settings, f, indent=4)
             messagebox.showinfo("Successo", "Impostazioni salvate con successo.")
             self.app.load_settings() # Reload settings in the main app

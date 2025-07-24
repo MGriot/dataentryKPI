@@ -1,26 +1,10 @@
 # src/kpi_management/templates.py
 import sqlite3
 import traceback
+import app_config
 from pathlib import Path # Ensure Path is imported
 
-# Configuration import
-try:
-    from app_config import (
-        DB_KPI_TEMPLATES,
-        DB_KPIS,
-    )
-    from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
-except ImportError:
-    print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB paths will not be correctly defined. "
-    )
-    DB_KPI_TEMPLATES = ":memory_templates_error:"
-    DB_KPIS = ":memory_kpis_for_templates_error:"
-    # Fallback for constants if gui.shared.constants also fails to import
-    # (though it should be self-contained now)
-    CALC_TYPE_INCREMENTALE = "Incrementale_fallback"
-    CALC_TYPE_MEDIA = "Media_fallback"
+from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False
@@ -87,16 +71,16 @@ def _propagate_template_indicator_change(
         print(f"ERROR (_propagate): Missing 'indicators' or 'specs' module. Cannot propagate template change for indicator: {indicator_definition.get('indicator_name_in_template')}")
         return
 
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
-         raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot propagate template change.")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot propagate template change.")
 
 
     subgroups_to_update_rows = []
     print(f"  Propagating template (ID:{template_id}) change for indicator '{indicator_definition.get('indicator_name_in_template')}', action: {action}.")
 
     try:
-        with sqlite3.connect(DB_KPIS) as conn_kpis_read:
+        with sqlite3.connect(db_kpis_path) as conn_kpis_read:
             conn_kpis_read.row_factory = sqlite3.Row
             if specific_subgroup_ids:
                 placeholders = ",".join("?" for _ in specific_subgroup_ids)
@@ -123,7 +107,7 @@ def _propagate_template_indicator_change(
 
     # Actions are performed within a single connection to DB_KPIS for transactional integrity if possible,
     # though delete_kpi_indicator itself opens connections to other DBs.
-    with sqlite3.connect(DB_KPIS) as conn_kpis_action:
+    with sqlite3.connect(db_kpis_path) as conn_kpis_action:
         conn_kpis_action.row_factory = sqlite3.Row # For fetching existing_indicator
         conn_kpis_action.execute("PRAGMA foreign_keys = ON;")
 
@@ -206,12 +190,10 @@ def _propagate_template_indicator_change(
 
 def add_kpi_indicator_template(name: str, description: str = "") -> int:
     """Adds a new KPI indicator template."""
-    db_templates_str = str(DB_KPI_TEMPLATES)
-    if db_templates_str.startswith(":memory_") or "error_db" in db_templates_str:
-        raise ConnectionError(
-            f"DB_KPI_TEMPLATES is not properly configured ({DB_KPI_TEMPLATES}). Cannot add template."
-        )
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists():
+        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({db_kpi_templates_path}). Cannot add template.")
+    with sqlite3.connect(db_kpi_templates_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -230,13 +212,12 @@ def add_kpi_indicator_template(name: str, description: str = "") -> int:
             raise
 
 def update_kpi_indicator_template(template_id: int, name: str, description: str):
-    """Updates an existing KPI indicator template."""
-    db_templates_str = str(DB_KPI_TEMPLATES)
-    if db_templates_str.startswith(":memory_") or "error_db" in db_templates_str:
-        raise ConnectionError(
-            f"DB_KPI_TEMPLATES is not properly configured ({DB_KPI_TEMPLATES}). Cannot update template."
-        )
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+    """
+    Updates an existing KPI indicator template."""
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists():
+        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({db_kpi_templates_path}). Cannot update template.")
+    with sqlite3.connect(db_kpi_templates_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -265,10 +246,10 @@ def delete_kpi_indicator_template(template_id: int):
     4. Unlinking subgroups from this template (setting their indicator_template_id to NULL).
     5. Deleting the template itself and its definitions from DB_KPI_TEMPLATES.
     """
-    db_templates_str = str(DB_KPI_TEMPLATES)
-    db_kpis_str = str(DB_KPIS)
-    if db_templates_str.startswith(":memory_") or "error_db" in db_templates_str or \
-       db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists() or \
+       not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError("DB_KPI_TEMPLATES or DB_KPIS is not properly configured. Cannot delete template.")
     if not _data_retriever_available :
         print("WARNING (delete_template): data_retriever not available. Cannot fetch all template definitions for full cleanup.")
@@ -276,7 +257,7 @@ def delete_kpi_indicator_template(template_id: int):
     print(f"INFO: Initiating deletion of KPI Indicator Template ID: {template_id}.")
     linked_subgroup_ids = []
     try:
-        with sqlite3.connect(DB_KPIS) as conn_kpis_read:
+        with sqlite3.connect(db_kpis_path) as conn_kpis_read:
             conn_kpis_read.row_factory = sqlite3.Row
             rows = conn_kpis_read.execute(
                 "SELECT id FROM kpi_subgroups WHERE indicator_template_id = ?",
@@ -314,7 +295,7 @@ def delete_kpi_indicator_template(template_id: int):
 
     # Unlink subgroups from this template (set their indicator_template_id to NULL)
     try:
-        with sqlite3.connect(DB_KPIS) as conn_kpis_update:
+        with sqlite3.connect(db_kpis_path) as conn_kpis_update:
             cursor = conn_kpis_update.cursor()
             cursor.execute(
                 "UPDATE kpi_subgroups SET indicator_template_id = NULL WHERE indicator_template_id = ?",
@@ -328,7 +309,7 @@ def delete_kpi_indicator_template(template_id: int):
 
     # Delete the template itself and its definitions (CASCADE should handle definitions)
     try:
-        with sqlite3.connect(DB_KPI_TEMPLATES) as conn_tpl_delete:
+        with sqlite3.connect(db_kpi_templates_path) as conn_tpl_delete:
             conn_tpl_delete.execute("PRAGMA foreign_keys = ON;") # Ensure cascade delete of template_defined_indicators
             cursor_del_tpl = conn_tpl_delete.cursor()
             cursor_del_tpl.execute(
@@ -351,9 +332,9 @@ def add_indicator_definition_to_template(
     visible: bool = True, description: str = ""
 ):
     """Adds an indicator definition to an existing template and propagates the change."""
-    db_templates_str = str(DB_KPI_TEMPLATES)
-    if db_templates_str.startswith(":memory_") or "error_db" in db_templates_str:
-        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({DB_KPI_TEMPLATES}). Cannot add definition.")
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists():
+        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({db_kpi_templates_path}). Cannot add definition.")
     if not _data_retriever_available:
         print("WARNING (add_def): data_retriever not available. Cannot check for existing definition properly.")
 
@@ -368,7 +349,7 @@ def add_indicator_definition_to_template(
     }
     definition_id = None
 
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+    with sqlite3.connect(db_kpi_templates_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -434,9 +415,9 @@ def update_indicator_definition_in_template(
     visible: bool, description: str
 ):
     """Updates an indicator definition within a template and propagates the change."""
-    db_templates_str = str(DB_KPI_TEMPLATES)
-    if db_templates_str.startswith(":memory_") or "error_db" in db_templates_str:
-        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({DB_KPI_TEMPLATES}). Cannot update definition.")
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists():
+        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({db_kpi_templates_path}). Cannot update definition.")
     if not _data_retriever_available:
         print("WARNING (update_def): data_retriever not available. Cannot fetch current definition for comparison.")
 
@@ -457,7 +438,7 @@ def update_indicator_definition_in_template(
         print(f"WARNING: Cannot fetch current definition ID {definition_id} for pre-update checks.")
 
 
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+    with sqlite3.connect(db_kpi_templates_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -498,9 +479,9 @@ def update_indicator_definition_in_template(
 
 def remove_indicator_definition_from_template(definition_id: int):
     """Removes an indicator definition from a template and propagates the removal."""
-    db_templates_str = str(DB_KPI_TEMPLATES)
-    if db_templates_str.startswith(":memory_") or "error_db" in db_templates_str:
-        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({DB_KPI_TEMPLATES}). Cannot remove definition.")
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists():
+        raise ConnectionError(f"DB_KPI_TEMPLATES is not properly configured ({db_kpi_templates_path}). Cannot remove definition.")
     if not _data_retriever_available:
         print("WARNING (remove_def): data_retriever not available. Cannot fetch definition details for propagation.")
         # This is problematic as _propagate needs the definition details.
@@ -523,7 +504,7 @@ def remove_indicator_definition_from_template(definition_id: int):
         # This is a HACK for testing without full data_retriever
         definition_to_delete_dict = {"id": definition_id, "indicator_name_in_template": f"Unknown_Def_{definition_id}", "template_id": -1}
         # Attempt to get template_id if possible
-        with sqlite3.connect(DB_KPI_TEMPLATES) as conn_get_tpl_id:
+        with sqlite3.connect(db_kpi_templates_path) as conn_get_tpl_id:
             tpl_id_row = conn_get_tpl_id.execute("SELECT template_id FROM template_defined_indicators WHERE id=?", (definition_id,)).fetchone()
             if tpl_id_row:
                 definition_to_delete_dict["template_id"] = tpl_id_row[0]
@@ -535,7 +516,7 @@ def remove_indicator_definition_from_template(definition_id: int):
         # Proceed to delete from template only if this is acceptable
         # return # Or raise error
 
-    with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+    with sqlite3.connect(db_kpi_templates_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM template_defined_indicators WHERE id = ?", (definition_id,))
@@ -573,7 +554,7 @@ if __name__ == "__main__":
             cur_tpl.execute("CREATE TABLE IF NOT EXISTS kpi_indicator_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT);")
             cur_tpl.execute(f"""CREATE TABLE IF NOT EXISTS template_defined_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, template_id INTEGER NOT NULL,
                                indicator_name_in_template TEXT NOT NULL, default_description TEXT,
-                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}', 'Incrementale_fallback', 'Media_fallback')),
+                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
                                default_unit_of_measure TEXT, default_visible BOOLEAN DEFAULT 1,
                                FOREIGN KEY (template_id) REFERENCES kpi_indicator_templates(id) ON DELETE CASCADE,
                                UNIQUE (template_id, indicator_name_in_template));""")
@@ -595,21 +576,28 @@ if __name__ == "__main__":
             cur_kpis.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
                                FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));""")
             cur_kpis.execute(f"""CREATE TABLE IF NOT EXISTS kpis (id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE, description TEXT,
-                               calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}', 'Incrementale_fallback', 'Media_fallback')), unit_of_measure TEXT, visible BOOLEAN DEFAULT 1,
+                               calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                               unit_of_measure TEXT, visible BOOLEAN DEFAULT 1,
                                FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE);""")
             conn_kpis.commit()
         print(f"INFO: Minimal tables for templates module testing ensured/created in {db_templates_path} and {db_kpis_path}")
 
-    DB_TPL_TEST_FILE = "test_module_templates_db.sqlite"
-    DB_KPIS_FOR_TPL_TEST_FILE = "test_module_templates_kpis_db.sqlite"
-    DB_TPL_ORIGINAL, DB_KPIS_ORIGINAL = DB_KPI_TEMPLATES, DB_KPIS
+    test_db_file_tpl = "test_module_templates_db.sqlite"
+    test_db_file_kpis = "test_module_templates_kpis_db.sqlite"
+    # Save original app_config settings for database paths
+    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
 
-    if DB_KPI_TEMPLATES.startswith(":memory_") or "error_db" in str(DB_KPI_TEMPLATES) or \
-       DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
-        print(f"INFO: Using test files for templates module testing.")
-        DB_KPI_TEMPLATES = DB_TPL_TEST_FILE
-        DB_KPIS = DB_KPIS_FOR_TPL_TEST_FILE
-        setup_minimal_tables_for_templates_module(DB_TPL_TEST_FILE, DB_KPIS_FOR_TPL_TEST_FILE)
+    # Create dummy DB files for testing if they don't exist
+    if not Path(test_db_file_tpl).exists():
+        Path(test_db_file_tpl).touch()
+    if not Path(test_db_file_kpis).exists():
+        Path(test_db_file_kpis).touch()
+
+    # Temporarily set app_config to use the test files' directory
+    app_config.SETTINGS["database_base_dir"] = str(Path(test_db_file_tpl).parent)
+
+    # Setup minimal tables for templates module
+    setup_minimal_tables_for_templates_module(app_config.get_database_path("db_kpi_templates.db"), app_config.get_database_path("db_kpis.db"))
 
     TEST_SUBGROUP_ID_FOR_PROPAGATION = 10
 
@@ -621,7 +609,7 @@ if __name__ == "__main__":
 
         print(f"\nTest 2: Add indicator definition 'Response Time' to template {template_id_created}")
         # Link subgroup to template for propagation test
-        with sqlite3.connect(DB_KPIS) as conn_link_sg:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_link_sg:
             conn_link_sg.execute("UPDATE kpi_subgroups SET indicator_template_id = ? WHERE id = ?", (template_id_created, TEST_SUBGROUP_ID_FOR_PROPAGATION))
             conn_link_sg.commit()
             print(f"  Linked subgroup {TEST_SUBGROUP_ID_FOR_PROPAGATION} to template {template_id_created} for propagation test.")
@@ -629,7 +617,7 @@ if __name__ == "__main__":
         if not _data_retriever_available or not _indicators_module_available or not _specs_module_available:
             print("  SKIPPING propagation part of Test 2 due to missing dependencies.")
             # Add definition without full propagation test
-            with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""INSERT INTO template_defined_indicators (template_id, indicator_name_in_template, default_calculation_type, default_unit_of_measure)
                                 VALUES (?, 'Response Time', ?, 'Hours')""", (template_id_created, CALC_TYPE_MEDIA))
@@ -642,12 +630,12 @@ if __name__ == "__main__":
                 template_id_created, "Response Time", CALC_TYPE_MEDIA, "Hours", True, "Avg time to respond."
             )
             # Verification:
-            with sqlite3.connect(DB_KPI_TEMPLATES) as conn: # Check in template DB
+            with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn: # Check in template DB
                 def_row = conn.execute("SELECT id FROM template_defined_indicators WHERE template_id=? AND indicator_name_in_template=?",
                                        (template_id_created, "Response Time")).fetchone()
                 assert def_row is not None, "Definition not added to template."
                 definition_id_created = def_row[0]
-            with sqlite3.connect(DB_KPIS) as conn: # Check propagation to subgroup
+            with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn: # Check propagation to subgroup
                 ind_row = conn.execute("SELECT id FROM kpi_indicators WHERE subgroup_id=? AND name=?",
                                        (TEST_SUBGROUP_ID_FOR_PROPAGATION, "Response Time")).fetchone()
                 assert ind_row is not None, "Indicator 'Response Time' not propagated to subgroup."
@@ -662,11 +650,11 @@ if __name__ == "__main__":
                 definition_id_created, template_id_created, "Avg Response Time", CALC_TYPE_MEDIA, "Minutes", False, "Average response time in minutes."
             )
             # Verification
-            with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
                 def_row = conn.execute("SELECT indicator_name_in_template, default_unit_of_measure, default_visible FROM template_defined_indicators WHERE id=?",
                                        (definition_id_created,)).fetchone()
                 assert def_row and def_row[0] == "Avg Response Time" and def_row[1] == "Minutes" and def_row[2] == 0
-            with sqlite3.connect(DB_KPIS) as conn: # Check propagation of name change
+            with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn: # Check propagation of name change
                 ind_row = conn.execute("SELECT id FROM kpi_indicators WHERE subgroup_id=? AND name=?",
                                        (TEST_SUBGROUP_ID_FOR_PROPAGATION, "Avg Response Time")).fetchone()
                 assert ind_row is not None, "Indicator name change not propagated."
@@ -684,10 +672,10 @@ if __name__ == "__main__":
         else:
             remove_indicator_definition_from_template(definition_id_created)
             # Verification
-            with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
                 def_row = conn.execute("SELECT id FROM template_defined_indicators WHERE id=?", (definition_id_created,)).fetchone()
                 assert def_row is None, "Definition not removed from template."
-            with sqlite3.connect(DB_KPIS) as conn:
+            with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
                 ind_row = conn.execute("SELECT id FROM kpi_indicators WHERE subgroup_id=? AND name=?",
                                        (TEST_SUBGROUP_ID_FOR_PROPAGATION, "Avg Response Time")).fetchone()
                 assert ind_row is None, "Indicator 'Avg Response Time' not removed from subgroup upon template definition removal."
@@ -701,7 +689,7 @@ if __name__ == "__main__":
             add_indicator_definition_to_template(template_id_created, "Resolution Rate", CALC_TYPE_MEDIA, "%", True)
             # Ensure it's propagated to check if delete_kpi_indicator_template cleans it up
             if _indicators_module_available and _specs_module_available:
-                 with sqlite3.connect(DB_KPIS) as conn: # Check propagation to subgroup
+                 with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn: # Check propagation to subgroup
                     ind_row_res = conn.execute("SELECT id FROM kpi_indicators WHERE subgroup_id=? AND name=?",
                                         (TEST_SUBGROUP_ID_FOR_PROPAGATION, "Resolution Rate")).fetchone()
                     assert ind_row_res is not None, "Indicator 'Resolution Rate' not propagated before template delete test."
@@ -713,12 +701,12 @@ if __name__ == "__main__":
         else:
             delete_kpi_indicator_template(template_id_created)
             # Verification
-            with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
                 tpl_row = conn.execute("SELECT id FROM kpi_indicator_templates WHERE id=?", (template_id_created,)).fetchone()
                 assert tpl_row is None, "Template not deleted."
                 defs_left = conn.execute("SELECT id FROM template_defined_indicators WHERE template_id=?", (template_id_created,)).fetchall()
                 assert not defs_left, "Definitions not deleted with template (cascade failed or direct delete failed)."
-            with sqlite3.connect(DB_KPIS) as conn: # Check if subgroup was unlinked and indicators removed
+            with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn: # Check if subgroup was unlinked and indicators removed
                 sg_row = conn.execute("SELECT indicator_template_id FROM kpi_subgroups WHERE id = ?", (TEST_SUBGROUP_ID_FOR_PROPAGATION,)).fetchone()
                 assert sg_row and sg_row[0] is None, "Subgroup not unlinked from deleted template."
                 ind_row_res_after_del = conn.execute("SELECT id FROM kpi_indicators WHERE subgroup_id=? AND name=?",
@@ -735,14 +723,19 @@ if __name__ == "__main__":
         print(str(e))
         print(traceback.format_exc())
     finally:
-        DB_KPI_TEMPLATES, DB_KPIS = DB_TPL_ORIGINAL, DB_KPIS_ORIGINAL # Restore
-        import os
-        for test_db_file in [DB_TPL_TEST_FILE, DB_KPIS_FOR_TPL_TEST_FILE]:
-            if os.path.exists(test_db_file) and \
-               (DB_KPI_TEMPLATES == test_db_file or DB_KPIS == test_db_file or
-                DB_TPL_ORIGINAL == test_db_file or DB_KPIS_ORIGINAL == test_db_file):
-                try:
-                    os.remove(test_db_file)
-                    print(f"INFO: Cleaned up test file: {test_db_file}")
-                except OSError as e_clean:
-                    print(f"ERROR: Could not clean up test file {test_db_file}: {e_clean}")
+        # Restore original app_config setting
+        app_config.SETTINGS["database_base_dir"] = original_db_base_dir
+        if Path(test_db_file_tpl).exists():
+            import os
+            try:
+                os.remove(test_db_file_tpl)
+                print(f"INFO: Cleaned up test file: {test_db_file_tpl}")
+            except OSError as e_clean:
+                print(f"ERROR: Could not clean up test file {test_db_file_tpl}: {e_clean}")
+        if Path(test_db_file_kpis).exists():
+            import os
+            try:
+                os.remove(test_db_file_kpis)
+                print(f"INFO: Cleaned up test file: {test_db_file_kpis}")
+            except OSError as e_clean:
+                print(f"ERROR: Could not clean up test file {test_db_file_kpis}: {e_clean}")

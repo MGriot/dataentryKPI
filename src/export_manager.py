@@ -306,32 +306,32 @@ def _export_annual_master_to_csv(output_filepath: Path):
             # Ensure all keys exist, provide defaults for missing ones for robustness
             writer.writerow(
                 [
-                    row_data.get("id"),
-                    row_data.get("year"),
-                    row_data.get("stabilimento_id"),
-                    row_data.get("kpi_id"),
+                    row_data["id"],
+                    row_data["year"],
+                    row_data["stabilimento_id"],
+                    row_data["kpi_id"],
                     (
-                        f"{row_data.get('annual_target1'):.2f}"
-                        if row_data.get("annual_target1") is not None
+                        f"{row_data['annual_target1']:.2f}"
+                        if row_data["annual_target1"] is not None
                         else ""
                     ),
                     (
-                        f"{row_data.get('annual_target2'):.2f}"
-                        if row_data.get("annual_target2") is not None
+                        f"{row_data['annual_target2']:.2f}"
+                        if row_data["annual_target2"] is not None
                         else ""
                     ),
-                    row_data.get("distribution_profile", ""),
-                    row_data.get("repartition_logic", ""),
-                    row_data.get("repartition_values", "{}"),
-                    row_data.get("profile_params", "{}"),
-                    1 if row_data.get("is_target1_manual") else 0,
-                    1 if row_data.get("is_target2_manual") else 0,
-                    1 if row_data.get("target1_is_formula_based") else 0,
-                    row_data.get("target1_formula", ""),
-                    row_data.get("target1_formula_inputs", "[]"),
-                    1 if row_data.get("target2_is_formula_based") else 0,
-                    row_data.get("target2_formula", ""),
-                    row_data.get("target2_formula_inputs", "[]"),
+                    row_data["distribution_profile"],
+                    row_data["repartition_logic"],
+                    row_data["repartition_values"],
+                    row_data["profile_params"],
+                    1 if row_data["is_target1_manual"] else 0,
+                    1 if row_data["is_target2_manual"] else 0,
+                    1 if row_data["target1_is_formula_based"] else 0,
+                    row_data["target1_formula"],
+                    row_data["target1_formula_inputs"],
+                    1 if row_data["target2_is_formula_based"] else 0,
+                    row_data["target2_formula"],
+                    row_data["target2_formula_inputs"],
                 ]
             )
 
@@ -449,7 +449,7 @@ def _export_stabilimenti_to_csv(output_filepath: Path):
     """Exports all stabilimenti records, fetched via data_retriever."""
     header = ["id", "name", "description", "visible"]
     all_stabilimenti_rows = get_all_stabilimenti(
-        only_visible=False
+        visible_only=False
     )  # Fetch all for dictionary
     if all_stabilimenti_rows is None:
         all_stabilimenti_rows = []
@@ -501,15 +501,15 @@ def _export_kpis_to_csv(output_filepath: Path):
         for row_data in all_kpis_data:
             writer.writerow(
                 [
-                    row_data.get("id"),  # This is kpis.id -> kpi_spec_id
-                    row_data.get("actual_indicator_id"),  # This is kpi_indicators.id
-                    row_data.get("group_name"),
-                    row_data.get("subgroup_name"),
-                    row_data.get("indicator_name"),
-                    row_data.get("description"),
-                    row_data.get("calculation_type"),
-                    row_data.get("unit_of_measure"),
-                    1 if row_data.get("visible") else 0,
+                    row_data["id"],  # This is kpis.id -> kpi_spec_id
+                    row_data["actual_indicator_id"],  # This is kpi_indicators.id
+                    row_data["group_name"],
+                    row_data["subgroup_name"],
+                    row_data["indicator_name"],
+                    row_data["description"],
+                    row_data["calculation_type"],
+                    row_data["unit_of_measure"],
+                    1 if row_data["visible"] else 0,
                 ]
             )
 

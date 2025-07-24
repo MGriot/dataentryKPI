@@ -1,23 +1,5 @@
-
 from pathlib import Path
 import json
-
-# --- Database Paths ---
-# Define the base directory for the databases relative to the project root.
-DATABASE_DIR = Path(__file__).resolve().parent.parent / "databases"
-DATABASE_DIR.mkdir(parents=True, exist_ok=True) # Ensure the directory exists
-
-DB_KPI_TEMPLATES = DATABASE_DIR / "db_kpi_templates.db"
-DB_KPIS = DATABASE_DIR / "db_kpis.db"
-DB_STABILIMENTI = DATABASE_DIR / "db_stabilimenti.db"
-DB_TARGETS = DATABASE_DIR / "db_kpi_targets.db"
-DB_KPI_DAYS = DATABASE_DIR / "db_kpi_days.db"
-DB_KPI_WEEKS = DATABASE_DIR / "db_kpi_weeks.db"
-DB_KPI_MONTHS = DATABASE_DIR / "db_kpi_months.db"
-DB_KPI_QUARTERS = DATABASE_DIR / "db_kpi_quarters.db"
-
-# --- CSV Export Path ---
-CSV_EXPORT_BASE_PATH = Path(__file__).resolve().parent.parent / "csv_exports"
 
 # --- Settings File Path ---
 SETTINGS_FILE = Path(__file__).resolve().parent.parent / "settings.json"
@@ -28,7 +10,8 @@ DEFAULT_SETTINGS = {
         "target1": "Target 1",
         "target2": "Target 2"
     },
-    "database_path": str(DATABASE_DIR),
+    "database_base_dir": str(Path(__file__).resolve().parent.parent / "databases"),
+    "csv_export_base_dir": str(Path(__file__).resolve().parent.parent / "csv_exports"),
     "stabilimento_colors": {}
 }
 
@@ -36,9 +19,25 @@ DEFAULT_SETTINGS = {
 def load_settings():
     try:
         with open(SETTINGS_FILE, 'r') as f:
-            return json.load(f)
+            settings = json.load(f)
+            # Merge with defaults to ensure new settings are present
+            merged_settings = DEFAULT_SETTINGS.copy()
+            merged_settings.update(settings)
+            return merged_settings
     except (FileNotFoundError, json.JSONDecodeError):
-        return DEFAULT_SETTINGS
+        return DEFAULT_SETTINGS.copy()
 
-# --- App Settings ---
+# --- App Settings (Global Access) ---
 SETTINGS = load_settings()
+
+# --- Dynamic Path Getters ---
+def get_database_path(db_name: str) -> Path:
+    """Returns the full Path for a given database file name."""
+    return Path(SETTINGS["database_base_dir"]) / db_name
+
+def get_csv_export_path() -> Path:
+    """Returns the full Path for the CSV export directory."""
+    return Path(SETTINGS["csv_export_base_dir"])
+
+# --- Constants for Direct Import ---
+CSV_EXPORT_BASE_PATH = get_csv_export_path()

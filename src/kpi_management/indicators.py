@@ -1,30 +1,8 @@
 # your_project_root/kpi_management/indicators.py
 import sqlite3
 import traceback
-
-# Configuration import
-try:
-    from app_config import (
-        DB_KPIS,
-        DB_TARGETS,
-        DB_KPI_DAYS,
-        DB_KPI_WEEKS,
-        DB_KPI_MONTHS,
-        DB_KPI_QUARTERS
-    )
-except ImportError:
-    print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "Database paths will not be correctly defined. "
-        "Ensure your project's root directory is in PYTHONPATH or adjust imports."
-    )
-    # Define placeholders
-    DB_KPIS = ":memory_kpis_indicators_error:"
-    DB_TARGETS = ":memory_targets_indicators_error:"
-    DB_KPI_DAYS = ":memory_days_indicators_error:"
-    DB_KPI_WEEKS = ":memory_weeks_indicators_error:"
-    DB_KPI_MONTHS = ":memory_months_indicators_error:"
-    DB_KPI_QUARTERS = ":memory_quarters_indicators_error:"
+import app_config
+from pathlib import Path
 
 # --- KPI Indicator CRUD Operations ---
 
@@ -46,11 +24,13 @@ def add_kpi_indicator(name: str, subgroup_id: int) -> int:
                                 (but duplicate name/subgroup is handled by returning existing ID).
         Exception: For other database errors.
     """
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
-         raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot add indicator.")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot add indicator."
+        )
 
-    with sqlite3.connect(str(DB_KPIS)) as conn:
+    with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -106,11 +86,13 @@ def update_kpi_indicator(indicator_id: int, new_name: str, subgroup_id: int):
                                 or if the new subgroup_id is invalid.
         Exception: If the indicator_id does not exist or for other database errors.
     """
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
-         raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot update indicator.")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot update indicator."
+        )
 
-    with sqlite3.connect(str(DB_KPIS)) as conn:
+    with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -159,19 +141,22 @@ def delete_kpi_indicator(indicator_id: int):
 
     # Check if DB paths are configured
     db_paths_to_check = {
-        "DB_KPIS": DB_KPIS, "DB_TARGETS": DB_TARGETS, "DB_KPI_DAYS": DB_KPI_DAYS,
-        "DB_KPI_WEEKS": DB_KPI_WEEKS, "DB_KPI_MONTHS": DB_KPI_MONTHS, "DB_KPI_QUARTERS": DB_KPI_QUARTERS
+        "db_kpis.db": app_config.get_database_path("db_kpis.db"),
+        "db_kpi_targets.db": app_config.get_database_path("db_kpi_targets.db"),
+        "db_kpi_days.db": app_config.get_database_path("db_kpi_days.db"),
+        "db_kpi_weeks.db": app_config.get_database_path("db_kpi_weeks.db"),
+        "db_kpi_months.db": app_config.get_database_path("db_kpi_months.db"),
+        "db_kpi_quarters.db": app_config.get_database_path("db_kpi_quarters.db"),
     }
     for name, path_obj in db_paths_to_check.items():
-        path_str = str(path_obj)
-        if path_str.startswith(":memory_") or "error_db" in path_str:
-            raise ConnectionError(f"{name} is not properly configured ({path_str}). Cannot delete indicator fully.")
+        if not isinstance(path_obj, Path) or not path_obj.parent.exists():
+            raise ConnectionError(f"{name} is not properly configured ({path_obj}). Cannot delete indicator fully.")
 
 
     kpi_spec_id_to_delete = None
     try:
         # Step 1: Find the kpis.id (kpi_spec_id) associated with this kpi_indicators.id
-        with sqlite3.connect(str(DB_KPIS)) as conn_kpis_read:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_kpis_read:
             # conn_kpis_read.row_factory = sqlite3.Row # Not strictly needed if only fetching one column
             kpi_spec_row = conn_kpis_read.execute(
                 "SELECT id FROM kpis WHERE indicator_id = ?", (indicator_id,)
@@ -192,9 +177,9 @@ def delete_kpi_indicator(indicator_id: int):
     if kpi_spec_id_to_delete:
         print(f"  Cleaning up data for KPI Spec ID: {kpi_spec_id_to_delete}...")
 
-        # Delete from annual_targets (DB_TARGETS)
+        # Delete from annual_targets (db_kpi_targets.db)
         try:
-            with sqlite3.connect(str(DB_TARGETS)) as conn_targets:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_targets:
                 cursor_targets = conn_targets.cursor()
                 cursor_targets.execute(
                     "DELETE FROM annual_targets WHERE kpi_id = ?", (kpi_spec_id_to_delete,)
@@ -208,14 +193,14 @@ def delete_kpi_indicator(indicator_id: int):
 
         # Delete from periodic target tables
         periodic_dbs_info = [
-            (DB_KPI_DAYS, "daily_targets"),
-            (DB_KPI_WEEKS, "weekly_targets"),
-            (DB_KPI_MONTHS, "monthly_targets"),
-            (DB_KPI_QUARTERS, "quarterly_targets"),
+            ("db_kpi_days.db", "daily_targets"),
+            ("db_kpi_weeks.db", "weekly_targets"),
+            ("db_kpi_months.db", "monthly_targets"),
+            ("db_kpi_quarters.db", "quarterly_targets"),
         ]
-        for db_path_del, table_name_del in periodic_dbs_info:
+        for db_file_name_del, table_name_del in periodic_dbs_info:
             try:
-                with sqlite3.connect(str(db_path_del)) as conn_periodic:
+                with sqlite3.connect(app_config.get_database_path(db_file_name_del)) as conn_periodic:
                     cursor_periodic = conn_periodic.cursor()
                     cursor_periodic.execute(
                         f"DELETE FROM {table_name_del} WHERE kpi_id = ?",
@@ -239,7 +224,7 @@ def delete_kpi_indicator(indicator_id: int):
     # This will also trigger ON DELETE CASCADE for the associated kpis record (if any was left or found),
     # which in turn triggers ON DELETE CASCADE for kpi_master_sub_links.
     print(f"  Proceeding to delete kpi_indicators entry for ID {indicator_id}.")
-    with sqlite3.connect(str(DB_KPIS)) as conn_kpis_delete:
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_kpis_delete:
         try:
             conn_kpis_delete.execute("PRAGMA foreign_keys = ON;") # Ensure FKs are active
             cursor_delete_indicator = conn_kpis_delete.cursor()
@@ -276,7 +261,7 @@ if __name__ == "__main__":
 
     # Helper to set up a minimal kpi_groups and kpi_subgroups for testing
     def setup_minimal_parent_tables_for_indicators(db_path, subgroup_id_to_ensure):
-        with sqlite3.connect(str(db_path)) as conn:
+        with sqlite3.connect(db_path) as conn:
             cur = conn.cursor()
             # Ensure kpi_groups table and a group
             cur.execute("CREATE TABLE IF NOT EXISTS kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);")
@@ -308,31 +293,27 @@ if __name__ == "__main__":
             """)
             conn.commit()
 
-    if any(str(db_path).startswith(":memory_") or "error_db" in str(db_path) for db_path in [DB_KPIS, DB_TARGETS, DB_KPI_DAYS]):
-        print("WARNING: One or more database paths are placeholders. Testing might be limited or use in-memory instances.")
-        # For :memory: or placeholder, attempt to set up minimal kpi_indicators related schema in DB_KPIS
-        if str(DB_KPIS).startswith(":memory_") or "error_db" in str(DB_KPIS):
-             DB_KPIS_TEST_FILE = "test_indicators_kpis.sqlite"
-             print(f"INFO: Using '{DB_KPIS_TEST_FILE}' for DB_KPIS during testing.")
-             setup_minimal_parent_tables_for_indicators(DB_KPIS_TEST_FILE, TEST_SUBGROUP_ID)
-             # Overwrite DB_KPIS for the scope of this test only
-             DB_KPIS_ORIGINAL = DB_KPIS
-             DB_KPIS = DB_KPIS_TEST_FILE
-        # Similar minimal setup for other DBs if needed for delete test, e.g., creating dummy tables
-        for db_path_placeholder_check in [DB_TARGETS, DB_KPI_DAYS, DB_KPI_WEEKS, DB_KPI_MONTHS, DB_KPI_QUARTERS]:
-            if str(db_path_placeholder_check).startswith(":memory_") or "error_db" in str(db_path_placeholder_check):
-                temp_db_file = f"test_indicators_{str(db_path_placeholder_check).split('_')[1]}.sqlite" # e.g. test_indicators_targets.sqlite
-                print(f"INFO: Initializing dummy table in '{temp_db_file}' for {db_path_placeholder_check}")
-                with sqlite3.connect(temp_db_file) as conn_other_db:
-                    if "targets" in temp_db_file:
-                        conn_other_db.execute("CREATE TABLE IF NOT EXISTS annual_targets (id INTEGER PRIMARY KEY, kpi_id INTEGER, year INTEGER);")
-                    elif "days" in temp_db_file:
-                        conn_other_db.execute("CREATE TABLE IF NOT EXISTS daily_targets (id INTEGER PRIMARY KEY, kpi_id INTEGER, date_value TEXT);")
-                    # Add for weeks, months, quarters similarly
-                if db_path_placeholder_check == DB_TARGETS: DB_TARGETS = temp_db_file
-                if db_path_placeholder_check == DB_KPI_DAYS: DB_KPI_DAYS = temp_db_file
-                # ... and so on for other DBs
+    # Save original app_config settings for database paths
+    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
 
+    # Override app_config's database_base_dir for this test if needed
+    test_db_file_kpis = "test_indicators_kpis.sqlite"
+    test_db_file_targets = "test_indicators_targets.sqlite"
+    test_db_file_days = "test_indicators_days.sqlite"
+    test_db_file_weeks = "test_indicators_weeks.sqlite"
+    test_db_file_months = "test_indicators_months.sqlite"
+    test_db_file_quarters = "test_indicators_quarters.sqlite"
+
+    # Create dummy DB files for testing if they don't exist
+    for db_file in [test_db_file_kpis, test_db_file_targets, test_db_file_days, test_db_file_weeks, test_db_file_months, test_db_file_quarters]:
+        if not Path(db_file).exists():
+            Path(db_file).touch()
+
+    # Temporarily set app_config to use the test files' directory
+    app_config.SETTINGS["database_base_dir"] = str(Path(test_db_file_kpis).parent)
+
+    # Setup minimal parent tables for indicators
+    setup_minimal_parent_tables_for_indicators(app_config.get_database_path("db_kpis.db"), TEST_SUBGROUP_ID)
 
     try:
         print(f"\nTest 1: Add new indicator 'Revenue' to subgroup {TEST_SUBGROUP_ID}")
@@ -341,7 +322,7 @@ if __name__ == "__main__":
         print(f"  SUCCESS: Added 'Revenue' with ID {indicator_id_test}")
 
         # Add a corresponding kpis spec for deletion test
-        with sqlite3.connect(str(DB_KPIS)) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO kpis (indicator_id, calculation_type, unit_of_measure) VALUES (?, ?, ?)",
@@ -358,7 +339,7 @@ if __name__ == "__main__":
 
         print(f"\nTest 3: Update indicator ID {indicator_id_test} to 'Net Revenue' in subgroup {TEST_SUBGROUP_ID}")
         update_kpi_indicator(indicator_id_test, "Net Revenue", TEST_SUBGROUP_ID)
-        with sqlite3.connect(str(DB_KPIS)) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             name = conn.execute("SELECT name FROM kpi_indicators WHERE id = ?", (indicator_id_test,)).fetchone()[0]
             assert name == "Net Revenue", "Indicator name was not updated."
         print(f"  SUCCESS: Indicator ID {indicator_id_test} updated.")
@@ -368,15 +349,15 @@ if __name__ == "__main__":
         print(f"\nTest 4: Delete indicator ID {indicator_id_test} ('Net Revenue')")
         # Add some dummy data to related tables to check deletion
         if kpi_spec_id_for_test_indicator:
-            with sqlite3.connect(str(DB_TARGETS)) as conn_t:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_t:
                 conn_t.execute("INSERT OR IGNORE INTO annual_targets (kpi_id, year) VALUES (?, ?)", (kpi_spec_id_for_test_indicator, 2023))
                 conn_t.commit()
-            with sqlite3.connect(str(DB_KPI_DAYS)) as conn_d:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_days.db")) as conn_d:
                 conn_d.execute("INSERT OR IGNORE INTO daily_targets (kpi_id, date_value) VALUES (?, ?)", (kpi_spec_id_for_test_indicator, "2023-01-01"))
                 conn_d.commit()
 
         delete_kpi_indicator(indicator_id_test)
-        with sqlite3.connect(str(DB_KPIS)) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             row = conn.execute("SELECT name FROM kpi_indicators WHERE id = ?", (indicator_id_test,)).fetchone()
             assert row is None, "Indicator was not deleted from kpi_indicators."
             if kpi_spec_id_for_test_indicator:
@@ -384,10 +365,10 @@ if __name__ == "__main__":
                 assert spec_row is None, "Associated kpis spec was not deleted by cascade."
         # Check other DBs
         if kpi_spec_id_for_test_indicator:
-            with sqlite3.connect(str(DB_TARGETS)) as conn_t:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_t:
                 target_row = conn_t.execute("SELECT id FROM annual_targets WHERE kpi_id = ?", (kpi_spec_id_for_test_indicator,)).fetchone()
                 assert target_row is None, "Annual target was not deleted."
-            with sqlite3.connect(str(DB_KPI_DAYS)) as conn_d:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_days.db")) as conn_d:
                 day_row = conn_d.execute("SELECT id FROM daily_targets WHERE kpi_id = ?", (kpi_spec_id_for_test_indicator,)).fetchone()
                 assert day_row is None, "Daily target was not deleted."
 
@@ -403,17 +384,17 @@ if __name__ == "__main__":
     finally:
         # Cleanup test database files if they were created
         test_db_files = [
-            "test_indicators_kpis.sqlite", "test_indicators_targets.sqlite",
-            "test_indicators_days.sqlite", "test_indicators_weeks.sqlite",
-            "test_indicators_months.sqlite", "test_indicators_quarters.sqlite"
+            test_db_file_kpis, test_db_file_targets,
+            test_db_file_days, test_db_file_weeks,
+            test_db_file_months, test_db_file_quarters
         ]
         import os
         for test_db_file in test_db_files:
-            if os.path.exists(test_db_file) and (DB_KPIS == test_db_file or DB_TARGETS == test_db_file or DB_KPI_DAYS == test_db_file) : # Be specific to avoid deleting wrong files
+            if os.path.exists(test_db_file):
                 try:
                     os.remove(test_db_file)
                     print(f"INFO: Cleaned up test file: {test_db_file}")
                 except OSError as e_clean:
                     print(f"ERROR: Could not clean up test file {test_db_file}: {e_clean}")
-        if 'DB_KPIS_ORIGINAL' in locals() and DB_KPIS_ORIGINAL: # Restore original DB_KPIS if it was overwritten for testing
-            DB_KPIS = DB_KPIS_ORIGINAL
+        # Restore original app_config setting
+        app_config.SETTINGS["database_base_dir"] = original_db_base_dir

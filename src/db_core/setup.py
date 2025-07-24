@@ -4,43 +4,24 @@ import traceback  # For more detailed error reporting if needed
 from pathlib import Path  # To ensure CSV_EXPORT_BASE_PATH is handled as a Path object
 
 # Import configurations from app_config.py
-# Assuming app_config.py is in the parent directory or accessible via PYTHONPATH
-# If src is not directly in PYTHONPATH, you might need relative imports
-# or to adjust your project structure/PYTHONPATH for imports to work.
-# For simplicity, assuming direct import works:
-from app_config import (
-    DB_KPIS,
-    DB_STABILIMENTI,
-    DB_TARGETS,
-    DB_KPI_DAYS,
-    DB_KPI_WEEKS,
-    DB_KPI_MONTHS,
-    DB_KPI_QUARTERS,
-    DB_KPI_TEMPLATES,
-    CSV_EXPORT_BASE_PATH,  # Make sure this is a Path object in app_config or convert it here
-)
+import app_config 
+
 from gui.shared.constants import (
-    CALC_TYPE_INCREMENTALE,
-    CALC_TYPE_MEDIA,
-    REPARTITION_LOGIC_ANNO,
-    PROFILE_ANNUAL_PROGRESSIVE,
-    WEIGHT_INITIAL_FACTOR_INC,
-    WEIGHT_FINAL_FACTOR_INC,
-    SINE_AMPLITUDE_INCREMENTAL,
-    SINE_PHASE_OFFSET,
-    WEEKDAY_BIAS_FACTOR_INCREMENTAL,
-    WEIGHT_INITIAL_FACTOR_AVG,
-    WEIGHT_FINAL_FACTOR_AVG,
-    DEVIATION_SCALE_FACTOR_AVG,
-    SINE_AMPLITUDE_MEDIA,
-    WEEKDAY_BIAS_FACTOR_MEDIA,
-)
-
-# It's good practice to ensure CSV_EXPORT_BASE_PATH is a Path object if it isn't already.
-# If it's defined as a string in app_config.py, convert it.
-# If it's already a Path object in app_config.py, this line is redundant but harmless.
-_CSV_EXPORT_BASE_PATH = Path(CSV_EXPORT_BASE_PATH) if CSV_EXPORT_BASE_PATH else None
-
+        CALC_TYPE_INCREMENTALE,
+        CALC_TYPE_MEDIA,
+        REPARTITION_LOGIC_ANNO,
+        PROFILE_ANNUAL_PROGRESSIVE,
+        WEIGHT_INITIAL_FACTOR_INC,
+        WEIGHT_FINAL_FACTOR_INC,
+        SINE_AMPLITUDE_INCREMENTAL,
+        SINE_PHASE_OFFSET,
+        WEEKDAY_BIAS_FACTOR_INCREMENTAL,
+        WEIGHT_INITIAL_FACTOR_AVG,
+        WEIGHT_FINAL_FACTOR_AVG,
+        DEVIATION_SCALE_FACTOR_AVG,
+        SINE_AMPLITUDE_MEDIA,
+        WEEKDAY_BIAS_FACTOR_MEDIA,
+    )
 
 def setup_databases():
     """
@@ -50,20 +31,22 @@ def setup_databases():
     """
     print("Inizio setup_databases...")
 
-    if _CSV_EXPORT_BASE_PATH:
+    csv_export_path = app_config.get_csv_export_path()
+    if csv_export_path:
         try:
-            _CSV_EXPORT_BASE_PATH.mkdir(parents=True, exist_ok=True)
-            print(f"INFO: Assicurata directory per export CSV: {_CSV_EXPORT_BASE_PATH}")
+            csv_export_path.mkdir(parents=True, exist_ok=True)
+            print(f"INFO: Assicurata directory per export CSV: {csv_export_path}")
         except Exception as e:
             print(
-                f"WARN: Impossibile creare/verificare la directory CSV_EXPORT_BASE_PATH {_CSV_EXPORT_BASE_PATH}: {e}"
+                f"WARN: Impossibile creare/verificare la directory CSV_EXPORT_BASE_PATH {csv_export_path}: {e}"
             )
             print(traceback.format_exc())
 
     # --- DB_KPI_TEMPLATES Setup ---
-    print(f"Setup tabelle in {DB_KPI_TEMPLATES}...")
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    print(f"Setup tabelle in {db_kpi_templates_path}...")
     try:
-        with sqlite3.connect(DB_KPI_TEMPLATES) as conn:
+        with sqlite3.connect(db_kpi_templates_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS kpi_indicator_templates (
@@ -86,15 +69,16 @@ def setup_databases():
                 )"""
             )
             conn.commit()
-        print(f"Setup tabelle in {DB_KPI_TEMPLATES} completato.")
+        print(f"Setup tabelle in {db_kpi_templates_path} completato.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {DB_KPI_TEMPLATES}: {e}")
+        print(f"ERRORE durante il setup di {db_kpi_templates_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_KPIS Setup ---
-    print(f"Setup tabelle in {DB_KPIS}...")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    print(f"Setup tabelle in {db_kpis_path}...")
     try:
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(db_kpis_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "PRAGMA foreign_keys = ON;"
@@ -198,15 +182,16 @@ def setup_databases():
                         f"WARN: Impossibile aggiungere 'distribution_weight' a 'kpi_master_sub_links', potrebbe già esistere o altro problema: {e}"
                     )
             conn.commit()
-        print(f"Setup tabelle in {DB_KPIS} completato.")
+        print(f"Setup tabelle in {db_kpis_path} completato.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {DB_KPIS}: {e}")
+        print(f"ERRORE durante il setup di {db_kpis_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_STABILIMENTI Setup ---
-    print(f"Setup tabelle in {DB_STABILIMENTI}...")
+    db_stabilimenti_path = app_config.get_database_path("db_stabilimenti.db")
+    print(f"Setup tabelle in {db_stabilimenti_path}...")
     try:
-        with sqlite3.connect(DB_STABILIMENTI) as conn:
+        with sqlite3.connect(db_stabilimenti_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS stabilimenti (
@@ -230,15 +215,16 @@ def setup_databases():
                         f"WARN: Impossibile aggiungere 'description' a 'stabilimenti', potrebbe già esistere o altro problema: {e}"
                     )
             conn.commit()
-        print(f"Setup tabelle in {DB_STABILIMENTI} completato.")
+        print(f"Setup tabelle in {db_stabilimenti_path} completato.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {DB_STABILIMENTI}: {e}")
+        print(f"ERRORE durante il setup di {db_stabilimenti_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_TARGETS Setup (Annual Targets) ---
-    print(f"Setup tabelle in {DB_TARGETS}...")
+    db_targets_path = app_config.get_database_path("db_kpi_targets.db")
+    print(f"Setup tabelle in {db_targets_path}...")
     try:
-        with sqlite3.connect(DB_TARGETS) as conn:
+        with sqlite3.connect(db_targets_path) as conn:
             cursor = conn.cursor()
             try:
                 from gui.shared.constants import (
@@ -314,9 +300,9 @@ def setup_databases():
                             f"WARN: Impossibile aggiungere colonna '{col_name}' a 'annual_targets': {e_alter}. Potrebbe già esistere o esserci un problema di default."
                         )
             conn.commit()
-        print(f"Setup tabelle in {DB_TARGETS} completato.")
+        print(f"Setup tabelle in {db_targets_path} completato.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {DB_TARGETS}: {e}")
+        print(f"ERRORE durante il setup di {db_targets_path}: {e}")
         print(traceback.format_exc())
     except (
         NameError
@@ -327,20 +313,25 @@ def setup_databases():
         print(traceback.format_exc())
 
     # --- Setup Tabelle Periodiche (Days, Weeks, Months, Quarters) ---
+    db_kpi_days_path = app_config.get_database_path("db_kpi_days.db")
+    db_kpi_weeks_path = app_config.get_database_path("db_kpi_weeks.db")
+    db_kpi_months_path = app_config.get_database_path("db_kpi_months.db")
+    db_kpi_quarters_path = app_config.get_database_path("db_kpi_quarters.db")
+
     db_configs_periods = [
-        (DB_KPI_DAYS, "daily_targets", "date_value TEXT NOT NULL"),
+        (db_kpi_days_path, "daily_targets", "date_value TEXT NOT NULL"),
         (
-            DB_KPI_WEEKS,
+            db_kpi_weeks_path,
             "weekly_targets",
             "week_value TEXT NOT NULL",
         ),  # Example: "2023-W52"
         (
-            DB_KPI_MONTHS,
+            db_kpi_months_path,
             "monthly_targets",
             "month_value TEXT NOT NULL",
         ),  # Example: "January"
         (
-            DB_KPI_QUARTERS,
+            db_kpi_quarters_path,
             "quarterly_targets",
             "quarter_value TEXT NOT NULL",
         ),  # Example: "Q1"

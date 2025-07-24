@@ -1,26 +1,8 @@
 # your_project_root/kpi_management/groups.py
 import sqlite3
 import traceback
-
-# Configuration import
-# This assumes 'app_config.py' is in a directory that's part of your PYTHONPATH,
-# typically the project root.
-try:
-    from app_config import DB_KPIS
-except ImportError:
-    # Fallback for scenarios where app_config might not be in the default path
-    # (e.g., running this script standalone without proper project setup)
-    # In a structured project, this import should work directly.
-    print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB_KPIS will not be correctly defined. "
-        "Ensure your project's root directory is in PYTHONPATH or adjust imports."
-    )
-    # Define a placeholder to allow the script to load, but operations will fail.
-    DB_KPIS = (
-        ":memory:"  # Or some other placeholder like "error_db_kpis_not_found.sqlite"
-    )
-
+import app_config
+from pathlib import Path
 
 # Function imports from other modules
 _data_retriever_available = False
@@ -84,13 +66,13 @@ def add_kpi_group(name: str) -> int:
         sqlite3.IntegrityError: If the group name already exists.
         Exception: For other database errors.
     """
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str == ":memory:" or "error_db_kpis_not_found" in db_kpis_str:
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError(
-            f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot add group."
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot add group."
         )
 
-    with sqlite3.connect(str(DB_KPIS)) as conn:
+    with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO kpi_groups (name) VALUES (?)", (name,))
@@ -126,13 +108,13 @@ def update_kpi_group(group_id: int, new_name: str):
         sqlite3.IntegrityError: If the new name already exists for another group.
         Exception: If the group_id does not exist or for other database errors.
     """
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str == ":memory:" or "error_db_kpis_not_found" in db_kpis_str:
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError(
-            f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot update group."
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot update group."
         )
 
-    with sqlite3.connect(str(DB_KPIS)) as conn:
+    with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -189,10 +171,10 @@ def delete_kpi_group(group_id: int):
         print(msg)
         raise ImportError(msg)
 
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str == ":memory:" or "error_db_kpis_not_found" in db_kpis_str:
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError(
-            f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot delete group."
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot delete group."
         )
 
     indicators_to_delete_ids = []
@@ -207,7 +189,7 @@ def delete_kpi_group(group_id: int):
             )
 
         # Collect all indicator IDs from these subgroups
-        with sqlite3.connect(str(DB_KPIS)) as conn_read:
+        with sqlite3.connect(db_kpis_path) as conn_read:
             conn_read.row_factory = sqlite3.Row
             for sg_dict in subgroups_in_group:
                 print(
@@ -263,7 +245,7 @@ def delete_kpi_group(group_id: int):
     # delete the kpi_group itself. SQLite's `ON DELETE CASCADE` from kpi_groups
     # to kpi_subgroups will clean up the (now empty of indicators) subgroups.
     print(f"INFO: Proceeding to delete the kpi_groups entry for ID {group_id}.")
-    with sqlite3.connect(str(DB_KPIS)) as conn_delete_group:
+    with sqlite3.connect(db_kpis_path) as conn_delete_group:
         try:
             conn_delete_group.execute("PRAGMA foreign_keys = ON;")
             cursor = conn_delete_group.cursor()
@@ -303,46 +285,53 @@ if __name__ == "__main__":
     # Here, we'll try to use the configured DB_KPIS.
     # If using a real DB, be CAREFUL as this script PERFORMS DELETIONS.
 
-    if (
-        DB_KPIS == ":memory:"
-        or "error_db_kpis_not_found" in str(DB_KPIS)
-        or "placeholder" in str(DB_KPIS)
-    ):
+    test_db_file_kpis = "test_groups_module.sqlite"
+    # Save original DB_KPIS path if it's not a placeholder
+    original_db_kpis_path = None
+    try:
+        original_db_kpis_path = app_config.get_database_path("db_kpis.db")
+    except Exception: # app_config might not be fully set up for tests
+        pass
+
+    # Override DB_KPIS for the scope of this test only if it's a placeholder
+    if not original_db_kpis_path or not original_db_kpis_path.parent.exists():
         print(
             "INFO: Using in-memory database for testing or placeholder DB. Re-initializing tables."
         )
-        # Re-initialize basic tables for kpi_groups for testing if mocks are active
+        # Use a file for :memory: persistence during test
+        db_to_use_for_test = test_db_file_kpis
+        
         try:
-            with sqlite3.connect(
-                str(DB_KPIS) if DB_KPIS != ":memory:" else "test_groups_module.sqlite"
-            ) as conn_test_setup:  # Use a file for :memory: persistence during test
-                if DB_KPIS == ":memory:":
-                    DB_KPIS = "test_groups_module.sqlite"  # for cleanup
-                cursor_setup = conn_test_setup.cursor()
-                cursor_setup.execute("DROP TABLE IF EXISTS kpi_indicators;")
-                cursor_setup.execute("DROP TABLE IF EXISTS kpi_subgroups;")
-                cursor_setup.execute("DROP TABLE IF EXISTS kpi_groups;")
-                cursor_setup.execute(
-                    "CREATE TABLE kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);"
-                )
-                cursor_setup.execute(
-                    """CREATE TABLE kpi_subgroups (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
-                        indicator_template_id INTEGER,
-                        FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));"""
-                )
-                cursor_setup.execute(
-                    """CREATE TABLE kpi_indicators (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
-                        FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));"""
-                )
-                conn_test_setup.commit()
-            print(f"INFO: Test tables re-created in {DB_KPIS}")
+            conn_test_setup = sqlite3.connect(db_to_use_for_test)
+            cursor_setup = conn_test_setup.cursor()
+            cursor_setup.execute("DROP TABLE IF EXISTS kpi_indicators;")
+            cursor_setup.execute("DROP TABLE IF EXISTS kpi_subgroups;")
+            cursor_setup.execute("DROP TABLE IF EXISTS kpi_groups;")
+            cursor_setup.execute(
+                "CREATE TABLE kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);"
+            )
+            cursor_setup.execute(
+                """CREATE TABLE kpi_subgroups (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
+                    indicator_template_id INTEGER,
+                    FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));"""
+            )
+            cursor_setup.execute(
+                """CREATE TABLE kpi_indicators (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
+                    FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));"""
+            )
+            conn_test_setup.commit()
+            conn_test_setup.close()
+            print(f"INFO: Test tables re-created in {db_to_use_for_test}")
         except Exception as e_setup:
             print(
-                f"ERROR: Could not set up test tables in {DB_KPIS}. Testing aborted. Error: {e_setup}"
+                f"ERROR: Could not set up test tables in {db_to_use_for_test}. Testing aborted. Error: {e_setup}"
             )
             exit(1)
+
+        # Temporarily override app_config's database_base_dir for this test
+        app_config.SETTINGS["database_base_dir"] = str(Path(db_to_use_for_test).parent)
 
     print(f"INFO: Data Retriever Available: {_data_retriever_available}")
     print(f"INFO: Indicators Module Available: {_indicators_module_available}")
@@ -373,7 +362,7 @@ if __name__ == "__main__":
         print(f"\nTest 4: Update group ID {g_id} ('Finance') to 'Financial Planning'")
         update_kpi_group(g_id, "Financial Planning")
         # Verification (manual query)
-        with sqlite3.connect(str(DB_KPIS)) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             name = conn.execute(
                 "SELECT name FROM kpi_groups WHERE id = ?", (g_id,)
             ).fetchone()[0]
@@ -385,7 +374,7 @@ if __name__ == "__main__":
             "\nTest 5: Update group 'Operations' to 'Financial Planning' (expecting IntegrityError)"
         )
         ops_id = None
-        with sqlite3.connect(str(DB_KPIS)) as conn:  # Get ID for "Operations"
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:  # Get ID for "Operations"
             ops_id_row = conn.execute(
                 "SELECT id FROM kpi_groups WHERE name = 'Operations'"
             ).fetchone()
@@ -411,7 +400,7 @@ if __name__ == "__main__":
         print(f"\nTest 6: Delete group ID {g_id} ('Financial Planning')")
         delete_kpi_group(g_id)
         # Verification (manual query)
-        with sqlite3.connect(str(DB_KPIS)) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             row = conn.execute(
                 "SELECT name FROM kpi_groups WHERE id = ?", (g_id,)
             ).fetchone()
@@ -428,16 +417,17 @@ if __name__ == "__main__":
 
     finally:
         # Cleanup any remaining test data if an error occurred mid-test or if using a persistent test DB
-        if (
-            DB_KPIS == "test_groups_module.sqlite"
-        ):  # Only if we used the file-based test db
-            print(f"INFO: Cleaning up test database file: {DB_KPIS}")
+        if Path(test_db_file_kpis).exists():
+            print(f"INFO: Cleaning up test database file: {test_db_file_kpis}")
             import os
 
             try:
-                os.remove(DB_KPIS)
-                print(f"  SUCCESS: Removed {DB_KPIS}")
+                os.remove(test_db_file_kpis)
+                print(f"  SUCCESS: Removed {test_db_file_kpis}")
             except OSError as e_ose:
                 print(
-                    f"  ERROR: Could not remove {DB_KPIS}. Manual cleanup may be needed. Error: {e_ose}"
+                    f"  ERROR: Could not remove {test_db_file_kpis}. Manual cleanup may be needed. Error: {e_ose}"
                 )
+        # Restore original app_config setting
+        if original_db_kpis_path:
+            app_config.SETTINGS["database_base_dir"] = str(original_db_kpis_path.parent)

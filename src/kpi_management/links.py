@@ -1,25 +1,15 @@
 # src/kpi_management/links.py
 import sqlite3
 import traceback
+import app_config
 from pathlib import Path
-
-# Configuration import
-try:
-    from app_config import DB_KPIS
-except ImportError:
-    print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB_KPIS will not be correctly defined. "
-        "Ensure your project's root directory is in PYTHONPATH or adjust imports."
-    )
-    DB_KPIS = ":memory_kpis_links_error:" # Placeholder
 
 
 # --- Helper to check DB path ---
 def _validate_db_path():
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
-        raise ConnectionError(f"DB_KPIS is not properly configured ({DB_KPIS}).")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(f"DB_KPIS is not properly configured ({db_kpis_path}).")
 
 
 # --- Master/Sub KPI Link CRUD Operations ---
@@ -55,7 +45,7 @@ def link_sub_kpi(master_kpi_spec_id: int, sub_kpi_spec_id: int, weight: float = 
         print(f"ERROR: {msg} Received: {weight}")
         raise ValueError(msg)
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -75,7 +65,7 @@ def link_sub_kpi(master_kpi_spec_id: int, sub_kpi_spec_id: int, weight: float = 
                 print(f"INFO: Link between Master {master_kpi_spec_id} and Sub {sub_kpi_spec_id} already exists. "
                       "Attempting to update weight.")
                 try:
-                    update_master_sub_kpi_link_weight(master_kpi_spec_id, sub_kpi_spec_id, weight)
+                    update_link_weight(master_kpi_spec_id, sub_kpi_spec_id, weight)
                     # To get the link ID here, you'd need another query.
                     # For now, successful update is the primary goal.
                     return None # Or query for ID if needed: conn.execute("SELECT id FROM ...").fetchone()[0]
@@ -114,7 +104,7 @@ def update_link_weight(master_kpi_spec_id: int, sub_kpi_spec_id: int, new_weight
         print(f"ERROR: {msg} Received: {new_weight}")
         raise ValueError(msg)
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -151,7 +141,7 @@ def unlink_sub_kpi(master_kpi_spec_id: int, sub_kpi_spec_id: int):
     """
     _validate_db_path()
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -191,7 +181,7 @@ def remove_all_links_for_kpi(kpi_spec_id: int):
     """
     _validate_db_path()
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         try:
             cursor = conn.cursor()
             # Delete where it's a master
@@ -264,13 +254,19 @@ if __name__ == "__main__":
             conn.commit()
             print(f"INFO: Minimal tables for links testing ensured/created in {db_path}")
 
-    DB_KPIS_LINKS_TEST_FILE = "test_kpi_links.sqlite"
-    DB_KPIS_ORIGINAL_LINKS = DB_KPIS # Save original
-    if DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
-        print(f"INFO: Using '{DB_KPIS_LINKS_TEST_FILE}' for DB_KPIS during links testing.")
-        DB_KPIS = DB_KPIS_LINKS_TEST_FILE # Override for tests
-        setup_minimal_tables_for_links(DB_KPIS_LINKS_TEST_FILE)
+    test_db_file_kpis = "test_kpi_links.sqlite"
+    # Save original app_config settings for database paths
+    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
 
+    # Create dummy DB file for testing if it doesn't exist
+    if not Path(test_db_file_kpis).exists():
+        Path(test_db_file_kpis).touch()
+
+    # Temporarily set app_config to use the test file's directory
+    app_config.SETTINGS["database_base_dir"] = str(Path(test_db_file_kpis).parent)
+
+    # Setup minimal tables for links testing
+    setup_minimal_tables_for_links(app_config.get_database_path("db_kpis.db"))
 
     # Test kpi_spec_ids (these are kpis.id)
     MASTER_ID = 100
@@ -281,15 +277,15 @@ if __name__ == "__main__":
     link_id1 = None
     try:
         print("\nTest 1: Add a new master-sub link")
-        link_id1 = add_master_sub_kpi_link(MASTER_ID, SUB_ID_1, weight=1.5)
+        link_id1 = link_sub_kpi(MASTER_ID, SUB_ID_1, weight=1.5)
         assert link_id1 is not None, "Failed to add new link or get its ID."
         print(f"  SUCCESS: Added link Master {MASTER_ID} to Sub {SUB_ID_1} with weight 1.5. Link ID: {link_id1}")
 
         print("\nTest 2: Attempt to add the same link (should update weight or indicate no change)")
-        # This will internally call update_master_sub_kpi_link_weight if UNIQUE constraint is hit.
-        add_master_sub_kpi_link(MASTER_ID, SUB_ID_1, weight=2.0)
+        # This will internally call update_link_weight if UNIQUE constraint is hit.
+        link_sub_kpi(MASTER_ID, SUB_ID_1, weight=2.0)
         # Verify weight update
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             weight_val = conn.execute(
                 "SELECT distribution_weight FROM kpi_master_sub_links WHERE master_kpi_spec_id=? AND sub_kpi_spec_id=?",
                 (MASTER_ID, SUB_ID_1)
@@ -298,8 +294,8 @@ if __name__ == "__main__":
         print(f"  SUCCESS: Link Master {MASTER_ID} to Sub {SUB_ID_1} weight updated to 2.0.")
 
         print("\nTest 3: Update weight of an existing link directly")
-        update_master_sub_kpi_link_weight(MASTER_ID, SUB_ID_1, new_weight=2.5)
-        with sqlite3.connect(DB_KPIS) as conn:
+        update_link_weight(MASTER_ID, SUB_ID_1, new_weight=2.5)
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             weight_val = conn.execute(
                 "SELECT distribution_weight FROM kpi_master_sub_links WHERE master_kpi_spec_id=? AND sub_kpi_spec_id=?",
                 (MASTER_ID, SUB_ID_1)
@@ -308,12 +304,12 @@ if __name__ == "__main__":
         print(f"  SUCCESS: Link Master {MASTER_ID} to Sub {SUB_ID_1} weight updated directly to 2.5.")
 
         print("\nTest 4: Add another link")
-        add_master_sub_kpi_link(MASTER_ID, SUB_ID_2, weight=1.0)
+        link_sub_kpi(MASTER_ID, SUB_ID_2, weight=1.0)
         print(f"  SUCCESS: Added link Master {MASTER_ID} to Sub {SUB_ID_2} with weight 1.0.")
 
         print("\nTest 5: Remove a specific link")
-        remove_master_sub_kpi_link(MASTER_ID, SUB_ID_1)
-        with sqlite3.connect(DB_KPIS) as conn:
+        unlink_sub_kpi(MASTER_ID, SUB_ID_1)
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             row = conn.execute(
                 "SELECT id FROM kpi_master_sub_links WHERE master_kpi_spec_id=? AND sub_kpi_spec_id=?",
                 (MASTER_ID, SUB_ID_1)
@@ -323,9 +319,9 @@ if __name__ == "__main__":
 
         print("\nTest 6: Remove all links for a master KPI")
         # First, re-add a link to ensure there's something to remove
-        add_master_sub_kpi_link(MASTER_ID, SUB_ID_1, weight=1.0)
+        link_sub_kpi(MASTER_ID, SUB_ID_1, weight=1.0)
         remove_all_links_for_kpi(MASTER_ID)
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             rows = conn.execute(
                 "SELECT id FROM kpi_master_sub_links WHERE master_kpi_spec_id=?", (MASTER_ID,)
             ).fetchall()
@@ -334,30 +330,31 @@ if __name__ == "__main__":
 
         print("\nTest 7: Add link with non-existent master_kpi_spec_id (expecting IntegrityError)")
         try:
-            add_master_sub_kpi_link(NON_EXISTENT_KPI_ID, SUB_ID_1)
+            link_sub_kpi(NON_EXISTENT_KPI_ID, SUB_ID_1)
             print("  FAILURE: Adding link with non-existent master ID did not raise IntegrityError.")
         except sqlite3.IntegrityError:
             print("  SUCCESS: IntegrityError (FOREIGN KEY) raised as expected for non-existent master.")
 
         print("\nTest 8: Add link with invalid weight (expecting ValueError)")
         try:
-            add_master_sub_kpi_link(MASTER_ID, SUB_ID_1, weight=-1.0)
+            link_sub_kpi(MASTER_ID, SUB_ID_1, weight=-1.0)
             print("  FAILURE: Adding link with invalid weight did not raise ValueError.")
         except ValueError:
             print("  SUCCESS: ValueError raised as expected for invalid weight.")
 
-        print("\n--- All kpi_management.links tests passed (basic execution) ---")
+        print("--- All kpi_management.links tests passed (basic execution) ---")
 
     except Exception as e:
         print(f"\n--- AN ERROR OCCURRED DURING TESTING (kpi_management.links) ---")
         print(str(e))
         print(traceback.format_exc())
     finally:
-        DB_KPIS = DB_KPIS_ORIGINAL_LINKS # Restore original DB_KPIS
-        if DB_KPIS_LINKS_TEST_FILE and os.path.exists(DB_KPIS_LINKS_TEST_FILE):
+        # Restore original app_config setting
+        app_config.SETTINGS["database_base_dir"] = original_db_base_dir
+        if Path(test_db_file_kpis).exists():
              import os
              try:
-                 os.remove(DB_KPIS_LINKS_TEST_FILE)
-                 print(f"INFO: Cleaned up test file: {DB_KPIS_LINKS_TEST_FILE}")
+                 os.remove(test_db_file_kpis)
+                 print(f"INFO: Cleaned up test file: {test_db_file_kpis}")
              except OSError as e_clean:
-                 print(f"ERROR: Could not clean up test file {DB_KPIS_LINKS_TEST_FILE}: {e_clean}")
+                 print(f"ERROR: Could not clean up test file {test_db_file_kpis}: {e_clean}")

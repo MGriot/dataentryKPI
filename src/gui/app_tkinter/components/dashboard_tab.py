@@ -11,8 +11,10 @@ class DashboardTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.stabilimento_colors = {}
+        self.stabilimento_colors = self.app.settings.get('stabilimento_colors', {})
         self.color_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
+        self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
         self.create_widgets()
 
     def on_tab_selected(self):
@@ -56,9 +58,14 @@ class DashboardTab(ttk.Frame):
         self.load_dashboard_data()
 
     def get_stabilimento_color(self, stabilimento_name):
-        if stabilimento_name not in self.stabilimento_colors:
-            self.stabilimento_colors[stabilimento_name] = self.color_list[len(self.stabilimento_colors) % len(self.color_list)]
-        return self.stabilimento_colors[stabilimento_name]
+        # Use color from settings if available, otherwise fall back to default list
+        if stabilimento_name in self.app.settings.get('stabilimento_colors', {}):
+            return self.app.settings['stabilimento_colors'][stabilimento_name]
+        else:
+            # Fallback to internal color_list if not in settings
+            if stabilimento_name not in self.stabilimento_colors:
+                self.stabilimento_colors[stabilimento_name] = self.color_list[len(self.stabilimento_colors) % len(self.color_list)]
+            return self.stabilimento_colors[stabilimento_name]
 
     def load_dashboard_data(self, event=None):
         for widget in self.scrollable_frame.winfo_children():
@@ -97,9 +104,9 @@ class DashboardTab(ttk.Frame):
                     target2_data = stabilimento_data[stabilimento_data['target_number'] == 2]
 
                     if not target1_data.empty:
-                        ax.plot(target1_data['period'], target1_data['target_value'], marker='o', linestyle='-', label=f'{stabilimento_name} - Target 1', color=color)
+                        ax.plot(target1_data['period'], target1_data['target_value'], marker='o', linestyle='-', label=f'{stabilimento_name} - {self.target1_display_name}', color=color)
                     if not target2_data.empty:
-                        ax.plot(target2_data['period'], target2_data['target_value'], marker='x', linestyle='--', label=f'{stabilimento_name} - Target 2', color=color)
+                        ax.plot(target2_data['period'], target2_data['target_value'], marker='x', linestyle='--', label=f'{stabilimento_name} - {self.target2_display_name}', color=color)
 
                 ax.set_title(f"Andamento {period_type} - {kpi_display_name}")
                 ax.set_xlabel(period_type)

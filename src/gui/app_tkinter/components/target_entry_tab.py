@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk, messagebox
 import datetime
@@ -16,6 +15,8 @@ class TargetEntryTab(ttk.Frame):
         self._populating_target_kpi_entries = False
         self.kpi_target_entry_widgets = {}
         self._master_sub_update_active = False
+        self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
+        self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
         self.create_widgets()
 
     def on_tab_selected(self):
@@ -128,7 +129,8 @@ class TargetEntryTab(ttk.Frame):
         target_key = f'annual_target{target_num}'
         
         # Target Label
-        ttk.Label(frame, text=f"Target {target_num}:").pack(side='left', padx=(0, 5))
+        display_name = self.target1_display_name if target_num == 1 else self.target2_display_name
+        ttk.Label(frame, text=f"{display_name}:").pack(side='left', padx=(0, 5))
 
         # Target entry
         target_val = target_data.get(target_key) if target_data else None
@@ -390,4 +392,3 @@ class TargetEntryTab(ttk.Frame):
         # For now, we don't have specific UI for profile_params, so we return an empty dict.
         # This can be expanded in the future.
         return {}
-

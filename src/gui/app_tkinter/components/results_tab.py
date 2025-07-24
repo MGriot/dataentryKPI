@@ -11,6 +11,8 @@ class ResultsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
+        self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
+        self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
         self.create_widgets()
 
     def on_tab_selected(self):
@@ -78,7 +80,10 @@ class ResultsTab(ttk.Frame):
         ttk.Label(row2_filters, text="Sottogruppo:").pack(side="left")
         self.res_subgroup_var = tk.StringVar()
         self.res_subgroup_cb = ttk.Combobox(
-            row2_filters, textvariable=self.res_subgroup_var, state="readonly", width=25
+            row2_filters,
+            textvariable=self.res_subgroup_var,
+            state="readonly",
+            width=25,
         )
         self.res_subgroup_cb.pack(side="left", padx=(2, 5))
         self.res_subgroup_cb.bind(
@@ -115,8 +120,8 @@ class ResultsTab(ttk.Frame):
             table_frame, columns=("Periodo", "Target 1", "Target 2"), show="headings"
         )
         self.results_data_tree.heading("Periodo", text="Periodo")
-        self.results_data_tree.heading("Target 1", text="Valore Target 1")
-        self.results_data_tree.heading("Target 2", text="Valore Target 2")
+        self.results_data_tree.heading("Target 1", text=self.target1_display_name)
+        self.results_data_tree.heading("Target 2", text=self.target2_display_name)
         self.results_data_tree.column("Periodo", width=250, anchor="w", stretch=tk.YES)
         self.results_data_tree.column("Target 1", width=150, anchor="e", stretch=tk.YES)
         self.results_data_tree.column("Target 2", width=150, anchor="e", stretch=tk.YES)

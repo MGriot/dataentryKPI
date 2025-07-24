@@ -3,22 +3,14 @@ import sqlite3
 import json
 import traceback
 import numpy # For _placeholder_safe_evaluate_formula if it uses numpy functions directly
+import app_config
 from pathlib import Path
 
 # Configuration imports
-try:
-    from app_config import (
-        DB_TARGETS,
-        DB_KPIS,
-        REPARTITION_LOGIC_ANNO,
-        PROFILE_ANNUAL_PROGRESSIVE,
-    )
-except ImportError:
-    print("CRITICAL WARNING: app_config.py not found. DB paths or constants will not be defined.")
-    DB_TARGETS = Path(":memory_targets_annual_error.sqlite")
-    DB_KPIS = Path(":memory_kpis_for_annual_error.sqlite")
-    REPARTITION_LOGIC_ANNO = "Annuale"
-    PROFILE_ANNUAL_PROGRESSIVE = "annual_progressive"
+from gui.shared.constants import (
+    REPARTITION_LOGIC_ANNO,
+    PROFILE_ANNUAL_PROGRESSIVE,
+)
 
 # Module availability flags & Mocks
 _data_retriever_available = False
@@ -133,16 +125,11 @@ def save_annual_targets(
         initiator_kpi_spec_id (int, optional): The kpi_spec_id that triggered the save,
                                                used to help identify master KPIs for re-evaluation.
     """
-    db_targets_str = str(DB_TARGETS)
-    db_kpis_str = str(DB_KPIS)
-    if (
-        db_targets_str.startswith(":memory_")
-        or "error_db" in db_targets_str
-        or db_kpis_str.startswith(":memory_")
-        or "error_db" in db_kpis_str
-        ):
-        # If the DB paths are not properly configured, raise an error.
-        # This prevents partial execution with mocks.
+    db_targets_path = app_config.get_database_path("db_kpi_targets.db")
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+
+    if not isinstance(db_targets_path, Path) or not db_targets_path.parent.exists() or \
+       not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError("DB_TARGETS or DB_KPIS is not properly configured. Cannot save annual targets.")
 
     if not _data_retriever_available or not _repartition_module_available:
@@ -167,7 +154,7 @@ def save_annual_targets(
 
     # Phase 1: Save all definitions from UI, including formula structure and non-formula based targets
     print("  Phase 1: Saving initial target definitions...")
-    with sqlite3.connect(DB_TARGETS) as conn:
+    with sqlite3.connect(db_targets_path) as conn:
         cursor = conn.cursor()
         for kpi_spec_id_str, data_dict_from_ui in targets_data_map.items():
             try:
@@ -238,11 +225,15 @@ def save_annual_targets(
                 )
 
             # Get values from UI data_dict, falling back to DB values (or initial defaults)
-            final_annual_t1 = float(
-                data_dict_from_ui.get("annual_target1", db_annual_t1) or 0.0
+            final_annual_t1 = (
+                float(data_dict_from_ui.get("annual_target1", db_annual_t1))
+                if data_dict_from_ui.get("annual_target1") is not None
+                else None
             )
-            final_annual_t2 = float(
-                data_dict_from_ui.get("annual_target2", db_annual_t2) or 0.0
+            final_annual_t2 = (
+                float(data_dict_from_ui.get("annual_target2", db_annual_t2))
+                if data_dict_from_ui.get("annual_target2") is not None
+                else None
             )
             final_repart_logic = data_dict_from_ui.get(
                 "repartition_logic", db_repart_logic
@@ -547,7 +538,7 @@ def save_annual_targets(
                     calculated_value = _placeholder_safe_evaluate_formula(
                         formula_str_db, context_vars
                     )
-                    with sqlite3.connect(DB_TARGETS) as conn_update_formula:
+                    with sqlite3.connect(db_targets_path) as conn_update_formula:
                         update_cursor = conn_update_formula.cursor()
                         # Update the specific target field (annual_target1 or annual_target2)
                         # and set its corresponding 'is_manual' flag to False.
@@ -653,7 +644,7 @@ def save_annual_targets(
             )
             continue
 
-        with sqlite3.connect(DB_KPIS) as conn_weights:  # Query DB_KPIS for weights
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_weights:  # Query db_kpis.db for weights
             conn_weights.row_factory = sqlite3.Row
             for sub_id_from_retriever in raw_sub_kpi_ids_for_master:
                 link_row = conn_weights.execute(
@@ -667,7 +658,7 @@ def save_annual_targets(
                             "weight": float(link_row["distribution_weight"]),
                         }
                     )
-                else:  # Should ideally not happen if data_retriever is consistent with DB_KPIS
+                else:  # Should ideally not happen if data_retriever is consistent with db_kpis.db
                     print(
                         f"      WARN: Weight not found for link Master {master_kpi_id} to Sub {sub_id_from_retriever}. Assuming weight 1.0."
                     )
@@ -767,7 +758,7 @@ def save_annual_targets(
             )
 
             if distributable_sub_kpis:
-                with sqlite3.connect(DB_TARGETS) as conn_update_subs:
+                with sqlite3.connect(db_targets_path) as conn_update_subs:
                     cursor_update_subs = conn_update_subs.cursor()
                     for sub_info_to_derive in distributable_sub_kpis:
                         sub_kpi_id_to_derive = sub_info_to_derive["id"]
@@ -937,11 +928,20 @@ if __name__ == "__main__":
     _data_retriever_available = True
     _repartition_module_available = True
 
-    DB_TARGETS_ORIG, DB_KPIS_ORIG = DB_TARGETS, DB_KPIS
+    # Save original app_config settings for database paths
+    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
+
     DB_TARGETS_TEST_FILE = "test_annual_targets.sqlite"
     DB_KPIS_TEST_FILE_FOR_ANNUAL = "test_annual_kpis_links.sqlite"  # For master/sub
-    DB_TARGETS = DB_TARGETS_TEST_FILE
-    DB_KPIS = DB_KPIS_TEST_FILE_FOR_ANNUAL
+
+    # Create dummy DB files for testing if they don't exist
+    if not Path(DB_TARGETS_TEST_FILE).exists():
+        Path(DB_TARGETS_TEST_FILE).touch()
+    if not Path(DB_KPIS_TEST_FILE_FOR_ANNUAL).exists():
+        Path(DB_KPIS_TEST_FILE_FOR_ANNUAL).touch()
+
+    # Temporarily set app_config to use the test files' directory
+    app_config.SETTINGS["database_base_dir"] = str(Path(DB_TARGETS_TEST_FILE).parent)
 
     # Mocked data store for get_annual_target_entry and other retrievers
     _mock_annual_targets_db = {}  # {(year, stab_id, kpi_id): {data}}
@@ -983,7 +983,7 @@ if __name__ == "__main__":
     calculate_and_save_all_repartitions = _verbose_mock_repartition
 
     # Setup minimal DB_TARGETS table schema for the test
-    with sqlite3.connect(DB_TARGETS_TEST_FILE) as conn:
+    with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.execute("DROP TABLE IF EXISTS annual_targets;")
         conn.execute(
             f"""
@@ -999,7 +999,7 @@ if __name__ == "__main__":
         )
         conn.commit()
     # Setup minimal DB_KPIS table for master/sub link weights
-    with sqlite3.connect(DB_KPIS_TEST_FILE_FOR_ANNUAL) as conn_kpis_test:
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_kpis_test:
         conn_kpis_test.execute("DROP TABLE IF EXISTS kpi_master_sub_links;")
         conn_kpis_test.execute(
             """
@@ -1046,7 +1046,7 @@ if __name__ == "__main__":
         save_annual_targets(test_year, test_stab_id, targets_input_scenario1)
 
         # Verification for Scenario 1 (check the SQLite DB_TARGETS_TEST_FILE)
-        with sqlite3.connect(DB_TARGETS_TEST_FILE) as conn_verify:
+        with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_verify:
             conn_verify.row_factory = sqlite3.Row
             c_target_row = conn_verify.execute(
                 "SELECT annual_target1, is_target1_manual FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
@@ -1080,7 +1080,7 @@ if __name__ == "__main__":
         _mock_kpis_roles_db[sub1_id] = {"role": "sub", "master_id": master_id}
         _mock_kpis_roles_db[sub2_id] = {"role": "sub", "master_id": master_id}
         _mock_kpis_links_db[master_id] = [sub1_id, sub2_id]
-        with sqlite3.connect(DB_KPIS_TEST_FILE_FOR_ANNUAL) as conn_kpis_test:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_kpis_test:
             conn_kpis_test.execute(
                 "INSERT INTO kpi_master_sub_links (master_kpi_spec_id, sub_kpi_spec_id, distribution_weight) VALUES (?,?,?)",
                 (master_id, sub1_id, 1.0),
@@ -1104,7 +1104,7 @@ if __name__ == "__main__":
         )
 
         # Verification for Scenario 2
-        with sqlite3.connect(DB_TARGETS_TEST_FILE) as conn_verify:
+        with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_verify:
             conn_verify.row_factory = sqlite3.Row
             sub2_target_row = conn_verify.execute(
                 "SELECT annual_target1, is_target1_manual FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
@@ -1150,7 +1150,6 @@ if __name__ == "__main__":
         calculate_and_save_all_repartitions = calculate_and_save_all_repartitions_orig
         _data_retriever_available = _data_retriever_available_orig
         _repartition_module_available = _repartition_module_available_orig
-        DB_TARGETS, DB_KPIS = DB_TARGETS_ORIG, DB_KPIS_ORIG
 
         import os
 
@@ -1163,3 +1162,5 @@ if __name__ == "__main__":
                     print(
                         f"ERROR: Could not clean up test file {test_db_file}: {e_clean}"
                     )
+        # Restore original app_config setting
+        app_config.SETTINGS["database_base_dir"] = original_db_base_dir

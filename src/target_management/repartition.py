@@ -5,85 +5,35 @@ import datetime
 import calendar
 import numpy as np
 import traceback
+import app_config
 
 # Configuration imports
-try:
-    from app_config import (
-        DB_KPI_DAYS,
-        DB_KPI_WEEKS,
-        DB_KPI_MONTHS,
-        DB_KPI_QUARTERS,
-        DB_TARGETS,
-    )
-    from gui.shared.constants import (
-        CALC_TYPE_INCREMENTALE,
-        CALC_TYPE_MEDIA,
-        REPARTITION_LOGIC_ANNO,
-        REPARTITION_LOGIC_MESE,
-        REPARTITION_LOGIC_TRIMESTRE,
-        REPARTITION_LOGIC_SETTIMANA,
-        PROFILE_ANNUAL_PROGRESSIVE,
-        PROFILE_EVEN,
-        PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-        PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-        PROFILE_MONTHLY_SINUSOIDAL,
-        PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
-        PROFILE_QUARTERLY_PROGRESSIVE,
-        PROFILE_QUARTERLY_SINUSOIDAL,
-        WEIGHT_INITIAL_FACTOR_INC,
-        WEIGHT_FINAL_FACTOR_INC,
-        SINE_AMPLITUDE_INCREMENTAL,
-        SINE_PHASE_OFFSET,
-        WEEKDAY_BIAS_FACTOR_INCREMENTAL,
-        WEIGHT_INITIAL_FACTOR_AVG,
-        WEIGHT_FINAL_FACTOR_AVG,
-        DEVIATION_SCALE_FACTOR_AVG,
-        SINE_AMPLITUDE_MEDIA,
-        WEEKDAY_BIAS_FACTOR_MEDIA,
-    )
-except ImportError:
-    print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB paths or repartition constants will not be correctly defined. "
-    )
-    # Define placeholders for essential DB paths and constants
-    DB_KPI_DAYS, DB_KPI_WEEKS, DB_KPI_MONTHS, DB_KPI_QUARTERS, DB_TARGETS = (
-        ":memory_days_repartition_error:",
-    ) * 5
-    CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA = "Incrementale_fallback", "Media_fallback"
-    (
-        REPARTITION_LOGIC_ANNO,
-        REPARTITION_LOGIC_MESE,
-        REPARTITION_LOGIC_TRIMESTRE,
-        REPARTITION_LOGIC_SETTIMANA,
-    ) = ("Annuale", "Mensile", "Trimestrale", "Settimanale")
-    PROFILE_ANNUAL_PROGRESSIVE, PROFILE_EVEN, PROFILE_TRUE_ANNUAL_SINUSOIDAL = (
-        "annual_progressive",
-        "even",
-        "true_annual_sinusoidal",
-    )
-    PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS = "annual_progressive_weekday_bias"
-    PROFILE_MONTHLY_SINUSOIDAL, PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE = (
-        "monthly_sinusoidal",
-        "legacy_intra_period_progressive",
-    )
-    PROFILE_QUARTERLY_PROGRESSIVE, PROFILE_QUARTERLY_SINUSOIDAL = (
-        "quarterly_progressive",
-        "quarterly_sinusoidal",
-    )
-    WEIGHT_INITIAL_FACTOR_INC, WEIGHT_FINAL_FACTOR_INC = 1.5, 0.5
-    SINE_AMPLITUDE_INCREMENTAL, SINE_PHASE_OFFSET, WEEKDAY_BIAS_FACTOR_INCREMENTAL = (
-        0.5,
-        0,
-        1.2,
-    )
-    WEIGHT_INITIAL_FACTOR_AVG, WEIGHT_FINAL_FACTOR_AVG, DEVIATION_SCALE_FACTOR_AVG = (
-        0.8,
-        1.2,
-        0.2,
-    )
-    SINE_AMPLITUDE_MEDIA, WEEKDAY_BIAS_FACTOR_MEDIA = 0.2, 1.1
-
+from gui.shared.constants import (
+    CALC_TYPE_INCREMENTALE,
+    CALC_TYPE_MEDIA,
+    REPARTITION_LOGIC_ANNO,
+    REPARTITION_LOGIC_MESE,
+    REPARTITION_LOGIC_TRIMESTRE,
+    REPARTITION_LOGIC_SETTIMANA,
+    PROFILE_ANNUAL_PROGRESSIVE,
+    PROFILE_EVEN,
+    PROFILE_TRUE_ANNUAL_SINUSOIDAL,
+    PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
+    PROFILE_MONTHLY_SINUSOIDAL,
+    PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
+    PROFILE_QUARTERLY_PROGRESSIVE,
+    PROFILE_QUARTERLY_SINUSOIDAL,
+    WEIGHT_INITIAL_FACTOR_INC,
+    WEIGHT_FINAL_FACTOR_INC,
+    SINE_AMPLITUDE_INCREMENTAL,
+    SINE_PHASE_OFFSET,
+    WEEKDAY_BIAS_FACTOR_INCREMENTAL,
+    WEIGHT_INITIAL_FACTOR_AVG,
+    WEIGHT_FINAL_FACTOR_AVG,
+    DEVIATION_SCALE_FACTOR_AVG,
+    SINE_AMPLITUDE_MEDIA,
+    WEEKDAY_BIAS_FACTOR_MEDIA,
+)
 
 # Module availability flags & Mocks for dependencies
 _data_retriever_available = False
@@ -200,7 +150,7 @@ def _get_period_allocations(
                 ]
                 print(
                     f"    INFO (get_period_allocations/Inc/Mese): User month proportions (sum: {total_user_prop_sum}%) normalized."
-                )
+                    )
             else:  # Already sums to 100 (or close enough)
                 final_proportions = [p / 100.0 for p in raw_proportions_list]
 
@@ -485,7 +435,8 @@ def _get_raw_daily_values_for_repartition(
                 adj_props = np.array(
                     [
                         base_props[i]
-                        * (
+                        *
+                        (
                             WEEKDAY_BIAS_FACTOR_INCREMENTAL
                             if all_dates_in_year[i].weekday() >= 5
                             else 1.0
@@ -1128,11 +1079,11 @@ def calculate_and_save_all_repartitions(
 
     # --- FIX: Convert Path objects to strings before checking ---
     db_paths_to_check = [
-        DB_TARGETS,
-        DB_KPI_DAYS,
-        DB_KPI_WEEKS,
-        DB_KPI_MONTHS,
-        DB_KPI_QUARTERS,
+        app_config.DB_TARGETS,
+        app_config.DB_KPI_DAYS,
+        app_config.DB_KPI_WEEKS,
+        app_config.DB_KPI_MONTHS,
+        app_config.DB_KPI_QUARTERS,
     ]
     for db_path_obj in db_paths_to_check:
         db_path_str = str(db_path_obj)
@@ -1173,10 +1124,10 @@ def calculate_and_save_all_repartitions(
             f"    INFO: Annual target {target_number} for KPI {kpi_spec_id} is None. Cleaning up any existing periodic data."
         )
         dbs_to_clear_for_none = [
-            (DB_KPI_DAYS, "daily_targets"),
-            (DB_KPI_WEEKS, "weekly_targets"),
-            (DB_KPI_MONTHS, "monthly_targets"),
-            (DB_KPI_QUARTERS, "quarterly_targets"),
+            (app_config.DB_KPI_DAYS, "daily_targets"),
+            (app_config.DB_KPI_WEEKS, "weekly_targets"),
+            (app_config.DB_KPI_MONTHS, "monthly_targets"),
+            (app_config.DB_KPI_QUARTERS, "quarterly_targets"),
         ]
         for db_path_clear, table_name_clear in dbs_to_clear_for_none:
             try:
@@ -1220,10 +1171,10 @@ def calculate_and_save_all_repartitions(
     # 3. Clear any old periodic data for this specific target before saving new
     print(f"    Clearing old periodic data for KPI {kpi_spec_id}, T{target_number}...")
     dbs_to_clear = [
-        (DB_KPI_DAYS, "daily_targets"),
-        (DB_KPI_WEEKS, "weekly_targets"),
-        (DB_KPI_MONTHS, "monthly_targets"),
-        (DB_KPI_QUARTERS, "quarterly_targets"),
+        (app_config.DB_KPI_DAYS, "daily_targets"),
+        (app_config.DB_KPI_WEEKS, "weekly_targets"),
+        (app_config.DB_KPI_MONTHS, "monthly_targets"),
+        (app_config.DB_KPI_QUARTERS, "quarterly_targets"),
     ]
     for db_path_clear, table_name_clear in dbs_to_clear:
         try:
@@ -1342,13 +1293,26 @@ if __name__ == "__main__":
     )
 
     # Example of a *very* simplified direct call (would need mocks for data_retriever to run standalone)
+    # Save original app_config settings for database paths
+    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
+
+    test_db_file_targets = "test_repart_targets.sqlite"
+    test_db_file_days = "test_repart_days.sqlite"
+    test_db_file_weeks = "test_repart_weeks.sqlite"
+    test_db_file_months = "test_repart_months.sqlite"
+    test_db_file_quarters = "test_repart_quarters.sqlite"
+
+    # Create dummy DB files for testing if they don't exist
+    for db_file in [test_db_file_targets, test_db_file_days, test_db_file_weeks, test_db_file_months, test_db_file_quarters]:
+        if not Path(db_file).exists():
+            Path(db_file).touch()
+
+    # Temporarily set app_config to use the test files' directory
+    app_config.SETTINGS["database_base_dir"] = str(Path(test_db_file_targets).parent)
+
     if (
         _data_retriever_available
         and _db_core_utils_available
-        and not any(
-            db.startswith(":memory_") or "error_db" in str(db)
-            for db in [DB_TARGETS, DB_KPI_DAYS]
-        )
     ):
 
         print(
@@ -1397,42 +1361,34 @@ if __name__ == "__main__":
         get_kpi_detailed_by_id = _mock_get_kpi_detailed_by_id_repart
 
         # Setup minimal schemas for periodic DBs if they are memory/error strings
-        temp_db_files_created = []
         periodic_dbs_to_check_setup = {
-            "DB_KPI_DAYS": DB_KPI_DAYS,
-            "DB_KPI_WEEKS": DB_KPI_WEEKS,
-            "DB_KPI_MONTHS": DB_KPI_MONTHS,
-            "DB_KPI_QUARTERS": DB_KPI_QUARTERS,
+            "db_kpi_days.db": app_config.get_database_path("db_kpi_days.db"),
+            "db_kpi_weeks.db": app_config.get_database_path("db_kpi_weeks.db"),
+            "db_kpi_months.db": app_config.get_database_path("db_kpi_months.db"),
+            "db_kpi_quarters.db": app_config.get_database_path("db_kpi_quarters.db"),
         }
-        original_periodic_db_paths = periodic_dbs_to_check_setup.copy()
 
-        for name, path_val in periodic_dbs_to_check_setup.items():
-            if path_val.startswith(":memory_") or "error_db" in str(path_val):
-                temp_file = f"test_repart_{name.lower()}.sqlite"
-                table_sql_name = (
-                    name.split("_")[-1].lower() + "_targets"
-                )  # daily_targets, etc.
-                period_col_name = "date_value"  # Default, adjust if needed per table
-                if "WEEKS" in name:
-                    period_col_name = "week_value"
-                elif "MONTHS" in name:
-                    period_col_name = "month_value"
-                elif "QUARTERS" in name:
-                    period_col_name = "quarter_value"
+        for db_file_name, path_obj in periodic_dbs_to_check_setup.items():
+            table_sql_name = db_file_name.replace("db_kpi_", "").replace(".db", "") + "_targets"
+            period_col_name = "date_value"  # Default, adjust if needed per table
+            if "weeks" in db_file_name:
+                period_col_name = "week_value"
+            elif "months" in db_file_name:
+                period_col_name = "month_value"
+            elif "quarters" in db_file_name:
+                period_col_name = "quarter_value"
 
-                with sqlite3.connect(temp_file) as conn_setup:
-                    conn_setup.execute(f"DROP TABLE IF EXISTS {table_sql_name};")
-                    conn_setup.execute(
-                        f"""
-                        CREATE TABLE {table_sql_name} (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, stabilimento_id INTEGER,
-                            kpi_id INTEGER, target_number INTEGER, {period_col_name} TEXT, target_value REAL,
-                            UNIQUE(year, stabilimento_id, kpi_id, target_number, {period_col_name}));
+            with sqlite3.connect(path_obj) as conn_setup:
+                conn_setup.execute(f"DROP TABLE IF EXISTS {table_sql_name};")
+                conn_setup.execute(
+                    f"""
+                    CREATE TABLE {table_sql_name} (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, stabilimento_id INTEGER,
+                        kpi_id INTEGER, target_number INTEGER, {period_col_name} TEXT, target_value REAL,
+                        UNIQUE(year, stabilimento_id, kpi_id, target_number, {period_col_name}));
                     """
-                    )
-                globals()[name] = temp_file  # Override global DB path for test
-                temp_db_files_created.append(temp_file)
-                print(f"  Using temp DB '{temp_file}' for {name}")
+                )
+            print(f"  Using DB '{path_obj}' for {db_file_name}")
 
         try:
             print(
@@ -1443,9 +1399,7 @@ if __name__ == "__main__":
             )
 
             # Verification (example for monthly)
-            with sqlite3.connect(
-                globals()["DB_KPI_MONTHS"]
-            ) as conn_verify_month:  # Use the potentially overridden global
+            with sqlite3.connect(app_config.get_database_path("db_kpi_months.db")) as conn_verify_month:
                 cursor = conn_verify_month.execute(
                     "SELECT month_value, target_value FROM monthly_targets WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=?",
                     (test_year_repart, test_stab_id_repart, test_kpi_spec_id_repart, 1),
@@ -1467,19 +1421,20 @@ if __name__ == "__main__":
             # Restore original functions and paths
             get_annual_target_entry = _get_annual_target_entry_orig
             get_kpi_detailed_by_id = _get_kpi_detailed_by_id_orig
+            
+            # Restore original app_config setting
+            app_config.SETTINGS["database_base_dir"] = original_db_base_dir
+
             import os
 
-            for name, original_path in original_periodic_db_paths.items():
-                current_path = globals()[name]
-                if current_path != original_path and os.path.exists(
-                    current_path
-                ):  # if it was overridden and test file created
+            for db_file in [test_db_file_targets, test_db_file_days, test_db_file_weeks, test_db_file_months, test_db_file_quarters]:
+                if os.path.exists(db_file):
                     try:
-                        os.remove(current_path)
-                        print(f"  Cleaned up temp DB: {current_path}")
-                    except OSError:
-                        pass
-                globals()[name] = original_path  # Restore original path
+                        os.remove(db_file)
+                        print(f"  Cleaned up temp DB: {db_file}")
+                    except OSError as e_clean:
+                        print(f"ERROR: Could not clean up test file {db_file}: {e_clean}")
+
             print("  Restored original repartition dependencies and DB paths.")
     else:
         print(

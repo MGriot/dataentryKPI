@@ -1,23 +1,10 @@
 # src/kpi_management/specs.py
 import sqlite3
 import traceback
+import app_config
 from pathlib import Path # Ensure Path is imported
 
-# Configuration import
-try:
-    from app_config import DB_KPIS
-    from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
-except ImportError:
-    print(
-        "CRITICAL WARNING: app_config.py not found on PYTHONPATH. "
-        "DB_KPIS or calculation type constants will not be correctly defined. "
-        "Ensure your project's root directory is in PYTHONPATH or adjust imports."
-    )
-    DB_KPIS = ":memory_kpis_specs_error:"  # Placeholder
-    # Define placeholders for calc types if import fails, to allow script loading
-    CALC_TYPE_INCREMENTALE = "Incrementale_fallback"
-    CALC_TYPE_MEDIA = "Media_fallback"
-
+from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 
 # --- KPI Specification (kpis table) CRUD Operations ---
 
@@ -50,10 +37,10 @@ def add_kpi_spec(
                                 or for other integrity issues not related to indicator_id uniqueness.
         Exception: For other database errors.
     """
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError(
-            f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot add KPI spec."
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot add KPI spec."
         )
 
     allowed_calc_types = [CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA]
@@ -62,7 +49,7 @@ def add_kpi_spec(
         print(f"ERROR: {msg}")
         raise ValueError(msg)
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -167,10 +154,10 @@ def update_kpi_spec(
                                 indicator_id to one that already has a spec, or FK violation).
         Exception: If kpi_spec_id does not exist or for other database errors.
     """
-    db_kpis_str = str(DB_KPIS)
-    if db_kpis_str.startswith(":memory_") or "error_db" in db_kpis_str:
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError(
-            f"DB_KPIS is not properly configured ({DB_KPIS}). Cannot update KPI spec."
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot update KPI spec."
         )
 
     allowed_calc_types = [CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA]
@@ -179,7 +166,7 @@ def update_kpi_spec(
         print(f"ERROR: {msg}")
         raise ValueError(msg)
 
-    with sqlite3.connect(DB_KPIS) as conn:
+    with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             # The indicator_id in the kpis table is UNIQUE.
@@ -293,7 +280,7 @@ if __name__ == "__main__":
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     indicator_id INTEGER NOT NULL UNIQUE,
                     description TEXT,
-                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}', '{CALC_TYPE_INCREMENTALE}_fallback', '{CALC_TYPE_MEDIA}_fallback')),
+                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
                     unit_of_measure TEXT,
                     visible BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE
@@ -305,16 +292,19 @@ if __name__ == "__main__":
                 f"INFO: Minimal tables for specs testing ensured/created in {db_path}"
             )
 
-    DB_KPIS_SPECS_TEST_FILE = "test_kpi_specs.sqlite"
-    DB_KPIS_ORIGINAL_SPECS = DB_KPIS  # Save original
-    if DB_KPIS.startswith(":memory_") or "error_db" in str(DB_KPIS):
-        print(
-            f"INFO: Using '{DB_KPIS_SPECS_TEST_FILE}' for DB_KPIS during specs testing."
-        )
-        DB_KPIS = DB_KPIS_SPECS_TEST_FILE  # Override for tests
-        setup_minimal_tables_for_specs(
-            DB_KPIS_SPECS_TEST_FILE, TEST_INDICATOR_ID_FOR_SPEC
-        )
+    test_db_file_kpis = "test_kpi_specs.sqlite"
+    # Save original app_config settings for database paths
+    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
+
+    # Create dummy DB file for testing if it doesn't exist
+    if not Path(test_db_file_kpis).exists():
+        Path(test_db_file_kpis).touch()
+
+    # Temporarily set app_config to use the test file's directory
+    app_config.SETTINGS["database_base_dir"] = str(Path(test_db_file_kpis).parent)
+
+    # Setup minimal tables for specs testing
+    setup_minimal_tables_for_specs(app_config.get_database_path("db_kpis.db"), TEST_INDICATOR_ID_FOR_SPEC)
 
     try:
         print(
@@ -346,7 +336,7 @@ if __name__ == "__main__":
             updated_kpi_spec_id == kpi_spec_id_created
         ), "Adding spec for existing indicator_id should return the existing kpis.id."
         # Verify update
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             row = conn.execute(
                 "SELECT description, unit_of_measure FROM kpis WHERE id = ?",
                 (kpi_spec_id_created,),
@@ -369,7 +359,7 @@ if __name__ == "__main__":
             unit_of_measure="GBP",
             visible=False,
         )
-        with sqlite3.connect(DB_KPIS) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             row = conn.execute(
                 "SELECT description, calculation_type, unit_of_measure, visible FROM kpis WHERE id = ?",
                 (kpi_spec_id_created,),
@@ -428,14 +418,15 @@ if __name__ == "__main__":
         print(str(e))
         print(traceback.format_exc())
     finally:
-        DB_KPIS = DB_KPIS_ORIGINAL_SPECS  # Restore original DB_KPIS
-        if DB_KPIS_SPECS_TEST_FILE and os.path.exists(DB_KPIS_SPECS_TEST_FILE):
+        # Restore original app_config setting
+        app_config.SETTINGS["database_base_dir"] = original_db_base_dir
+        if Path(test_db_file_kpis).exists():
             import os
 
             try:
-                os.remove(DB_KPIS_SPECS_TEST_FILE)
-                print(f"INFO: Cleaned up test file: {DB_KPIS_SPECS_TEST_FILE}")
+                os.remove(test_db_file_kpis)
+                print(f"INFO: Cleaned up test file: {test_db_file_kpis}")
             except OSError as e_clean:
                 print(
-                    f"ERROR: Could not clean up test file {DB_KPIS_SPECS_TEST_FILE}: {e_clean}"
+                    f"ERROR: Could not clean up test file {test_db_file_kpis}: {e_clean}"
                 )
