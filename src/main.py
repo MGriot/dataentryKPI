@@ -41,13 +41,17 @@ def main():
 
     elif interface == "streamlit":
         print("Launching Streamlit GUI...")
-        streamlit_script_path = project_root / "gui" / "app_streamlit.py"
+        streamlit_script_path = project_root / "gui" / "app_streamlit" / "main.py"
+
+        # Ensure the 'src' directory is in the Python path for robust imports
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
 
         if not streamlit_script_path.exists():
             print(f"ERROR: Streamlit script not found at {streamlit_script_path}")
             sys.exit(1)
 
-        command = ["streamlit", "run", str(streamlit_script_path)]
+        command = [sys.executable, "-m", "streamlit", "run", str(streamlit_script_path)]
         try:
             print(f"Running command: {' '.join(command)}")
             subprocess.run(command, check=True)

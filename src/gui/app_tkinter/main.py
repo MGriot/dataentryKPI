@@ -16,8 +16,7 @@ from gui.app_tkinter.components.kpi_specs_tab import KpiSpecsTab
 from gui.app_tkinter.components.master_sub_link_tab import MasterSubLinkTab
 from gui.app_tkinter.components.target_entry_tab import TargetEntryTab
 from gui.app_tkinter.components.export_tab import ExportTab
-from gui.app_tkinter.components.results_tab import ResultsTab
-from gui.app_tkinter.components.dashboard_tab import DashboardTab
+from gui.app_tkinter.components.analysis_tab import AnalysisTab
 from gui.app_tkinter.components.settings_tab import SettingsTab
 from ..shared.constants import KPI_CALC_TYPE_OPTIONS
 from app_config import SETTINGS, load_settings
@@ -94,8 +93,7 @@ class KpiApp(tk.Tk):
         self.master_sub_link_frame = MasterSubLinkTab(self.notebook, self)
         self.stabilimenti_frame = StabilimentiTab(self.notebook, self)
         self.export_frame = ExportTab(self.notebook, self)
-        self.results_frame = ResultsTab(self.notebook, self)
-        self.dashboard_frame = DashboardTab(self.notebook, self)
+        self.analysis_frame = AnalysisTab(self.notebook, self)
         self.settings_frame = SettingsTab(self.notebook, self)
 
         self.notebook.add(self.target_entry_frame, text="🎯 Inserimento Target")
@@ -105,8 +103,7 @@ class KpiApp(tk.Tk):
         self.notebook.add(self.master_sub_link_frame, text="🔗 Gestione Link Master/Sub")
         self.notebook.add(self.stabilimenti_frame, text="🏭 Gestione Stabilimenti")
         self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
-        self.notebook.add(self.results_frame, text="📈 Visualizzazione Risultati")
-        self.notebook.add(self.dashboard_frame, text="📊 Dashboard Globale KPI")
+        self.notebook.add(self.analysis_frame, text="📈 Analisi Risultati")
         self.notebook.add(self.settings_frame, text="⚙️ Impostazioni")
 
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)

@@ -44,17 +44,17 @@ class TargetEntryTab(ttk.Frame):
         self.stabilimento_cb_target.bind('<<ComboboxSelected>>', self.load_kpi_targets_for_entry_target)
 
         # Canvas for scrollable content
-        canvas_target = tk.Canvas(main_frame)
-        canvas_target.pack(side='left', fill='both', expand=True)
+        self.canvas_target = tk.Canvas(main_frame)
+        self.canvas_target.pack(side='left', fill='both', expand=True)
 
         # Scrollbar
-        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=canvas_target.yview)
+        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=self.canvas_target.yview)
         scrollbar.pack(side='right', fill='y')
 
         # Scrollable frame
-        self.scrollable_frame_target = ttk.Frame(canvas_target)
-        canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
-        canvas_target.configure(yscrollcommand=scrollbar.set)
+        self.scrollable_frame_target = ttk.Frame(self.canvas_target)
+        self.canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
+        self.canvas_target.configure(yscrollcommand=scrollbar.set)
 
         self.scrollable_frame_target.bind('<Configure>', lambda e: canvas_target.configure(scrollregion=canvas_target.bbox('all')))
 
@@ -87,6 +87,13 @@ class TargetEntryTab(ttk.Frame):
         stabilimento_name = self.stabilimento_cb_target.get()
         if not year or not stabilimento_name:
             return
+
+        # Recreate the scrollable frame to ensure it's clean
+        if hasattr(self, 'scrollable_frame_target'):
+            self.scrollable_frame_target.destroy()
+        self.scrollable_frame_target = ttk.Frame(self.canvas_target)
+        self.canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
+        self.scrollable_frame_target.bind('<Configure>', lambda e: self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all')))
 
         stabilimento_id = [s['id'] for s in self.stabilimenti if s['name'] == stabilimento_name][0]
 

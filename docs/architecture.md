@@ -6,20 +6,23 @@
 - **src/app_config.py:**  
   Centralized configuration loader (paths, constants, profiles, config.ini integration).
 
-- **src/app_tkinter.py / src/app_streamlit.py:**  
-  User interfaces (desktop/web), sharing backend logic. Import all management modules.
+- **src/gui/app_tkinter/main.py / src/gui/app_streamlit/main.py:**  
+  User interfaces (desktop/web), sharing backend logic. These are the main entry points for each GUI.
 
 - **src/main.py:**  
-  Entry point for launching interfaces, database setup, and global export.
+  The top-level entry point for launching either the Tkinter or Streamlit interface.
 
 - **src/data_retriever.py:**  
-  Read-only data access for UI, exports, and reporting.
+  Provides read-only data access for UI components, export functions, and reporting.
 
 - **src/export_manager.py:**  
-  Global CSV/ZIP export logic, integrates with data_retriever.
+  Handles global CSV/ZIP export logic, integrating with `data_retriever`.
+
+- **src/import_manager.py:**  
+  Manages the import of data from CSV files into the database, including triggering recalculations.
 
 - **src/db_core/**:  
-  Database setup and utility functions. Includes `setup.py` (schema creation) and `utils.py` (distribution helpers).
+  Contains database setup and utility functions, including `setup.py` (schema creation) and `utils.py` (distribution helpers).
 
 - **src/kpi_management/**:  
   Modular management of KPI hierarchy:

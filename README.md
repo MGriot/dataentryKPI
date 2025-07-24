@@ -14,8 +14,12 @@ dataentryKPI/
 │   ├── database_manager.py
 │   ├── data_retriever.py
 │   ├── export_manager.py
-│   ├── app_tkinter.py
-│   ├── app_streamlit.py
+│   ├── import_manager.py
+│   ├── gui/
+│   │   ├── app_tkinter/
+│   │   │   └── main.py
+│   │   └── app_streamlit/
+│   │       └── main.py
 │   └── ...
 ├── docs/                 # Documentation (Markdown)
 │   ├── usage_tkinter.md

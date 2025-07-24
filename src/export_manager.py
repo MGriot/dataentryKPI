@@ -5,6 +5,7 @@ import io  # For zip in memory for Streamlit
 import traceback
 from pathlib import Path
 import calendar  # For month name sorting in periodic data
+import json
 
 # Configuration import
 try:
@@ -65,6 +66,7 @@ GLOBAL_CSV_FILES = {
     "annual": "all_annual_kpi_master_targets.csv",
     "stabilimenti": "dict_stabilimenti.csv",
     "kpis": "dict_kpis.csv",
+    "settings": "dict_settings.csv",
 }
 
 # Ensure CSV_EXPORT_BASE_PATH is a Path object
@@ -231,6 +233,25 @@ def export_all_data_to_global_csvs(base_export_path_str: str = None):
                 "unit_of_measure",
                 "visible",
             ],
+        )
+
+    # 4. Export Settings
+    settings_export_file = GLOBAL_CSV_FILES["settings"]
+    settings_output_filepath = target_export_path / settings_export_file
+    print(f"INFO [{func_name}]: Tentativo esportazione {settings_export_file}...")
+    try:
+        _export_settings_to_csv(settings_output_filepath)
+        print(f"SUCCESS [{func_name}]: Esportazione {settings_export_file} completata.")
+        export_successful_count += 1
+        export_details.append(f"[SUCCESS] {settings_export_file}")
+    except Exception as e_settings:
+        msg = f"Fallita esportazione impostazioni ({settings_export_file}): {e_settings}"
+        print(f"CRITICAL ERROR [{func_name}]: {msg}")
+        print(traceback.format_exc())
+        export_failed_count += 1
+        export_details.append(f"[FAILED]  {settings_export_file}: {msg}")
+        _write_empty_csv_with_header(
+            settings_output_filepath, ["setting_key", "setting_value"]
         )
 
     # --- Summary ---
@@ -463,12 +484,10 @@ def _export_stabilimenti_to_csv(output_filepath: Path):
         for row_data in all_stabilimenti_rows:
             writer.writerow(
                 [
-                    row_data.get("id"),
-                    row_data.get("name"),
-                    row_data.get(
-                        "description", ""
-                    ),  # Ensure description exists, default to empty
-                    1 if row_data.get("visible") else 0,
+                    row_data["id"],
+                    row_data["name"],
+                    row_data["description"],
+                    1 if row_data["visible"] else 0,
                 ]
             )
 
@@ -512,6 +531,18 @@ def _export_kpis_to_csv(output_filepath: Path):
                     1 if row_data["visible"] else 0,
                 ]
             )
+
+
+def _export_settings_to_csv(output_filepath: Path):
+    """Exports all settings from settings.json to a CSV file."""
+    from app_config import SETTINGS
+    header = ["setting_key", "setting_value"]
+
+    with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(header)
+        for key, value in SETTINGS.items():
+            writer.writerow([key, json.dumps(value)])
 
 
 def package_all_csvs_as_zip(
