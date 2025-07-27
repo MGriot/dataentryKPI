@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, colorchooser, messagebox, filedialog
 import json
 import data_retriever as db_retriever
+from stabilimenti_management import crud as stabilimenti_manager
 
 from app_config import SETTINGS_FILE
 
@@ -43,32 +44,54 @@ class SettingsTab(ttk.Frame):
         colors_frame.pack(fill='x', expand=True, pady=5)
 
         self.stabilimento_colors_vars = {}
-        stabilimenti = db_retriever.get_all_stabilimenti()
-        for i, stabilimento in enumerate(stabilimenti):
-            stabilimento_name = stabilimento['name']
-            color = self.settings.get('stabilimento_colors', {}).get(stabilimento_name, '#000000')
-            
-            ttk.Label(colors_frame, text=f"{stabilimento_name}:").grid(row=i, column=0, padx=5, pady=5, sticky='w')
-            color_var = tk.StringVar(value=color)
-            color_label = ttk.Label(colors_frame, textvariable=color_var, background=color, width=10)
-            color_label.grid(row=i, column=1, padx=5, pady=5, sticky='ew')
-            ttk.Button(colors_frame, text="Cambia...", command=lambda s=stabilimento_name, v=color_var, l=color_label: self.choose_color(s, v, l)).grid(row=i, column=2, padx=5, pady=5)
-            self.stabilimento_colors_vars[stabilimento_name] = color_var
+        self.colors_inner_frame = ttk.Frame(colors_frame)
+        self.colors_inner_frame.pack(fill='both', expand=True)
+        self.refresh_stabilimento_colors_display()
 
         # --- Save Button ---
         save_button = ttk.Button(main_frame, text="Salva Impostazioni", command=self.save_settings)
         save_button.pack(pady=10)
+
+    def refresh_stabilimento_colors_display(self):
+        # Clear existing widgets
+        for widget in self.colors_inner_frame.winfo_children():
+            widget.destroy()
+        self.stabilimento_colors_vars = {} # Reset the dictionary
+
+        stabilimenti = db_retriever.get_all_stabilimenti()
+        for i, stabilimento in enumerate(stabilimenti):
+            stabilimento_name = stabilimento['name']
+            stabilimento_id = stabilimento['id']
+            color = stabilimento['color'] if 'color' in stabilimento else '#000000'
+            
+            ttk.Label(self.colors_inner_frame, text=f"{stabilimento_name}:").grid(row=i, column=0, padx=5, pady=5, sticky='w')
+            color_var = tk.StringVar(value=color)
+            color_label = ttk.Label(self.colors_inner_frame, textvariable=color_var, background=color, width=10)
+            color_label.grid(row=i, column=1, padx=5, pady=5, sticky='ew')
+            ttk.Button(self.colors_inner_frame, text="Cambia...", command=lambda s_id=stabilimento_id, s_name=stabilimento_name, v=color_var, l=color_label: self.choose_color(s_id, s_name, v, l)).grid(row=i, column=2, padx=5, pady=5)
+            self.stabilimento_colors_vars[stabilimento_id] = color_var
+
+    def on_tab_selected(self):
+        # This method is called when the tab is selected
+        self.refresh_stabilimento_colors_display()
 
     def browse_db_path(self):
         path = tk.filedialog.askdirectory()
         if path:
             self.db_path_var.set(path)
 
-    def choose_color(self, stabilimento_name, color_var, color_label):
+    def choose_color(self, stabilimento_id, stabilimento_name, color_var, color_label):
         color_code = colorchooser.askcolor(title=f"Scegli colore per {stabilimento_name}")
         if color_code:
-            color_var.set(color_code[1])
-            color_label.config(background=color_code[1])
+            color_hex = color_code[1]
+            color_var.set(color_hex)
+            color_label.config(background=color_hex)
+            # Immediately save the color to the database
+            try:
+                stabilimenti_manager.update_stabilimento_color(stabilimento_id, color_hex)
+                # No messagebox here, as it's a direct update and refresh will happen on tab change
+            except Exception as e:
+                messagebox.showerror("Errore", f"Impossibile salvare il colore per {stabilimento_name}: {e}")
 
     def save_settings(self):
         self.settings['display_names'] = {
@@ -76,11 +99,28 @@ class SettingsTab(ttk.Frame):
             'target2': self.target2_name_var.get()
         }
         self.settings['database_path'] = self.db_path_var.get()
-        self.settings['stabilimento_colors'] = {name: var.get() for name, var in self.stabilimento_colors_vars.items()}
+        # The stabilimento colors are now saved directly when chosen, so remove this line
+        # self.settings['stabilimento_colors'] = {name: var.get() for name, var in self.stabilimento_colors_vars.items()}
 
         try:
+            # Load existing settings to merge, then update
+            current_settings = {}
+            try:
+                with open(SETTINGS_FILE, 'r') as f:
+                    current_settings = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass # File doesn't exist or is empty, start with empty dict
+
+            # Update only the sections managed by this tab
+            current_settings['display_names'] = self.settings['display_names']
+            current_settings['database_path'] = self.settings['database_path']
+            
+            # Remove stabilimento_colors from settings.json if it exists
+            if 'stabilimento_colors' in current_settings:
+                del current_settings['stabilimento_colors']
+
             with open(SETTINGS_FILE, 'w') as f:
-                json.dump(self.settings, f, indent=4)
+                json.dump(current_settings, f, indent=4)
             messagebox.showinfo("Successo", "Impostazioni salvate con successo.")
             self.app.load_settings() # Reload settings in the main app
         except Exception as e:

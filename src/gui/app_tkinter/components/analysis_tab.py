@@ -359,7 +359,7 @@ class AnalysisTab(ttk.Frame):
             all_indicators_in_subgroup = db_retriever.get_kpi_indicators_by_subgroup(
                 selected_subgroup_obj_from_list["id"]
             )
-            all_kpi_specs_with_data = db_retriever.get_all_kpis_detailed()
+            all_kpi_specs_with_data = db_retriever.get_all_kpis_detailed(stabilimento_id=stabilimento_id_res)
             indicator_ids_with_spec = {
                 k_spec["actual_indicator_id"] for k_spec in all_kpi_specs_with_data
             }
@@ -450,7 +450,7 @@ class AnalysisTab(ttk.Frame):
             kpi_spec_obj = next(
                 (
                     spec
-                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False)
+                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False, stabilimento_id=stabilimento_id_res)
                     if spec["actual_indicator_id"] == indicator_actual_id
                 ),
                 None,

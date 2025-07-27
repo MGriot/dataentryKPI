@@ -398,7 +398,7 @@ class ResultsTab(ttk.Frame):
             kpi_spec_obj = next(
                 (
                     spec
-                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False)
+                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False, stabilimento_id=stabilimento_id_res)
                     if spec["actual_indicator_id"] == indicator_actual_id
                 ),
                 None,

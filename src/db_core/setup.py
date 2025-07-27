@@ -182,6 +182,20 @@ def setup_databases():
                         f"WARN: Impossibile aggiungere 'distribution_weight' a 'kpi_master_sub_links', potrebbe già esistere o altro problema: {e}"
                     )
             conn.commit()
+
+            # --- New table for KPI-Stabilimento Visibility ---
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS kpi_stabilimento_visibility (
+                    kpi_id INTEGER NOT NULL,
+                    stabilimento_id INTEGER NOT NULL,
+                    is_enabled BOOLEAN NOT NULL DEFAULT 1,
+                    PRIMARY KEY (kpi_id, stabilimento_id),
+                    FOREIGN KEY (kpi_id) REFERENCES kpis(id) ON DELETE CASCADE,
+                    FOREIGN KEY (stabilimento_id) REFERENCES stabilimenti(id) ON DELETE CASCADE
+                )"""
+            )
+            conn.commit()
+
         print(f"Setup tabelle in {db_kpis_path} completato.")
     except sqlite3.Error as e:
         print(f"ERRORE durante il setup di {db_kpis_path}: {e}")
@@ -198,7 +212,8 @@ def setup_databases():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
-                    visible BOOLEAN NOT NULL DEFAULT 1
+                    visible BOOLEAN NOT NULL DEFAULT 1,
+                    color TEXT NOT NULL DEFAULT '#000000'
                 )"""
             )
             # Check and add 'description' to 'stabilimenti' if missing

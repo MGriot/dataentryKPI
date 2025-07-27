@@ -62,7 +62,7 @@ def load_kpi_targets_for_entry_target():
         st.session_state.targets_map_for_entry = {}
         return
 
-    st.session_state.kpis_for_entry = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True)]
+    st.session_state.kpis_for_entry = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True, stabilimento_id=stabilimento_id)]
     targets = [dict(row) for row in db_retriever.get_annual_targets(stabilimento_id, year)]
     st.session_state.targets_map_for_entry = {t['kpi_id']: t for t in targets}
 

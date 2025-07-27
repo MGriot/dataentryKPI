@@ -3,12 +3,7 @@
         "target1": "Target",
         "target2": "Stretched"
     },
-    "database_path": "C:/Users/Admin/Documents/Coding/dataentryKPI/databases",
-    "stabilimento_colors": {
-        "Barge": "#808080",
-        "Culof": "#ff00ff",
-        "Torino": "#8000ff",
-        "asd": "#00ff00",
-        "unit\u00e0": "#ff8000"
-    }
+    "database_base_dir": "C:\\Users\\Admin\\Documents\\Coding\\dataentryKPI\\databases",
+    "csv_export_base_dir": "C:\\Users\\Admin\\Documents\\Coding\\dataentryKPI\\csv_exports",
+    "database_path": "C:/Users/Admin/Documents/Coding/dataentryKPI/databases"
 }

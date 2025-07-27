@@ -3,25 +3,18 @@ import sqlite3
 import traceback
 from pathlib import Path
 
+from db_core.utils import get_database_path
+
 # --- Configuration Imports ---
-try:
-    from ..app_config import SETTINGS
-    DB_STABILIMENTI = get_database_path(SETTINGS.get('db_stabilimenti', 'stabilimenti.sqlite'))
-    DB_TARGETS = get_database_path(SETTINGS.get('db_targets', 'targets.sqlite'))
-except ImportError:
-    print(
-        "CRITICAL WARNING: app_config.py not found in stabilimenti_management/crud.py"
-    )
-    DB_STABILIMENTI = Path(":memory_stabilimenti_error.sqlite")
-    DB_TARGETS = Path(":memory_targets_for_stabilimenti_error.sqlite")
+DB_STABILIMENTI = get_database_path('db_stabilimenti.db')
+DB_TARGETS = get_database_path('db_kpi_targets.db')
 
 
 # --- Helper to check DB path ---
 def _validate_db_path(db_path_obj, db_name_str):
     """Validates if the provided DB path object is usable."""
-    path_str = str(db_path_obj)
-    if path_str.startswith(":memory_") or "error_db" in path_str:
-        raise ConnectionError(f"{db_name_str} is not properly configured ({path_str}).")
+    if not db_path_obj.exists():
+        raise ConnectionError(f"Database file for {db_name_str} not found at {db_path_obj}")
 
 
 # --- Stabilimento CRUD Operations ---
@@ -51,15 +44,15 @@ def add_stabilimento(name: str, description: str = "", visible: bool = True) -> 
 # --- Stabilimento CRUD Operations ---
 
 
-def add_stabilimento(name: str, description: str = "", visible: bool = True) -> int:
+def add_stabilimento(name: str, description: str = "", visible: bool = True, color: str = "#000000") -> int:
     """Adds a new stabilimento to the database."""
     _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")  # FIX: Use helper
     with sqlite3.connect(DB_STABILIMENTI) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO stabilimenti (name, description, visible) VALUES (?,?,?)",
-                (name, description, 1 if visible else 0),
+                "INSERT INTO stabilimenti (name, description, visible, color) VALUES (?,?,?,?)",
+                (name, description, 1 if visible else 0, color),
             )
             conn.commit()
             return cursor.lastrowid
@@ -72,7 +65,7 @@ def add_stabilimento(name: str, description: str = "", visible: bool = True) -> 
 
 
 def update_stabilimento(
-    stabilimento_id: int, name: str, description: str, visible: bool
+    stabilimento_id: int, name: str, description: str, visible: bool, color: str
 ):
     """Updates an existing stabilimento's details."""
     _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")  # FIX: Use helper
@@ -80,8 +73,8 @@ def update_stabilimento(
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE stabilimenti SET name=?, description=?, visible=? WHERE id=?",
-                (name, description, 1 if visible else 0, stabilimento_id),
+                "UPDATE stabilimenti SET name=?, description=?, visible=?, color=? WHERE id=?",
+                (name, description, 1 if visible else 0, color, stabilimento_id),
             )
             conn.commit()
             if cursor.rowcount == 0:
@@ -98,31 +91,25 @@ def update_stabilimento(
             ) from e_general
 
 
-def is_stabilimento_referenced(stabilimento_id: int) -> bool:
-    """
-    Checks if a stabilimento is referenced in the annual_targets table.
-    Helper function for safe deletion.
-    """
-    if DB_TARGETS.startswith(":memory_") or "error_db" in str(DB_TARGETS):
-        print(
-            f"WARNING: DB_TARGETS is not properly configured ({DB_TARGETS}). Cannot check references accurately."
-        )
-        return True  # Assume referenced to be safe if DB_TARGETS is misconfigured
-
-    try:
-        with sqlite3.connect(DB_TARGETS) as conn_targets:
-            cursor = conn_targets.cursor()
+def update_stabilimento_color(stabilimento_id: int, color: str):
+    """Updates the color of an existing stabilimento."""
+    _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")
+    with sqlite3.connect(DB_STABILIMENTI) as conn:
+        try:
+            cursor = conn.cursor()
             cursor.execute(
-                "SELECT 1 FROM annual_targets WHERE stabilimento_id = ? LIMIT 1",
-                (stabilimento_id,),
+                "UPDATE stabilimenti SET color=? WHERE id=?",
+                (color, stabilimento_id),
             )
-            return cursor.fetchone() is not None
-    except sqlite3.Error as e:
-        print(
-            f"ERROR: Database error while checking references for stabilimento ID {stabilimento_id} in DB_TARGETS. Details: {e}"
-        )
-        print(traceback.format_exc())
-        return True  # Assume referenced to be safe on error
+            conn.commit()
+            if cursor.rowcount == 0:
+                print(
+                    f"WARNING: No stabilimento found with ID {stabilimento_id}. Color update had no effect."
+                )
+        except Exception as e_general:
+            raise Exception(
+                "Errore database durante l'aggiornamento del colore dello stabilimento."
+            ) from e_general
 
 
 def is_stabilimento_referenced(stabilimento_id: int) -> bool:
@@ -142,6 +129,16 @@ def is_stabilimento_referenced(stabilimento_id: int) -> bool:
         )
         return True  # Assume referenced to be safe on error
 
+
+def get_stabilimento_by_id(stabilimento_id: int) -> dict | None:
+    """Retrieves a single stabilimento by its ID."""
+    _validate_db_path(DB_STABILIMENTI, "DB_STABILIMENTI")
+    with sqlite3.connect(DB_STABILIMENTI) as conn:
+        conn.row_factory = sqlite3.Row  # Return rows as dictionary-like objects
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, description, visible, color FROM stabilimenti WHERE id = ?", (stabilimento_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 def delete_stabilimento(stabilimento_id: int, force_delete_if_referenced: bool = False):
     """
@@ -187,7 +184,8 @@ if __name__ == "__main__":
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
-                    visible BOOLEAN NOT NULL DEFAULT 1);
+                    visible BOOLEAN NOT NULL DEFAULT 1,
+                    color TEXT NOT NULL DEFAULT '#000000');
             """
             )
             conn_s.commit()
@@ -229,7 +227,7 @@ if __name__ == "__main__":
     try:
         print("\nTest 1: Add new stabilimento 'Main Plant'")
         stabilimento_id_created = add_stabilimento(
-            "Main Plant", "Primary manufacturing facility", True
+            "Main Plant", "Primary manufacturing facility", True, "#FF0000"
         )
         assert isinstance(stabilimento_id_created, int)
         print(f"  SUCCESS: Added 'Main Plant' with ID {stabilimento_id_created}")
@@ -238,14 +236,17 @@ if __name__ == "__main__":
             "\nTest 2: Attempt to add duplicate 'Main Plant' (expecting IntegrityError)"
         )
         try:
-            add_stabilimento("Main Plant", "Duplicate attempt")
+            add_stabilimento("Main Plant", "Duplicate attempt", True, "#00FF00")
             print(
                 "  FAILURE: Duplicate stabilimento addition did not raise IntegrityError."
             )
-        except sqlite3.IntegrityError:
-            print(
-                "  SUCCESS: IntegrityError raised for duplicate stabilimento as expected."
-            )
+        except Exception as e:
+            if "Uno stabilimento con nome 'Main Plant' esiste già." in str(e):
+                print(
+                    "  SUCCESS: IntegrityError raised for duplicate stabilimento as expected."
+                )
+            else:
+                raise
 
         print(f"\nTest 3: Update stabilimento ID {stabilimento_id_created}")
         update_stabilimento(
@@ -253,10 +254,11 @@ if __name__ == "__main__":
             "Main Plant (Renamed)",
             "Updated description",
             False,
+            "#0000FF"
         )
         with sqlite3.connect(DB_STABILIMENTI) as conn:
             row = conn.execute(
-                "SELECT name, description, visible FROM stabilimenti WHERE id = ?",
+                "SELECT name, description, visible, color FROM stabilimenti WHERE id = ?",
                 (stabilimento_id_created,),
             ).fetchone()
             assert (
@@ -264,11 +266,22 @@ if __name__ == "__main__":
                 and row[0] == "Main Plant (Renamed)"
                 and row[1] == "Updated description"
                 and row[2] == 0
+                and row[3] == "#0000FF"
             )
         print(f"  SUCCESS: Stabilimento ID {stabilimento_id_created} updated.")
 
+        print(f"\nTest 4: Update stabilimento color for ID {stabilimento_id_created}")
+        update_stabilimento_color(stabilimento_id_created, "#FFFF00")
+        with sqlite3.connect(DB_STABILIMENTI) as conn:
+            row = conn.execute(
+                "SELECT color FROM stabilimenti WHERE id = ?",
+                (stabilimento_id_created,),
+            ).fetchone()
+            assert row and row[0] == "#FFFF00"
+        print(f"  SUCCESS: Stabilimento ID {stabilimento_id_created} color updated.")
+
         print(
-            f"\nTest 4: Delete stabilimento ID {stabilimento_id_created} (no references)"
+            f"\nTest 5: Delete stabilimento ID {stabilimento_id_created} (no references)"
         )
         delete_stabilimento(stabilimento_id_created)
         with sqlite3.connect(DB_STABILIMENTI) as conn:
@@ -280,10 +293,10 @@ if __name__ == "__main__":
         stabilimento_id_created = None  # Mark as deleted
 
         print(
-            "\nTest 5: Attempt to delete stabilimento referenced in targets (expecting ValueError)"
+            "\nTest 6: Attempt to delete stabilimento referenced in targets (expecting ValueError)"
         )
         # Add a new stabilimento and a target referencing it
-        ref_stab_id = add_stabilimento("Referenced Plant", "Test for delete constraint")
+        ref_stab_id = add_stabilimento("Referenced Plant", "Test for delete constraint", True, "#CCCCCC")
         with sqlite3.connect(DB_TARGETS) as conn_t:
             conn_t.execute(
                 "INSERT INTO annual_targets (year, stabilimento_id, kpi_id) VALUES (?,?,?)",
@@ -300,7 +313,7 @@ if __name__ == "__main__":
                 "  SUCCESS: ValueError raised for deleting referenced stabilimento as expected."
             )
 
-        print(f"\nTest 6: Force delete stabilimento ID {ref_stab_id} (referenced)")
+        print(f"\nTest 7: Force delete stabilimento ID {ref_stab_id} (referenced)")
         delete_stabilimento(ref_stab_id, force_delete_if_referenced=True)
         with sqlite3.connect(DB_STABILIMENTI) as conn:
             row = conn.execute(

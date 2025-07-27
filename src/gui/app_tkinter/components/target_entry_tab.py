@@ -98,7 +98,7 @@ class TargetEntryTab(ttk.Frame):
         stabilimento_id = [s['id'] for s in self.stabilimenti if s['name'] == stabilimento_name][0]
 
         # Get KPIs and targets
-        kpis = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True)]
+        kpis = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True, stabilimento_id=stabilimento_id)]
         targets = [dict(row) for row in db_retriever.get_annual_targets(stabilimento_id, int(year))]
         targets_map = {t['kpi_id']: t for t in targets}
 

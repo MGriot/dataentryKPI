@@ -8,13 +8,16 @@ from pathlib import Path
 
 # Import app_config for dynamic database paths
 import app_config
+from db_core.utils import get_database_path
+from kpi_management import visibility as kpi_visibility
+
 
 # --- Helper for DB Connection Errors ---
 def _handle_db_connection_error(db_name_str: str, func_name: str) -> bool:
     # Get the actual Path object from app_config using the db_name_str
     # This function now expects the string name of the database file (e.g., "db_kpis.db")
     try:
-        db_path_obj = app_config.get_database_path(db_name_str)
+        db_path_obj = get_database_path(db_name_str)
     except Exception as e:
         print(f"ERROR ({func_name}): Could not get database path for {db_name_str}: {e}")
         return True # Indicates an error state
@@ -227,7 +230,7 @@ def get_kpi_indicators_by_subgroup(subgroup_id: int) -> list:
         return []
 
 # --- KPI Specifications (from `kpis` table) ---
-def get_all_kpis_detailed(only_visible=False) -> list:
+def get_all_kpis_detailed(only_visible=False, stabilimento_id: int = None) -> list:
     """Fetches all KPI specifications with their full hierarchy names. Returns list of sqlite3.Row. kpis.id is aliased as 'id' in the query and available."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpis_detailed"): return []
     query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
@@ -238,18 +241,30 @@ def get_all_kpis_detailed(only_visible=False) -> list:
                JOIN kpi_indicators i ON k.indicator_id = i.id
                JOIN kpi_subgroups sg ON i.subgroup_id = sg.id
                JOIN kpi_groups g ON sg.group_id = g.id """
+    conditions = []
+    params = []
+
     if only_visible:
-        query += " WHERE k.visible = 1"
+        conditions.append("k.visible = 1")
+    
+    if stabilimento_id is not None:
+        query += " LEFT JOIN kpi_stabilimento_visibility ksv ON k.id = ksv.kpi_id AND ksv.stabilimento_id = ?"
+        conditions.append("(ksv.is_enabled = 1 OR (ksv.is_enabled IS NULL AND k.visible = 1))") # If no entry, assume visible
+        params.append(stabilimento_id)
+
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+
     query += " ORDER BY g.name, sg.name, i.name"
     try:
         with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             conn.row_factory = sqlite3.Row
-            return conn.execute(query).fetchall()
+            return conn.execute(query, params).fetchall()
     except sqlite3.Error as e:
         print(f"ERROR (get_all_kpis_detailed): Database error: {e}")
         return []
 
-def get_kpi_detailed_by_id(kpi_spec_id: int): # -> dict or None
+def get_kpi_detailed_by_id(kpi_spec_id: int, stabilimento_id: int = None): # -> dict or None
     """Fetches a specific KPI specification by its ID (kpis.id), including hierarchy and template info."""
     if _handle_db_connection_error("db_kpis.db", "get_kpi_detailed_by_id_kpis") or \
        _handle_db_connection_error("db_kpi_templates.db", "get_kpi_detailed_by_id_tpl"): return None
@@ -263,7 +278,13 @@ def get_kpi_detailed_by_id(kpi_spec_id: int): # -> dict or None
                        FROM kpis k JOIN kpi_indicators i ON k.indicator_id = i.id
                        JOIN kpi_subgroups sg ON i.subgroup_id = sg.id JOIN kpi_groups g ON sg.group_id = g.id
                        WHERE k.id = ?"""
-            kpi_info_row = conn_kpis.execute(query, (kpi_spec_id,)).fetchone()
+            params = [kpi_spec_id]
+
+            if stabilimento_id is not None:
+                query += " AND (SELECT is_enabled FROM kpi_stabilimento_visibility WHERE kpi_id = k.id AND stabilimento_id = ?) IS NOT 0"
+                params.append(stabilimento_id)
+
+            kpi_info_row = conn_kpis.execute(query, params).fetchone()
 
             if kpi_info_row:
                 kpi_dict = dict(kpi_info_row)
@@ -284,7 +305,7 @@ def get_kpi_detailed_by_id(kpi_spec_id: int): # -> dict or None
 def get_all_stabilimenti(visible_only=False) -> list:
     """Fetches all stabilimenti, optionally filtering by visibility, ordered by name."""
     if _handle_db_connection_error("db_stabilimenti.db", "get_all_stabilimenti"): return []
-    query = "SELECT * FROM stabilimenti"
+    query = "SELECT id, name, description, visible, color FROM stabilimenti"
     if visible_only:
         query += " WHERE visible = 1"
     query += " ORDER BY name"
@@ -597,7 +618,7 @@ def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type:
         with sqlite3.connect(app_config.get_database_path(db_file_name)) as conn:
             conn.row_factory = sqlite3.Row
             # Attach the stabilimenti database
-            conn.execute(f"ATTACH DATABASE '{str(app_config.get_database_path("db_stabilimenti.db")).replace('\\', '/')}' AS stab_db")
+            conn.execute(f"ATTACH DATABASE '{str(get_database_path("db_stabilimenti.db")).replace('\\', '/')}' AS stab_db")
             result = conn.execute(query, params).fetchall()
             conn.execute("DETACH DATABASE stab_db")
             return result

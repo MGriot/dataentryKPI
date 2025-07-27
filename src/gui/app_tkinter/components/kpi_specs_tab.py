@@ -5,6 +5,7 @@ import sqlite3
 
 from kpi_management import specs as kpi_specs_manager
 from kpi_management import indicators as kpi_indicators_manager
+from kpi_management import visibility as kpi_visibility
 import data_retriever as db_retriever
 from ...shared.constants import KPI_CALC_TYPE_OPTIONS
 
@@ -58,7 +59,14 @@ class KpiSpecsTab(ttk.Frame):
         ttk.Entry(attr_frame, textvariable=self.kpi_spec_unit_var, width=40).grid(row=2, column=1, padx=5, pady=2, sticky="ew")
 
         self.kpi_spec_visible_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(attr_frame, text="Visibile per Target", variable=self.kpi_spec_visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=2)
+        ttk.Checkbutton(attr_frame, text="Visibile per Target (Globale)", variable=self.kpi_spec_visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=2)
+
+        # --- KPI-Stabilimento Visibility ---
+        self.stabilimento_visibility_frame = ttk.LabelFrame(add_kpi_frame_outer, text="Visibilità per Stabilimento", padding=5)
+        self.stabilimento_visibility_frame.pack(fill="x", pady=5)
+        self.stabilimento_checkboxes = {}
+        self.all_stabilimenti = db_retriever.get_all_stabilimenti() # Fetch all stabilimenti once
+        self._populate_stabilimento_checkboxes()
 
         kpi_spec_btn_frame_outer = ttk.Frame(add_kpi_frame_outer)
         kpi_spec_btn_frame_outer.pack(pady=10)
@@ -103,6 +111,28 @@ class KpiSpecsTab(ttk.Frame):
             text="Elimina Specifica Selezionata",
             command=self.delete_selected_kpi_spec,
         ).pack(side="left", padx=5)
+
+    def _populate_stabilimento_checkboxes(self):
+        for widget in self.stabilimento_visibility_frame.winfo_children():
+            widget.destroy()
+        self.stabilimento_checkboxes = {}
+
+        row_idx = 0
+        col_idx = 0
+        max_cols = 3 # Max 3 columns for checkboxes
+
+        for stabilimento in self.all_stabilimenti:
+            stab_id = stabilimento['id']
+            stab_name = stabilimento['name']
+            var = tk.BooleanVar(value=True) # Default to True (visible) if no specific setting
+            chk = ttk.Checkbutton(self.stabilimento_visibility_frame, text=stab_name, variable=var)
+            chk.grid(row=row_idx, column=col_idx, sticky="w", padx=5, pady=2)
+            self.stabilimento_checkboxes[stab_id] = var
+
+            col_idx += 1
+            if col_idx >= max_cols:
+                col_idx = 0
+                row_idx += 1
 
     def refresh_display(self):
         self.refresh_tree()
@@ -344,6 +374,15 @@ class KpiSpecsTab(ttk.Frame):
         self.kpi_spec_unit_var.set(kpi_data_dict.get("unit_of_measure", ""))
         self.kpi_spec_visible_var.set(bool(kpi_data_dict.get("visible", True)))
 
+        # Load stabilimento-specific visibility
+        kpi_id = kpi_data_dict['id']
+        explicit_visibility_settings = kpi_visibility.get_stabilimenti_for_kpi(kpi_id)
+        explicit_settings_map = {s['stabilimento_id']: s['is_enabled'] for s in explicit_visibility_settings}
+
+        for stab_id, checkbox_var in self.stabilimento_checkboxes.items():
+            # If an explicit setting exists, use it. Otherwise, default to True.
+            checkbox_var.set(explicit_settings_map.get(stab_id, True))
+
     def load_kpi_spec_for_editing(self, kpi_data_full_dict):
         self._populating_kpi_spec_combos = True
         self.current_editing_kpi_id = kpi_data_full_dict["id"]
@@ -408,6 +447,10 @@ class KpiSpecsTab(ttk.Frame):
         self.kpi_spec_type_var.set(KPI_CALC_TYPE_OPTIONS[0])
         self.kpi_spec_unit_var.set("")
         self.kpi_spec_visible_var.set(True)
+        # Reset stabilimento checkboxes to default (all visible)
+        for stab_id, var in self.stabilimento_checkboxes.items():
+            var.set(True)
+
         if not (keep_hierarchy and keep_indicator and keep_subgroup and keep_group):
             self.current_editing_kpi_id = None
             self.save_kpi_spec_btn.config(text="Aggiungi Specifica")
@@ -433,15 +476,20 @@ class KpiSpecsTab(ttk.Frame):
                     visible,
                 )
                 messagebox.showinfo("Successo", "Specifica KPI aggiornata!")
+                kpi_id_to_save_visibility = self.current_editing_kpi_id
             else:
-                kpi_specs_manager.add_kpi_spec(
+                new_kpi_id = kpi_specs_manager.add_kpi_spec(
                     self.selected_indicator_id_for_spec, desc, calc_type, unit, visible
                 )
                 messagebox.showinfo(
                     "Successo", "Nuova specifica KPI aggiunta/aggiornata!"
                 )
-            self.app.refresh_all_data()
-            self.clear_kpi_spec_fields_button_action()
+                kpi_id_to_save_visibility = new_kpi_id
+
+            # Save per-stabilimento visibility settings
+            for stab_id, var in self.stabilimento_checkboxes.items():
+                kpi_visibility.set_kpi_stabilimento_visibility(kpi_id_to_save_visibility, stab_id, var.get())
+
         except sqlite3.IntegrityError as ie:
             if (
                 "UNIQUE constraint failed: kpis.indicator_id" in str(ie)
@@ -491,6 +539,10 @@ class KpiSpecsTab(ttk.Frame):
                     return
                 actual_indicator_id_to_delete = kpi_spec_details["actual_indicator_id"]
                 kpi_indicators_manager.delete_kpi_indicator(actual_indicator_id_to_delete)
+                # Also delete associated kpi_stabilimento_visibility entries
+                # This is handled by ON DELETE CASCADE in the database schema, but good to be explicit
+                # if there were any other related tables not covered by cascade.
+                # For now, no explicit call needed here due to CASCADE.
                 messagebox.showinfo(
                     "Successo", "Specifica KPI e relativi dati eliminati."
                 )

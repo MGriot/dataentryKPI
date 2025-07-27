@@ -10,21 +10,24 @@ class StabilimentiTab(ttk.Frame):
         super().__init__(parent)
         self.app = app
         self.create_widgets()
+        self.refresh_tree()
 
     def create_widgets(self):
         self.st_tree = ttk.Treeview(
             self,
-            columns=("ID", "Nome", "Descrizione", "Visibile"),
+            columns=("ID", "Nome", "Descrizione", "Visibile", "Colore"),
             show="headings",
         )
         self.st_tree.heading("ID", text="ID")
         self.st_tree.column("ID", width=50, anchor="center", stretch=tk.NO)
         self.st_tree.heading("Nome", text="Nome")
-        self.st_tree.column("Nome", width=250, stretch=tk.YES)
+        self.st_tree.column("Nome", width=200, stretch=tk.YES)
         self.st_tree.heading("Descrizione", text="Descrizione")
-        self.st_tree.column("Descrizione", width=300, stretch=tk.YES)
+        self.st_tree.column("Descrizione", width=250, stretch=tk.YES)
         self.st_tree.heading("Visibile", text="Visibile")
         self.st_tree.column("Visibile", width=80, anchor="center", stretch=tk.NO)
+        self.st_tree.heading("Colore", text="Colore")
+        self.st_tree.column("Colore", width=100, anchor="center", stretch=tk.NO)
 
         self.st_tree.pack(expand=True, fill="both", padx=5, pady=5)
 
@@ -45,7 +48,7 @@ class StabilimentiTab(ttk.Frame):
                 self.st_tree.insert(
                     "",
                     "end",
-                    values=(row["id"], row["name"], row["description"] if row["description"] is not None else "", "Sì" if row["visible"] else "No"),
+                    values=(row["id"], row["name"], row["description"] if row["description"] is not None else "", "Sì" if row["visible"] else "No", row["color"]),
                 )
         except Exception as e:
             messagebox.showerror("Errore di Caricamento", f"Impossibile caricare gli stabilimenti dal database:\n{e}")
@@ -69,7 +72,8 @@ class StabilimentiTab(ttk.Frame):
                 int(item_values[0]), 
                 item_values[1], 
                 item_values[2], 
-                item_values[3]
+                item_values[3],
+                item_values[4]
             )
             self.stabilimento_editor_window(data_tuple=data_tuple)
         except (ValueError, IndexError) as e:
@@ -107,11 +111,22 @@ class StabilimentiTab(ttk.Frame):
         win.geometry("450x220")
         win.resizable(False, False)
 
-        s_id, s_name, s_desc, s_vis_str = (
+        s_id, s_name, s_desc, s_vis_str, s_color = (
             data_tuple
             if data_tuple
-            else (None, "", "", "Sì")
+            else (None, "", "", "Sì", "#000000") # Default color for new stabilimento
         )
+
+        if s_id is not None:
+            # Fetch the full stabilimento data, including color, from the database
+            stabilimento_data = stabilimenti_manager.get_stabilimento_by_id(s_id)
+            if stabilimento_data:
+                s_color = stabilimento_data.get('color', '#000000')
+            else:
+                # Handle case where stabilimento is not found (e.g., deleted by another user)
+                messagebox.showerror("Errore", "Stabilimento non trovato.", parent=win)
+                win.destroy()
+                return
 
         form_frame = ttk.Frame(win, padding=15)
         form_frame.pack(expand=True, fill="both")
@@ -139,19 +154,18 @@ class StabilimentiTab(ttk.Frame):
             if not nome_val:
                 messagebox.showerror("Errore di Validazione", "Il campo 'Nome' è obbligatorio.", parent=win)
                 return
-            
+
             try:
                 if s_id is not None:
-                    stabilimenti_manager.update_stabilimento(s_id, nome_val, desc_val, visible_var.get())
+                    stabilimenti_manager.update_stabilimento(s_id, nome_val, desc_val, visible_var.get(), s_color)
                 else:
-                    stabilimenti_manager.add_stabilimento(nome_val, desc_val, visible_var.get())
-                
+                    stabilimenti_manager.add_stabilimento(nome_val, desc_val, visible_var.get(), s_color)
+
+                self.refresh_tree()
                 self.app.refresh_all_data()
                 win.destroy()
                 messagebox.showinfo("Successo", "Stabilimento salvato con successo.")
-
             except Exception as e:
                 messagebox.showerror("Errore di Salvataggio", f"Salvataggio fallito:\n{e}\n\n{traceback.format_exc()}", parent=win)
-
         ttk.Button(btn_frame, text="Salva", command=save_action, style="Accent.TButton").pack(side="left", padx=10)
         ttk.Button(btn_frame, text="Annulla", command=win.destroy).pack(side="left", padx=10)
