@@ -35,66 +35,14 @@ from gui.shared.constants import (
     WEEKDAY_BIAS_FACTOR_MEDIA,
 )
 
-# Module availability flags & Mocks for dependencies
-_data_retriever_available = False
-_db_core_utils_available = False
-
-try:
-    from data_retriever import get_annual_target_entry, get_kpi_detailed_by_id
-
-    _data_retriever_available = True
-except ImportError:
-    print(
-        "WARNING: data_retriever not fully available for repartition.py. Mocks being used."
-    )
-
-    def get_annual_target_entry(year, stabilimento_id, kpi_spec_id):
-        return None
-
-    def get_kpi_detailed_by_id(kpi_spec_id):
-        return None
-
-
-try:
-    from db_core.utils import (
-        get_weighted_proportions,
-        get_parabolic_proportions,
-        get_sinusoidal_proportions,
-        get_date_ranges_for_quarters,
-    )
-
-    _db_core_utils_available = True
-except ImportError:
-    print("WARNING: db_core.utils not available for repartition.py. Mocks being used.")
-
-    def get_weighted_proportions(
-        num_periods, initial_factor=1.5, final_factor=0.5, decreasing=True
-    ):
-        return [1.0 / num_periods] * num_periods if num_periods > 0 else []
-
-    def get_parabolic_proportions(
-        num_periods, peak_at_center=True, min_value_epsilon=1e-9
-    ):
-        return [1.0 / num_periods] * num_periods if num_periods > 0 else []
-
-    def get_sinusoidal_proportions(
-        num_periods, amplitude=0.5, phase_offset=0, min_value_epsilon=1e-9
-    ):
-        return [1.0 / num_periods] * num_periods if num_periods > 0 else []
-
-    def get_date_ranges_for_quarters(year):
-        return {
-            1: (datetime.date(year, 1, 1), datetime.date(year, 3, 31))
-        }  # Simplified mock
-
-# --- Add this block before any use of get_kpi_display_name ---
-try:
-    from utils.kpi_utils import get_kpi_display_name
-except ImportError:
-
-    def get_kpi_display_name(kpi_data_dict):
-        # Fallback: minimal display
-        return str(kpi_data_dict.get("indicator_name", "N/D"))
+from data_retriever import get_annual_target_entry, get_kpi_detailed_by_id
+from utils.repartition_utils import (
+    get_weighted_proportions,
+    get_parabolic_proportions,
+    get_sinusoidal_proportions,
+    get_date_ranges_for_quarters,
+)
+from utils.kpi_utils import get_kpi_display_name
 
 # --- Repartition Logic and Calculation ---
 

@@ -12,50 +12,12 @@ from gui.shared.constants import (
     PROFILE_ANNUAL_PROGRESSIVE,
 )
 
-# Module availability flags & Mocks
-_data_retriever_available = False
-_repartition_module_available = False
-
-try:
-    from data_retriever import (
-        get_annual_target_entry,
-        get_kpi_role_details,
-        get_sub_kpis_for_master,
-        # Potentially get_kpi_detailed_by_id if needed here, though repartition uses it
-    )
-
-    _data_retriever_available = True
-except ImportError:
-    print(
-        "WARNING: data_retriever not fully available for annual.py. Mocks being used."
-    )
-
-    def get_annual_target_entry(year, stabilimento_id, kpi_spec_id):
-        return None
-
-    def get_kpi_role_details(kpi_spec_id):
-        return {"role": "none", "related_kpis": [], "master_id": None}
-
-    def get_sub_kpis_for_master(master_kpi_spec_id):
-        return []
-
-
-try:
-    from .repartition import calculate_and_save_all_repartitions
-
-    _repartition_module_available = True
-except ImportError:
-    print(
-        "WARNING: target_management.repartition not available for annual.py. Mock being used."
-    )
-
-    def calculate_and_save_all_repartitions(
-        year, stabilimento_id, kpi_id_recalc, target_number
-    ):
-        print(
-            f"MOCK: calculate_and_save_all_repartitions({year}, {stabilimento_id}, {kpi_id_recalc}, {target_number}) called."
-        )
-        pass
+from data_retriever import (
+    get_annual_target_entry,
+    get_kpi_role_details,
+    get_sub_kpis_for_master,
+)
+from target_management.repartition import calculate_and_save_all_repartitions
 
 
 # --- Formula Evaluation (Placeholder - Needs Secure Implementation) ---

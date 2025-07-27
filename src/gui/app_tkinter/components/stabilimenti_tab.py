@@ -142,11 +142,17 @@ class StabilimentiTab(ttk.Frame):
         desc_entry = ttk.Entry(form_frame, textvariable=desc_var, width=40)
         desc_entry.grid(row=1, column=1, padx=5, pady=5)
 
+        ttk.Label(form_frame, text="Colore:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        color_var = tk.StringVar(value=s_color)
+        color_label = ttk.Label(form_frame, textvariable=color_var, background=s_color, width=10, relief="solid")
+        color_label.grid(row=2, column=1, sticky="w", padx=5, pady=5)
+        ttk.Button(form_frame, text="Scegli...", command=lambda: self._choose_color_for_editor(color_var, color_label)).grid(row=2, column=2, padx=5, pady=5)
+
         visible_var = tk.BooleanVar(value=(s_vis_str == "Sì"))
-        ttk.Checkbutton(form_frame, text="Visibile per Inserimento Target", variable=visible_var).grid(row=2, column=1, sticky="w", padx=5, pady=10)
+        ttk.Checkbutton(form_frame, text="Visibile per Inserimento Target", variable=visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=10)
 
         btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=3, columnspan=2, pady=15)
+        btn_frame.grid(row=4, columnspan=3, pady=15)
 
         def save_action():
             nome_val = name_var.get().strip()
@@ -157,9 +163,9 @@ class StabilimentiTab(ttk.Frame):
 
             try:
                 if s_id is not None:
-                    stabilimenti_manager.update_stabilimento(s_id, nome_val, desc_val, visible_var.get(), s_color)
+                    stabilimenti_manager.update_stabilimento(s_id, nome_val, desc_val, visible_var.get(), color_var.get())
                 else:
-                    stabilimenti_manager.add_stabilimento(nome_val, desc_val, visible_var.get(), s_color)
+                    stabilimenti_manager.add_stabilimento(nome_val, desc_val, visible_var.get(), color_var.get())
 
                 self.refresh_tree()
                 self.app.refresh_all_data()
@@ -169,3 +175,10 @@ class StabilimentiTab(ttk.Frame):
                 messagebox.showerror("Errore di Salvataggio", f"Salvataggio fallito:\n{e}\n\n{traceback.format_exc()}", parent=win)
         ttk.Button(btn_frame, text="Salva", command=save_action, style="Accent.TButton").pack(side="left", padx=10)
         ttk.Button(btn_frame, text="Annulla", command=win.destroy).pack(side="left", padx=10)
+
+    def _choose_color_for_editor(self, color_var, color_label):
+        color_code = tk.colorchooser.askcolor(title="Scegli colore")
+        if color_code:
+            color_hex = color_code[1]
+            color_var.set(color_hex)
+            color_label.config(background=color_hex)

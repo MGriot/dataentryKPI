@@ -12,7 +12,7 @@ The Streamlit interface provides a modern, web-based approach to KPI management 
 pip install -r requirements.txt
 
 # Launch application
-python main.py streamlit
+python src/main.py streamlit
 ```
 
 ### 2. Access
@@ -77,6 +77,16 @@ Open your browser to:
 3. Configure weights
 4. Set distribution rules
 
+### Managing KPI Visibility per Stabilimento
+
+In the **'Gestione Specifiche KPI'** page, when adding or editing a KPI, you can now control its visibility for each individual 'Stabilimento'.
+
+*   Below the global 'Visibile per Target (Globale)' checkbox, a new section titled **'Visibilità per Stabilimento'** appears.
+*   This section lists all configured 'Stabilimenti' with a checkbox next to each name.
+*   **Check** a checkbox to make the KPI visible and active for that specific 'Stabilimento' in target entry and analysis views.
+*   **Uncheck** a checkbox to hide the KPI for that 'Stabilimento'.
+*   By default, if no specific setting is made for a 'Stabilimento', the KPI's global visibility setting applies.
+
 ### 3. Analysis & Reporting
 
 #### Data Visualization
@@ -125,6 +135,14 @@ The system automatically validates:
 - Weight distributions (sum to 100%)
 - Period consistency
 - Value ranges
+
+## Settings (⚙️ Impostazioni)
+
+In the **'Impostazioni'** page, you can now configure colors for each 'Stabilimento'.
+
+*   A **'Colori Stabilimenti'** section is available.
+*   For each 'Stabilimento', a color picker allows you to select a specific color.
+*   The chosen color is immediately saved to the database and will be used in various visualizations throughout the application to represent data associated with that 'Stabilimento'.
 
 ## Best Practices
 
@@ -183,22 +201,3 @@ The system automatically validates:
 - [Target Generation](target_generation.md)
 - [API Reference](api_reference.md)
 - [Configuration Guide](configuration.md)
-
-## Features
-
--   **Modern Web UI:**
-    Manage KPIs, targets, and results via an interactive web interface.
-
--   **Target Entry:**
-    Enter and distribute annual targets with real-time feedback, including advanced options for formula-based targets and detailed repartition profiles.
-
--   **KPI & Template Management:**
-    Full CRUD for groups, subgroups, indicators, and templates.
-
--   **Results & Export/Import:**
-    Visualize distributed targets and download/upload all data (CSV/ZIP).
-
-## See Also
-
--   [Automatic Target Generation Logic](target_generation.md)
--   [Architecture Overview](architecture.md)

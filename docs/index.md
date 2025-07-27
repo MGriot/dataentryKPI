@@ -1,5 +1,13 @@
 # Data Entry KPI Documentation Index
 
+## Product Documentation
+
+1. [Product Requirements Document (PRD)](product_requirements.md)
+   - Project Goals
+   - User Stories / Features
+   - Technical Requirements
+   - Non-Functional Requirements
+
 ## Core Documentation
 
 1. [System Architecture](architecture.md)

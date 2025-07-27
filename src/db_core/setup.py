@@ -229,6 +229,17 @@ def setup_databases():
                     print(
                         f"WARN: Impossibile aggiungere 'description' a 'stabilimenti', potrebbe già esistere o altro problema: {e}"
                     )
+            # Check and add 'color' column if missing
+            if "color" not in stabilimenti_cols:
+                try:
+                    cursor.execute(
+                        "ALTER TABLE stabilimenti ADD COLUMN color TEXT NOT NULL DEFAULT '#000000'"
+                    )
+                    print("Aggiunta colonna 'color' a 'stabilimenti'.")
+                except sqlite3.OperationalError as e:
+                    print(
+                        f"WARN: Impossibile aggiungere 'color' a 'stabilimenti', potrebbe già esistere o altro problema: {e}"
+                    )
             conn.commit()
         print(f"Setup tabelle in {db_stabilimenti_path} completato.")
     except sqlite3.Error as e:

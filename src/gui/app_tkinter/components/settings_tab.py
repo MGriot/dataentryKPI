@@ -59,7 +59,8 @@ class SettingsTab(ttk.Frame):
         self.stabilimento_colors_vars = {} # Reset the dictionary
 
         stabilimenti = db_retriever.get_all_stabilimenti()
-        for i, stabilimento in enumerate(stabilimenti):
+        for i, stabilimento_row in enumerate(stabilimenti):
+            stabilimento = dict(stabilimento_row) # Convert sqlite3.Row to dict
             stabilimento_name = stabilimento['name']
             stabilimento_id = stabilimento['id']
             color = stabilimento['color'] if 'color' in stabilimento else '#000000'

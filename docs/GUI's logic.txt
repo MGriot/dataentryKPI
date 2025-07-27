@@ -64,7 +64,7 @@
   Purpose: Basic CRUD (Create, Read, Update, Delete) operations for facilities.
 
   UI Components:
-   - A ttk.Treeview to display the list of facilities with columns: ID, Name, Description, Visible.
+   - A ttk.Treeview to display the list of facilities with columns: ID, Name, Description, Visible, Color.
    - Buttons: Add New, Edit Selected, Delete Selected.
 
   Logic and Data Flow:
@@ -72,20 +72,20 @@
        - Create a refresh_stabilimenti_tree() method.
        - Inside, clear the Treeview.
        - Call data_retriever.get_all_stabilimenti() to fetch all facility records.
-       - Iterate through the returned list of rows and insert each one into the Treeview.
+       - Iterate through the returned list of rows and insert each one into the Treeview, including the color.
 
    2. Add Facility:
        - The Add New button opens a Toplevel dialog window.
-       - The dialog contains ttk.Entry widgets for the name and description, and a ttk.Checkbutton for the visible
-         flag.
-       - On dialog submission, call stabilimenti_management.crud.add_stabilimento() with the input values.
+       - The dialog contains ttk.Entry widgets for the name and description, a ttk.Checkbutton for the visible
+         flag, and a **color picker** (e.g., a Label with background color and a "Choose..." button).
+       - On dialog submission, call stabilimenti_management.crud.add_stabilimento() with the input values, including the selected color.
        - After the call, invoke the main refresh_all_data() method to update the UI.
 
    3. Edit Facility:
        - The Edit Selected button is enabled only when an item in the Treeview is selected.
-       - It opens the same dialog, populated with the data from the selected row.
+       - It opens the same dialog, populated with the data from the selected row, including the current color.
        - On submission, it calls stabilimenti_management.crud.update_stabilimento(), passing the facility ID and
-         the new values.
+         the new values, including the potentially updated color.
        - Refresh the UI.
 
    4. Delete Facility:
@@ -169,11 +169,12 @@
 
   Tab 4: ⚙️ KPI Specification Management
 
-  Purpose: Define the specific properties (calculation type, unit, etc.) for each individual indicator.
+  Purpose: Define the specific properties (calculation type, unit, etc.) for each individual indicator, and manage their visibility per stabilimento.
 
   UI Components:
    - A form at the top with three chained Combobox widgets (Group -> Subgroup -> Indicator) to select a KPI.
    - Entry, Combobox, and Checkbutton widgets below to edit the properties of the selected KPI.
+   - A new section for **'Visibilità per Stabilimento'** with a list of checkboxes, one for each stabilimento.
    - A ttk.Treeview at the bottom displaying all currently defined KPI specifications.
 
   Logic and Data Flow:
@@ -191,11 +192,13 @@
        - If no spec exists, clear the fields. If the parent subgroup is linked to a template, pre-fill the form
          with the default values from that template definition
          (data_retriever.get_template_indicator_definition_by_name()). Set the "Save" button text to "Add Spec".
+       - **KPI-Stabilimento Visibility:** When loading a KPI for editing, retrieve its specific visibility settings for each stabilimento using `kpi_management.visibility.get_stabilimenti_for_kpi()` and update the checkboxes accordingly. When creating a new KPI, all checkboxes should default to checked.
    4. Save/Update:
        - On button click, call either kpi_management.specs.add_kpi_spec() or update_kpi_spec() with the form data.
+       - **Crucially, after saving the KPI specification, iterate through all stabilimento checkboxes and call `kpi_management.visibility.set_kpi_stabilimento_visibility()` for each stabilimento, passing the KPI ID and the checkbox's boolean value.** This ensures the per-stabilimento visibility is persisted.
    5. Delete: Deleting a spec is equivalent to deleting the indicator itself. The button should act on the
       Treeview selection. After confirmation, get the indicator_id from the selected row and call
-      kpi_management.indicators.delete_kpi_indicator(). The database cascade will handle removing the spec record.
+      kpi_management.indicators.delete_kpi_indicator(). The database cascade will handle removing the spec record, including associated `kpi_stabilimento_visibility` entries.
 
   ---
 

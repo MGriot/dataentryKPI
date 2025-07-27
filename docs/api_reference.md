@@ -1,223 +1,258 @@
-# API Documentation
+# API Reference
 
-## Core Modules
+This document provides a reference for the key functions and modules within the Data Entry KPI application.
 
-### 1. Target Management API
+## 1. Core Utilities
 
-#### 1.1 Annual Target Management
+### 1.1 `db_core.utils`
+
+Provides utility functions related to database path management.
+
 ```python
-from target_management import annual
+def get_database_path(db_name: str) -> Path:
+    """Constructs the absolute path to the database file.
 
-def save_annual_targets(year: int, stabilimento_id: int, targets_data_map: dict) -> None:
-    """Save annual targets and trigger distribution calculations.
-    
     Args:
-        year: Target year
-        stabilimento_id: Facility ID
-        targets_data_map: Dictionary mapping KPI IDs to target data
-        
-    Example:
-        targets_data = {
-            "1": {
-                "annual_target1": 1000,
-                "annual_target2": 1200,
-                "distribution_profile": "PROFILE_EVEN",
-                "repartition_logic": "REPARTITION_LOGIC_MESE"
-            }
-        }
+        db_name (str): The name of the database file (e.g., 'db_kpis.db').
+
+    Returns:
+        Path: The absolute path to the database file.
+    """
+```
+
+### 1.2 `utils.kpi_utils`
+
+Provides utility functions for KPI data manipulation and display.
+
+```python
+def get_kpi_display_name(kpi_data_dict: dict) -> str:
+    """
+    Generates a user-friendly display name for a KPI based on its hierarchical data.
+    Expects a dictionary with 'group_name', 'subgroup_name', and 'indicator_name'.
+
+    Args:
+        kpi_data_dict (dict): A dictionary containing KPI data, typically from data_retriever.
+
+    Returns:
+        str: A formatted string representing the KPI's full name (e.g., "Group > Subgroup > Indicator").
+    """
+```
+
+### 1.3 `utils.repartition_utils`
+
+Provides mathematical utility functions for target repartitioning and distribution profiles.
+
+```python
+def get_weighted_proportions(num_periods: int, initial_factor: float, final_factor: float, decreasing: bool = True) -> list[float]:
+    """
+    Generates a list of proportions that are weighted, either increasing or decreasing.
+    The sum of proportions is 1.
     """
 
-def get_annual_target(stabilimento_id: int, kpi_id: int, year: int) -> dict:
-    """Retrieve annual target data for a specific KPI."""
+def get_parabolic_proportions(num_periods: int, peak_at_center: bool = True, min_value_epsilon: float = 1e-09) -> list[float]:
+    """
+    Generates proportions following a parabolic curve. Sum of proportions is 1.
+    """
 
-def calculate_period_targets(annual_target: float, profile: str, params: dict) -> dict:
-    """Calculate period-specific targets using selected profile."""
+def get_sinusoidal_proportions(num_periods: int, amplitude: float = 0.5, phase_offset: float = 0, min_value_epsilon: float = 1e-09) -> list[float]:
+    """
+    Generates proportions following a sinusoidal curve. Sum of proportions is 1.
+    Amplitude is a fraction of the mean (e.g., 0.5 means +/- 50% of mean).
+    """
+
+def get_date_ranges_for_quarters(year: int) -> dict:
+    """
+    Returns a dictionary of quarter names (Q1, Q2, Q3, Q4) to tuples of (start_date, end_date).
+    """
 ```
 
-#### 1.2 Distribution Profiles
+## 2. Data Retrieval
+
+### 2.1 `data_retriever`
+
+Provides functions to retrieve various types of data from the application's databases.
+
 ```python
-from target_management import repartition
+def get_kpi_groups() -> list:
+    """Fetches all KPI groups, ordered by name. Returns list of sqlite3.Row."""
 
-def get_weighted_proportions(num_periods: int, initial_factor: float, 
-                           final_factor: float, decreasing: bool = False) -> List[float]:
-    """Generate progressive/regressive weights."""
+def get_kpi_indicator_templates() -> list:
+    """Fetches all KPI indicator templates, ordered by name. Returns list of sqlite3.Row."""
 
-def get_sinusoidal_proportions(num_periods: int, amplitude: float, 
-                             phase_offset: float) -> List[float]:
-    """Generate sinusoidal distribution weights."""
+def get_kpi_indicator_template_by_id(template_id: int):
+    """Fetches a specific KPI indicator template by its ID."""
 
-def get_parabolic_proportions(num_periods: int, peak_at_center: bool = True) -> List[float]:
-    """Generate parabolic distribution weights."""
+def get_template_defined_indicators(template_id: int) -> list:
+    """Fetches all indicators defined within a specific template, ordered by name."""
+
+def get_template_indicator_definition_by_name(template_id: int, indicator_name: str):
+    """Fetches a specific indicator definition within a template by its name."""
+
+def get_template_indicator_definition_by_id(definition_id: int):
+    """Fetches a specific indicator definition by its ID."""
+
+def get_kpi_subgroups_by_group_revised(group_id: int) -> list:
+    """Fetches all KPI subgroups for a given group ID, including the name of their linked template."""
+
+def get_kpi_subgroup_by_id_with_template_name(subgroup_id: int):
+    """Fetches a specific KPI subgroup by ID, including its template name if linked."""
+
+def get_kpi_indicators_by_subgroup(subgroup_id: int) -> list:
+    """Fetches all KPI indicators for a given subgroup ID, ordered by name."""
+
+def get_all_kpis_detailed(only_visible: bool = False, stabilimento_id: int = None) -> list:
+    """Fetches all KPI specifications with their full hierarchy names.
+    Can filter by global visibility and per-stabilimento visibility.
+    """
+
+def get_kpi_detailed_by_id(kpi_spec_id: int, stabilimento_id: int = None):
+    """Fetches a specific KPI specification by its ID, including hierarchy and template info.
+    Can filter by per-stabilimento visibility.
+    """
+
+def get_all_stabilimenti(visible_only: bool = False) -> list:
+    """Fetches all stabilimenti, optionally filtering by visibility, ordered by name."""
+
+def get_linked_sub_kpis_detailed(master_kpi_spec_id: int) -> list:
+    """Fetches detailed information for all Sub-KPIs linked to a Master KPI."""
+
+def get_annual_target_entry(year: int, stabilimento_id: int, kpi_spec_id: int):
+    """Fetches the annual target entry for a specific year, stabilimento, and KPI spec ID."""
+
+def get_annual_targets(stabilimento_id: int, year: int):
+    """Retrieves annual targets for a given stabilimento and year."""
+
+def get_periodic_targets_for_kpi(year: int, stabilimento_id: int, kpi_spec_id: int, period_type: str, target_number: int) -> list:
+    """Fetches repartited (periodic) target data for a specific KPI, year, stabilimento, period type, and target number."""
+
+def get_sub_kpis_for_master(master_kpi_spec_id: int) -> list:
+    """Returns a list of sub_kpi_spec_id linked to a master_kpi_spec_id."""
+
+def get_master_kpi_for_sub(sub_kpi_spec_id: int):
+    """Returns the master_kpi_spec_id for a given sub_kpi_spec_id, or None."""
+
+def get_all_master_sub_kpi_links() -> list:
+    """Returns all links (id, master_kpi_spec_id, sub_kpi_spec_id, distribution_weight)."""
+
+def get_kpi_role_details(kpi_spec_id: int) -> dict:
+    """Determines KPI role (Master, Sub, or None) and related info."""
+
+def get_all_annual_target_entries_for_export() -> list:
+    """Fetches all records from annual_targets for CSV export. Selects all relevant columns."""
+
+def get_all_periodic_targets_for_export(period_type: str) -> list:
+    """Fetches all records from a specific periodic target table for CSV export."""
+
+def get_distinct_years() -> list:
+    """Fetches all distinct years from the annual_targets table."""
+
+def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type: str, year: int = None) -> list:
+    """Fetches periodic targets for a specific KPI across all stabilimenti."""
 ```
 
-### 2. KPI Management API
+## 3. KPI Management
 
-#### 2.1 Template Management
+### 3.1 `kpi_management.specs`
+
+Functions for managing KPI specifications.
+
 ```python
-from kpi_management import templates
+def add_kpi_spec(indicator_id: int, description: str, calculation_type: str, unit_of_measure: str, visible: bool) -> int:
+    """Adds a new KPI specification to the database."""
 
-def create_template(name: str, description: str, calculation_type: str, 
-                   base_unit: str) -> int:
-    """Create new KPI template."""
+def update_kpi_spec(kpi_spec_id: int, indicator_id: int, description: str, calculation_type: str, unit_of_measure: str, visible: bool):
+    """Updates an existing KPI specification's details."""
 
-def get_template(template_id: int) -> dict:
-    """Retrieve template details."""
-
-def update_template(template_id: int, **kwargs) -> None:
-    """Update existing template."""
+def delete_kpi_spec(kpi_spec_id: int):
+    """Deletes a KPI specification by its ID."""
 ```
 
-#### 2.2 KPI Specifications
+### 3.2 `kpi_management.indicators`
+
+Functions for managing KPI indicators.
+
 ```python
-from kpi_management import specifications
+def add_kpi_indicator(name: str, subgroup_id: int) -> int:
+    """Adds a new KPI indicator to the database."""
 
-def create_kpi(template_id: int, description: str, unit: str, 
-               calculation_type: str = None) -> int:
-    """Create new KPI specification."""
+def update_kpi_indicator(indicator_id: int, name: str, subgroup_id: int):
+    """Updates an existing KPI indicator's details."""
 
-def link_master_sub(master_id: int, sub_id: int, weight: float) -> None:
-    """Create master/sub KPI relationship."""
-
-def get_kpi_hierarchy(kpi_id: int) -> dict:
-    """Get KPI's position in hierarchy."""
+def delete_kpi_indicator(indicator_id: int):
+    """Deletes a KPI indicator by its ID."""
 ```
 
-### 3. Data Access API
+### 3.3 `kpi_management.visibility`
 
-#### 3.1 Database Operations
+Functions for managing KPI visibility settings per stabilimento.
+
 ```python
-from db_core import database_manager
+def set_kpi_stabilimento_visibility(kpi_id: int, stabilimento_id: int, is_enabled: bool):
+    """Sets or updates the visibility of a KPI for a specific stabilimento.
+    If the entry does not exist, it will be created.
+    """
 
-def get_connection(db_name: str) -> sqlite3.Connection:
-    """Get database connection with proper configuration."""
+def get_kpi_stabilimento_visibility(kpi_id: int, stabilimento_id: int) -> bool:
+    """Gets the visibility status of a KPI for a specific stabilimento.
+    Returns True if enabled, False if disabled, and True if no specific entry exists (default).
+    """
 
-def execute_query(query: str, params: tuple = None, 
-                 db_name: str = None) -> List[sqlite3.Row]:
-    """Execute SQL query with error handling."""
+def get_stabilimenti_for_kpi(kpi_id: int) -> list:
+    """Returns a list of stabilimento IDs for which a KPI has explicit visibility settings.
+    Each item in the list is a dictionary with 'stabilimento_id' and 'is_enabled'.
+    """
 
-def begin_transaction(db_name: str = None) -> None:
-    """Start database transaction."""
+def get_kpis_for_stabilimento(stabilimento_id: int) -> list:
+    """Returns a list of KPI IDs for which a stabilimento has explicit visibility settings.
+    Each item in the list is a dictionary with 'kpi_id' and 'is_enabled'.
+    """
+
+def delete_kpi_stabilimento_visibility(kpi_id: int, stabilimento_id: int):
+    """Deletes a specific KPI-stabilimento visibility entry.
+    This effectively reverts to the default visibility (True) for that pair.
+    """
 ```
 
-#### 3.2 Data Retrieval
+## 4. Stabilimenti Management
+
+### 4.1 `stabilimenti_management.crud`
+
+Functions for CRUD operations on Stabilimento records.
+
 ```python
-from data_retriever import db_retriever
+def add_stabilimento(name: str, description: str = "", visible: bool = True, color: str = "#000000") -> int:
+    """Adds a new stabilimento to the database."""
 
-def get_all_kpis(visible_only: bool = True) -> List[dict]:
-    """Retrieve all KPI specifications."""
+def update_stabilimento(stabilimento_id: int, name: str, description: str, visible: bool, color: str):
+    """Updates an existing stabilimento's details."""
 
-def get_period_values(kpi_id: int, stabilimento_id: int, 
-                     start_date: date, end_date: date) -> List[dict]:
-    """Get target values for a date range."""
+def update_stabilimento_color(stabilimento_id: int, color: str):
+    """Updates the color of an existing stabilimento."""
 
-def get_actual_values(kpi_id: int, stabilimento_id: int,
-                     start_date: date, end_date: date) -> List[dict]:
-    """Get actual values for comparison."""
+def is_stabilimento_referenced(stabilimento_id: int) -> bool:
+    """Checks if a stabilimento is referenced in the annual_targets table."""
+
+def get_stabilimento_by_id(stabilimento_id: int) -> dict | None:
+    """Retrieves a single stabilimento by its ID."""
+
+def delete_stabilimento(stabilimento_id: int, force_delete_if_referenced: bool = False):
+    """Deletes a stabilimento. By default, deletion is prevented if referenced in targets."""
 ```
 
-### 4. Export Management API
+## 5. Target Management
 
-#### 4.1 CSV Export
+### 5.1 `target_management.annual`
+
+Functions for managing annual KPI targets.
+
 ```python
-from export_manager import csv_export
+def save_annual_targets(year: int, stabilimento_id: int, targets_data_map: dict, initiator_kpi_spec_id: int = None):
+    """Saves annual targets, calculates formula-based targets, handles master/sub KPI
+    distribution, and triggers repartition calculations.
+    """
 
-def export_targets(year: int, stabilimento_id: int, 
-                  format: str = 'csv') -> str:
-    """Export target data to CSV."""
-
-def export_kpi_dictionary(format: str = 'csv') -> str:
-    """Export KPI definitions and relationships."""
+def calculate_and_save_all_repartitions(year: int, stabilimento_id: int, kpi_spec_id: int, target_number: int):
+    """Main function to calculate and save all periodic repartitions (daily, weekly,
+    monthly, quarterly) for a given annual target (Target 1 or Target 2).
+    """
 ```
-
-#### 4.2 Excel Export
-```python
-from export_manager import excel_export
-
-def export_analysis(start_date: date, end_date: date, 
-                   kpi_ids: List[int], format: str = 'xlsx') -> str:
-    """Export analysis data to Excel."""
-
-def export_templates(format: str = 'xlsx') -> str:
-    """Export template definitions."""
-```
-
-## Event System
-
-### 1. Event Types
-```python
-from events import EventType
-
-class EventType(Enum):
-    TARGET_UPDATED = "target_updated"
-    KPI_CREATED = "kpi_created"
-    DISTRIBUTION_CHANGED = "distribution_changed"
-    CALCULATION_COMPLETED = "calculation_completed"
-```
-
-### 2. Event Handling
-```python
-from events import event_manager
-
-def subscribe(event_type: EventType, handler: Callable) -> None:
-    """Subscribe to event notifications."""
-
-def publish(event_type: EventType, data: dict) -> None:
-    """Publish event to all subscribers."""
-```
-
-## Configuration API
-
-### 1. Settings Management
-```python
-from app_config import settings
-
-def get_setting(key: str, default: Any = None) -> Any:
-    """Retrieve configuration setting."""
-
-def update_setting(key: str, value: Any) -> None:
-    """Update configuration setting."""
-```
-
-### 2. Profile Configuration
-```python
-from target_management.profiles import profile_config
-
-def register_profile(name: str, weight_function: Callable) -> None:
-    """Register new distribution profile."""
-
-def get_profile_params(profile_name: str) -> dict:
-    """Get profile parameters."""
-```
-
-## Utility Functions
-
-### 1. Formula Evaluation
-```python
-from utils import formula_evaluator
-
-def evaluate_formula(formula: str, context: dict) -> float:
-    """Safely evaluate formula with context."""
-
-def validate_formula(formula: str) -> bool:
-    """Check formula syntax and security."""
-```
-
-### 2. Date Handling
-```python
-from utils import date_utils
-
-def get_period_dates(year: int, period_type: str) -> List[tuple]:
-    """Get start/end dates for periods."""
-
-def is_valid_period(start_date: date, end_date: date, 
-                   period_type: str) -> bool:
-    """Validate period boundaries."""
-```
-
-## See Also
-
-- [Theoretical Framework](theoretical_framework.md)
-- [Target Generation](target_generation.md)
-- [Database Schema](database_schema.md)
-- [Configuration Guide](configuration.md)
-- [GUI Logic](GUI's%20logic.txt)

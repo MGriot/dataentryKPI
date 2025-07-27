@@ -8,9 +8,12 @@ from pathlib import Path
 import argparse
 
 # Ensure the 'src' directory is in the Python path for robust imports
-project_root = Path(__file__).resolve().parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# When main.py is in src/, parents[0] is src/, parents[1] is the actual project root.
+# We want to add the 'src' directory (which is project_root / 'src') to sys.path.
+actual_project_root = Path(__file__).resolve().parents[1]
+src_path = actual_project_root / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 def main():
     """Parses arguments and launches the selected interface."""
