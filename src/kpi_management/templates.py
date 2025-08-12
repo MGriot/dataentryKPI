@@ -1,10 +1,10 @@
 # src/kpi_management/templates.py
 import sqlite3
 import traceback
-import app_config
+from src import app_config
 from pathlib import Path # Ensure Path is imported
 
-from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False
@@ -12,11 +12,7 @@ _indicators_module_available = False
 _specs_module_available = False
 
 try:
-    from data_retriever import (
-        get_template_indicator_definition_by_name,
-        get_template_indicator_definition_by_id,
-        get_template_defined_indicators # Used in delete_kpi_indicator_template
-    )
+    from src import data_retriever
     _data_retriever_available = True
 except ImportError:
     print("WARNING: data_retriever not fully available for templates.py. Mocks being used.")
@@ -26,7 +22,7 @@ except ImportError:
 
 try:
     # These are needed by _propagate_template_indicator_change
-    from .indicators import add_kpi_indicator, delete_kpi_indicator
+    from src.kpi_management.indicators import add_kpi_indicator, delete_kpi_indicator
     _indicators_module_available = True
 except ImportError:
     print("WARNING: kpi_management.indicators not available for templates.py. Mocks being used for _propagate.")
@@ -35,7 +31,7 @@ except ImportError:
 
 try:
     # Needed by _propagate_template_indicator_change
-    from .specs import add_kpi_spec # To add/update the kpis record
+    from src.kpi_management.specs import add_kpi_spec # To add/update the kpis record
     _specs_module_available = True
 except ImportError:
     print("WARNING: kpi_management.specs not available for templates.py. Mocks being used for _propagate.")

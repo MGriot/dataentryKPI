@@ -1,12 +1,12 @@
 # your_project_root/kpi_management/subgroups.py
 import sqlite3
 import traceback
-import app_config
+from src import app_config
 from pathlib import Path
 
 # CALC_TYPE constants might be needed by _apply_template_indicator_to_new_subgroup
 # if it directly constructs kpis records.
-from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False
@@ -15,7 +15,7 @@ _templates_module_propagate_available = False
 _specs_module_available = False
 
 try:
-    from data_retriever import get_template_defined_indicators, get_kpi_subgroup_by_id_with_template_name
+    from src import data_retriever
     _data_retriever_available = True
 except ImportError:
     print("WARNING: data_retriever not fully available for subgroups.py. Mocks being used.")
@@ -33,7 +33,7 @@ except ImportError:
 try:
     # This function is responsible for creating/updating indicators and specs based on template changes.
     # It's assumed to be in templates.py
-    from .templates import _propagate_template_indicator_change
+    from src.kpi_management.templates import _propagate_template_indicator_change
     _templates_module_propagate_available = True
 except ImportError:
     print("WARNING: kpi_management.templates._propagate_template_indicator_change not available. Mocks being used.")

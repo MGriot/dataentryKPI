@@ -4,9 +4,9 @@ import traceback  # For more detailed error reporting if needed
 from pathlib import Path  # To ensure CSV_EXPORT_BASE_PATH is handled as a Path object
 
 # Import configurations from app_config.py
-import app_config 
+from src import app_config 
 
-from gui.shared.constants import (
+from src.gui.shared.constants import (
         CALC_TYPE_INCREMENTALE,
         CALC_TYPE_MEDIA,
         REPARTITION_LOGIC_ANNO,

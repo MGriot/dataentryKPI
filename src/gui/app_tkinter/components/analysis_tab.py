@@ -1,19 +1,20 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import datetime
-import data_retriever as db_retriever
-from ...shared.helpers import get_kpi_display_name
+import calendar
+from src import data_retriever as db_retriever
+from src.gui.shared.helpers import get_kpi_display_name
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import pandas as pd
 import matplotlib.dates as mdates
+import matplotlib.ticker as mticker
+import traceback
 
 class AnalysisTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.stabilimento_colors = self.app.settings.get('stabilimento_colors', {})
-        self.color_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
         self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
         self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
         
@@ -45,6 +46,39 @@ class AnalysisTab(ttk.Frame):
             self.populate_results_comboboxes()
         else:
             self.populate_dashboard_comboboxes()
+
+    def _sort_periods(self, periods, period_type):
+        if periods is None or len(periods) == 0:
+            return []
+
+        if isinstance(periods, pd.Series):
+            periods = periods.tolist()
+
+        if period_type == 'Mese':
+            english_months_map = {
+                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+            }
+            return sorted(periods, key=lambda p: english_months_map.get(p, 0))
+        elif period_type == 'Trimestre':
+            quarters_map = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+            return sorted(periods, key=lambda p: quarters_map.get(p, 0))
+        elif period_type == 'Settimana':
+            return sorted(periods, key=lambda p: (int(p.split('-W')[0]), int(p.split('-W')[1])))
+        elif period_type == 'Giorno':
+            return sorted(periods, key=lambda p: datetime.datetime.strptime(p, '%Y-%m-%d'))
+        else: # Anno
+            return sorted(periods, key=lambda p: int(p))
+
+    def _format_period(self, period, period_type):
+        if period_type == 'Mese':
+            english_to_italian_months = {
+                'January': 'Gennaio', 'February': 'Febbraio', 'March': 'Marzo', 'April': 'Aprile',
+                'May': 'Maggio', 'June': 'Giugno', 'July': 'Luglio', 'August': 'Agosto',
+                'September': 'Settembre', 'October': 'Ottobre', 'November': 'Novembre', 'December': 'Dicembre'
+            }
+            return english_to_italian_months.get(period, period)
+        return period
 
     def create_widgets(self):
         # --- View Mode Selection ---
@@ -215,6 +249,9 @@ class AnalysisTab(ttk.Frame):
         ).pack(pady=5, anchor="e", padx=10)
 
     def on_res_group_selected_refresh_results(self, event=None):
+        self.res_indicator_var.set("")
+        self.res_indicator_cb["values"] = []
+        self.res_indicators_list_filtered_details = []
         self._populate_res_subgroups()
 
     def on_res_subgroup_selected_refresh_results(self, event=None):
@@ -277,7 +314,6 @@ class AnalysisTab(ttk.Frame):
     ):
         group_name = self.res_group_var.get()
         self.res_subgroup_cb["values"] = []
-        self.res_indicator_cb["values"] = []
         if not pre_selected_subgroup_raw_name:
             self.res_subgroup_var.set("")
         if not pre_selected_indicator_name:
@@ -323,11 +359,8 @@ class AnalysisTab(ttk.Frame):
             
             if target_display_subgroup_name:
                 self.res_subgroup_var.set(target_display_subgroup_name)
-                self._populate_res_indicators(pre_selected_indicator_name)
-            else:
-                self._populate_res_indicators()
-        else:
-            self._populate_res_indicators()
+
+        self._populate_res_indicators(pre_selected_indicator_name=pre_selected_indicator_name)
 
     def _populate_res_indicators(self, pre_selected_indicator_name=None):
         display_subgroup_name = self.res_subgroup_var.get()
@@ -335,7 +368,11 @@ class AnalysisTab(ttk.Frame):
         if not pre_selected_indicator_name:
             self.res_indicator_var.set("")
         self.current_kpi_id_for_results = None
-        
+
+        # Get stabilimento_id right away to filter KPIs that have specs
+        stabilimento_name_res = self.res_stabilimento_var_vis.get()
+        stabilimento_id_res = self.res_stabilimenti_map_vis.get(stabilimento_name_res)
+
         raw_subgroup_name_lookup = (
             self.res_subgroup_display_to_raw_map.get(display_subgroup_name)
             if hasattr(self, "res_subgroup_display_to_raw_map")
@@ -355,11 +392,22 @@ class AnalysisTab(ttk.Frame):
             else None
         )
         
-        if selected_subgroup_obj_from_list:
+        if selected_subgroup_obj_from_list and stabilimento_id_res is not None:
+            group_name = self.res_group_var.get()
+            selected_group_obj = next(
+                (g for g in self.res_groups_list if g["name"] == group_name), None
+            )
+            group_id = selected_group_obj["id"] if selected_group_obj else None
+
             all_indicators_in_subgroup = db_retriever.get_kpi_indicators_by_subgroup(
                 selected_subgroup_obj_from_list["id"]
             )
-            all_kpi_specs_with_data = db_retriever.get_all_kpis_detailed(stabilimento_id=stabilimento_id_res)
+            # Fetch all specs for the selected stabilimento to see which indicators are actually used
+            all_kpi_specs_with_data = db_retriever.get_all_kpis_detailed(
+                stabilimento_id=stabilimento_id_res,
+                group_id=group_id,
+                subgroup_id=selected_subgroup_obj_from_list["id"]
+            )
             indicator_ids_with_spec = {
                 k_spec["actual_indicator_id"] for k_spec in all_kpi_specs_with_data
             }
@@ -376,8 +424,8 @@ class AnalysisTab(ttk.Frame):
                 and pre_selected_indicator_name in self.res_indicator_cb["values"]
             ):
                 self.res_indicator_var.set(pre_selected_indicator_name)
-        
-        self.show_results_data()
+        else:
+            self.show_results_data()
 
     def show_results_data(self, event=None):
         for i in self.results_data_tree.get_children():
@@ -491,6 +539,7 @@ class AnalysisTab(ttk.Frame):
                 if data_t1
                 else ([row["Periodo"] for row in data_t2] if data_t2 else [])
             )
+            ordered_periods = self._sort_periods(ordered_periods, period_type_res)
             plot_periods_for_xaxis = list(ordered_periods)
 
             if not ordered_periods:
@@ -512,7 +561,7 @@ class AnalysisTab(ttk.Frame):
                 val_t2_table = map_t2.get(period_name)
                 t1_disp_table = f"{val_t1_table:.2f}" if isinstance(val_t1_table, (int, float)) else "N/A"
                 t2_disp_table = f"{val_t2_table:.2f}" if isinstance(val_t2_table, (int, float)) else "N/A"
-                self.results_data_tree.insert("", "end", values=(period_name, t1_disp_table, t2_disp_table))
+                self.results_data_tree.insert("", "end", values=(self._format_period(period_name, period_type_res), t1_disp_table, t2_disp_table))
                 if isinstance(val_t1_table, (int, float)):
                     total_sum_t1_table += val_t1_table
                     count_t1_table += 1
@@ -539,7 +588,9 @@ class AnalysisTab(ttk.Frame):
 
             if plot_periods_for_xaxis:
                 self.ax_results.set_xticks(range(len(plot_periods_for_xaxis)))
-                self.ax_results.set_xticklabels(plot_periods_for_xaxis, rotation=45, ha="right")
+                self.ax_results.set_xticklabels([self._format_period(p, period_type_res) for p in plot_periods_for_xaxis], rotation=45, ha="right")
+                if len(plot_periods_for_xaxis) > 15:
+                    self.ax_results.xaxis.set_major_locator(mticker.MaxNLocator(15))
             else:
                 self.ax_results.set_xticks([])
                 self.ax_results.set_xticklabels([])
@@ -557,10 +608,10 @@ class AnalysisTab(ttk.Frame):
             ]
             if count_t1_table > 0:
                 agg_t1 = (total_sum_t1_table if calc_type_res == 'Incrementale' else (total_sum_t1_table / count_t1_table))
-                summary_parts.append(f"{'Tot T1' if calc_type_res == 'Incrementale' else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}")
+                summary_parts.append(f"{('Tot T1' if calc_type_res == 'Incrementale' else 'Media T1')} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}")
             if count_t2_table > 0:
                 agg_t2 = (total_sum_t2_table if calc_type_res == 'Incrementale' else (total_sum_t2_table / count_t2_table))
-                summary_parts.append(f"{'Tot T2' if calc_type_res == 'Incrementale' else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}")
+                summary_parts.append(f"{('Tot T2' if calc_type_res == 'Incrementale' else 'Media T2')} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}")
             self.summary_label_var_vis.set(" | ".join(summary_parts))
 
         except ValueError as ve:
@@ -618,14 +669,7 @@ class AnalysisTab(ttk.Frame):
         self.load_dashboard_data()
 
     def get_stabilimento_color(self, stabilimento_name):
-        # Use color from settings if available, otherwise fall back to default list
-        if stabilimento_name in self.app.settings.get('stabilimento_colors', {}):
-            return self.app.settings['stabilimento_colors'][stabilimento_name]
-        else:
-            # Fallback to internal color_list if not in settings
-            if stabilimento_name not in self.stabilimento_colors:
-                self.stabilimento_colors[stabilimento_name] = self.color_list[len(self.stabilimento_colors) % len(self.color_list)]
-            return self.stabilimento_colors[stabilimento_name]
+        return db_retriever.get_stabilimento_color_by_name(stabilimento_name)
 
     def load_dashboard_data(self, event=None):
         for widget in self.scrollable_frame.winfo_children():
@@ -645,33 +689,59 @@ class AnalysisTab(ttk.Frame):
                 kpi_id = kpi["id"]
                 kpi_display_name = get_kpi_display_name(kpi)
                 
-                kpi_data = db_retriever.get_periodic_targets_for_kpi_all_stabilimenti(kpi_id, period_type, year)
-                if not kpi_data:
-                    continue
-
-                # Convert list of sqlite3.Row objects to a list of dictionaries, then to DataFrame
-                df = pd.DataFrame([dict(row) for row in kpi_data])
-
                 chart_frame = ttk.LabelFrame(self.scrollable_frame, text=kpi_display_name, padding=10)
                 chart_frame.pack(fill="x", expand=True, padx=10, pady=10)
 
                 fig = Figure(figsize=(12, 6), dpi=100)
                 ax = fig.add_subplot(111)
 
-                for stabilimento_name, stabilimento_data in df.groupby('stabilimento_name'):
-                    color = self.get_stabilimento_color(stabilimento_name)
-                    target1_data = stabilimento_data[stabilimento_data['target_number'] == 1]
-                    target2_data = stabilimento_data[stabilimento_data['target_number'] == 2]
+                kpi_data = db_retriever.get_periodic_targets_for_kpi_all_stabilimenti(kpi_id, period_type, year)
+                
+                if not kpi_data:
+                    ax.set_title(f"Nessun dato disponibile per {kpi_display_name}")
+                    ax.text(0.5, 0.5, "Nessun dato", horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
+                else:
+                    df = pd.DataFrame([dict(row) for row in kpi_data])
 
-                    if not target1_data.empty:
-                        ax.plot(target1_data['period'], target1_data['target_value'], marker='o', linestyle='-', label=f'{stabilimento_name} - {self.target1_display_name}', color=color)
-                    if not target2_data.empty:
-                        ax.plot(target2_data['period'], target2_data['target_value'], marker='x', linestyle='--', label=f'{stabilimento_name} - {self.target2_display_name}', color=color)
+                    # The 'period' column for 'Giorno' is already a sortable string 'YYYY-MM-DD'
 
-                ax.set_title(f"Andamento {period_type} - {kpi_display_name}")
-                ax.set_xlabel(period_type)
-                ax.set_ylabel("Valore")
-                ax.legend()
+                    unique_periods = self._sort_periods(df['period'].unique(), period_type)
+
+                    period_to_idx = {period: i for i, period in enumerate(unique_periods)}
+
+                    for stabilimento_name, stabilimento_data in df.groupby('stabilimento_name'):
+                        color = self.get_stabilimento_color(stabilimento_name)
+                        
+                        stabilimento_data_sorted = stabilimento_data.copy()
+                        
+                        # The 'period' column is already a string, no conversion needed.
+
+                        stabilimento_data_sorted['period_idx'] = stabilimento_data_sorted['period'].map(period_to_idx)
+                        
+                        # Drop rows where mapping failed (if any)
+                        stabilimento_data_sorted.dropna(subset=['period_idx'], inplace=True)
+                        stabilimento_data_sorted['period_idx'] = stabilimento_data_sorted['period_idx'].astype(int)
+
+                        target1_data = stabilimento_data_sorted[stabilimento_data_sorted['target_number'] == 1]
+                        target2_data = stabilimento_data_sorted[stabilimento_data_sorted['target_number'] == 2]
+
+                        if not target1_data.empty:
+                            ax.plot(target1_data['period_idx'].values, target1_data['target_value'].values, marker='o', linestyle='-', label=f'{stabilimento_name} - {self.target1_display_name}', color=color)
+                        if not target2_data.empty:
+                            ax.plot(target2_data['period_idx'].values, target2_data['target_value'].values, marker='x', linestyle='--', label=f'{stabilimento_name} - {self.target2_display_name}', color=color)
+
+                    ax.set_title(f"Andamento {period_type} - {kpi_display_name}")
+                    ax.set_xlabel(period_type)
+                    ax.set_ylabel("Valore")
+                    
+                    if unique_periods:
+                        ax.set_xticks(range(len(unique_periods)))
+                        ax.set_xticklabels([self._format_period(p, period_type) for p in unique_periods], rotation=45, ha='right')
+                        if len(unique_periods) > 15:
+                            ax.xaxis.set_major_locator(mticker.MaxNLocator(15))
+                    
+                    ax.legend()
+
                 ax.grid(True)
                 fig.tight_layout()
 
@@ -681,3 +751,4 @@ class AnalysisTab(ttk.Frame):
 
         except Exception as e:
             messagebox.showerror("Errore Caricamento Dati", f"Impossibile caricare i dati della dashboard: {e}")
+            traceback.print_exc()

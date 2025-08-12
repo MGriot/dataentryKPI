@@ -1,33 +1,70 @@
 import csv
-from pathlib import Path
-import traceback
 import sqlite3
-from target_management.annual import save_annual_targets
+import zipfile
+import io
+import traceback
+from pathlib import Path
+from app_config import get_database_path
 
-def import_data_from_csv(file_path: Path, table_name: str, db_path: Path, year: int, stabilimento_id: int):
-    """Imports data from a CSV file into a specified table in the database."""
+def get_table_columns(cursor: sqlite3.Cursor, table_name: str) -> list[str]:
+    """Fetches the column names for a given table."""
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    return [row[1] for row in cursor.fetchall()]
+
+def import_from_zip(zip_path: str):
+    """Restores the database state from a ZIP backup by appending data."""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            data = [row for row in reader]
+        with zipfile.ZipFile(zip_path, 'r') as zipf:
+            # The order is critical to respect foreign key constraints
+            import_order = {
+                'dict_stabilimenti.csv': ('stabilimenti', get_database_path('db_stabilimenti.db')),
+                'dict_kpi_groups.csv': ('kpi_groups', get_database_path('db_kpis.db')),
+                'dict_kpi_subgroups.csv': ('kpi_subgroups', get_database_path('db_kpis.db')),
+                'dict_kpi_indicators.csv': ('kpi_indicators', get_database_path('db_kpis.db')),
+                'dict_kpis.csv': ('kpis', get_database_path('db_kpis.db')),
+                'all_annual_kpi_master_targets.csv': ('annual_targets', get_database_path('db_kpi_targets.db')),
+                'all_daily_kpi_targets.csv': ('daily_targets', get_database_path('db_periodic_targets.db')),
+                'all_weekly_kpi_targets.csv': ('weekly_targets', get_database_path('db_periodic_targets.db')),
+                'all_monthly_kpi_targets.csv': ('monthly_targets', get_database_path('db_periodic_targets.db')),
+                'all_quarterly_kpi_targets.csv': ('quarterly_targets', get_database_path('db_periodic_targets.db')),
+            }
 
-        if not data:
-            return "File is empty, nothing to import."
+            for file_name, (table_name, db_path) in import_order.items():
+                if file_name not in zipf.namelist():
+                    continue
 
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            for row in data:
-                columns = ', '.join(row.keys())
-                placeholders = ', '.join('?' * len(row))
-                sql = f"INSERT OR REPLACE INTO {table_name} ({columns}) VALUES ({placeholders})"
-                cursor.execute(sql, list(row.values()))
-            conn.commit()
+                with zipf.open(file_name) as csv_file:
+                    # Decode the file in memory
+                    csv_text = io.TextIOWrapper(csv_file, 'utf-8')
+                    reader = csv.DictReader(csv_text)
+                    data = [row for row in reader]
 
-        if table_name == 'annual_targets':
-            targets_data_map = {row['kpi_id']: row for row in data}
-            save_annual_targets(year, stabilimento_id, targets_data_map)
+                    if not data:
+                        continue
 
-        return f"Successfully imported {len(data)} rows into {table_name}."
+                    with sqlite3.connect(db_path) as conn:
+                        cursor = conn.cursor()
+                        db_columns = get_table_columns(cursor, table_name)
+                        
+                        # Filter CSV data to only include columns that exist in the DB table
+                        valid_data = []
+                        for row in data:
+                            valid_row = {k: v for k, v in row.items() if k in db_columns}
+                            valid_data.append(valid_row)
+
+                        if not valid_data:
+                            continue
+
+                        # Prepare the INSERT statement based on valid columns
+                        columns = ', '.join(valid_data[0].keys())
+                        placeholders = ', '.join('?' * len(valid_data[0]))
+                        sql = f"INSERT OR IGNORE INTO {table_name} ({columns}) VALUES ({placeholders})"
+                        
+                        # Execute for all valid rows
+                        cursor.executemany(sql, [list(row.values()) for row in valid_data])
+                        conn.commit()
+
+        return "Database restore/append completed successfully."
 
     except Exception as e:
-        return f"Error importing data into {table_name}: {e}\n{traceback.format_exc()}"
+        return f"Error restoring from backup: {e}\n{traceback.format_exc()}"

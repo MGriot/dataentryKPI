@@ -1,10 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, colorchooser, messagebox, filedialog
 import json
-import data_retriever as db_retriever
-from stabilimenti_management import crud as stabilimenti_manager
-
-from app_config import SETTINGS_FILE
+from src import data_retriever as db_retriever
+from src.stabilimenti_management import crud as stabilimenti_manager
+from src.app_config import SETTINGS_FILE
 
 class SettingsTab(ttk.Frame):
     def __init__(self, parent, app):

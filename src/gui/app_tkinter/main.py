@@ -3,23 +3,21 @@ from tkinter import ttk
 import sys
 from pathlib import Path
 
-# Ensure the 'src' directory is in the Python path
-src_path = Path(__file__).resolve().parents[2]
-if str(src_path) not in sys.path:
-    sys.path.append(str(src_path))
+# The main entry point (main.py) adds the project root to the path.
+# All imports should be absolute from the 'src' package.
 
-from db_core.setup import setup_databases
-from gui.app_tkinter.components.stabilimenti_tab import StabilimentiTab
-from gui.app_tkinter.components.kpi_hierarchy_tab import KpiHierarchyTab
-from gui.app_tkinter.components.kpi_templates_tab import KpiTemplatesTab
-from gui.app_tkinter.components.kpi_specs_tab import KpiSpecsTab
-from gui.app_tkinter.components.master_sub_link_tab import MasterSubLinkTab
-from gui.app_tkinter.components.target_entry_tab import TargetEntryTab
-from gui.app_tkinter.components.export_tab import ExportTab
-from gui.app_tkinter.components.analysis_tab import AnalysisTab
-from gui.app_tkinter.components.settings_tab import SettingsTab
-from ..shared.constants import KPI_CALC_TYPE_OPTIONS
-from app_config import SETTINGS, load_settings
+from src.db_core.setup import setup_databases
+from src.gui.app_tkinter.components.stabilimenti_tab import StabilimentiTab
+from src.gui.app_tkinter.components.kpi_hierarchy_tab import KpiHierarchyTab
+from src.gui.app_tkinter.components.kpi_templates_tab import KpiTemplatesTab
+from src.gui.app_tkinter.components.kpi_specs_tab import KpiSpecsTab
+from src.gui.app_tkinter.components.master_sub_link_tab import MasterSubLinkTab
+from src.gui.app_tkinter.components.target_entry_tab import TargetEntryTab
+from src.gui.app_tkinter.components.data_management_tab import DataManagementTab
+from src.gui.app_tkinter.components.analysis_tab import AnalysisTab
+from src.gui.app_tkinter.components.settings_tab import SettingsTab
+from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
+from src.app_config import SETTINGS, load_settings
 
 class KpiApp(tk.Tk):
     def __init__(self):
@@ -92,7 +90,7 @@ class KpiApp(tk.Tk):
         self.kpi_specs_frame = KpiSpecsTab(self.notebook, self)
         self.master_sub_link_frame = MasterSubLinkTab(self.notebook, self)
         self.stabilimenti_frame = StabilimentiTab(self.notebook, self)
-        self.export_frame = ExportTab(self.notebook, self)
+        self.data_management_frame = DataManagementTab(self.notebook, self)
         self.analysis_frame = AnalysisTab(self.notebook, self)
         self.settings_frame = SettingsTab(self.notebook, self)
 
@@ -102,7 +100,7 @@ class KpiApp(tk.Tk):
         self.notebook.add(self.kpi_specs_frame, text="⚙️ Gestione Specifiche KPI")
         self.notebook.add(self.master_sub_link_frame, text="🔗 Gestione Link Master/Sub")
         self.notebook.add(self.stabilimenti_frame, text="🏭 Gestione Stabilimenti")
-        self.notebook.add(self.export_frame, text="📦 Esportazione Dati")
+        self.notebook.add(self.data_management_frame, text="📦 Gestione Dati")
         self.notebook.add(self.analysis_frame, text="📈 Analisi Risultati")
         self.notebook.add(self.settings_frame, text="⚙️ Impostazioni")
 

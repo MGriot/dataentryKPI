@@ -2,10 +2,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import traceback
 
-from kpi_management import links as kpi_links_manager
-import data_retriever as db_retriever
-from ...shared.helpers import get_kpi_display_name
-from ..dialogs.link_sub_kpi_dialog import LinkSubKpiDialog
+from src.kpi_management import links as kpi_links_manager
+from src import data_retriever as db_retriever
+from src.gui.shared.helpers import get_kpi_display_name
+from src.gui.app_tkinter.dialogs.link_sub_kpi_dialog import LinkSubKpiDialog
 
 class MasterSubLinkTab(ttk.Frame):
     def __init__(self, parent, app):

@@ -3,7 +3,7 @@ import sqlite3
 import traceback
 from pathlib import Path
 
-from db_core.utils import get_database_path
+from src.db_core.utils import get_database_path
 
 # --- Configuration Imports ---
 DB_STABILIMENTI = get_database_path('db_stabilimenti.db')

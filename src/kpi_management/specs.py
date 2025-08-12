@@ -1,10 +1,10 @@
 # src/kpi_management/specs.py
 import sqlite3
 import traceback
-import app_config
+from src import app_config
 from pathlib import Path # Ensure Path is imported
 
-from gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 
 # --- KPI Specification (kpis table) CRUD Operations ---
 

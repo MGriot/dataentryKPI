@@ -3,17 +3,16 @@ Main launcher for the KPI Management Application.
 Launches either the Tkinter or Streamlit GUI based on command-line arguments.
 """
 import sys
-import subprocess
 from pathlib import Path
-import argparse
 
-# Ensure the 'src' directory is in the Python path for robust imports
-# When main.py is in src/, parents[0] is src/, parents[1] is the actual project root.
-# We want to add the 'src' directory (which is project_root / 'src') to sys.path.
-actual_project_root = Path(__file__).resolve().parents[1]
-src_path = actual_project_root / "src"
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
+# Ensure the project's root directory (the parent of 'src') is in the Python path.
+# This allows for absolute imports from the 'src' package.
+project_root = Path(__file__).resolve().parents[1]
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+import subprocess
+import argparse
 
 def main():
     """Parses arguments and launches the selected interface."""
@@ -32,7 +31,7 @@ def main():
         print("Launching Tkinter GUI...")
         try:
             # Import the main Tkinter App class and run it
-            from gui.app_tkinter.main import KpiApp
+            from src.gui.app_tkinter.main import KpiApp
             app = KpiApp()
             app.mainloop()
         except ImportError as e:
@@ -44,11 +43,7 @@ def main():
 
     elif interface == "streamlit":
         print("Launching Streamlit GUI...")
-        streamlit_script_path = project_root / "gui" / "app_streamlit" / "main.py"
-
-        # Ensure the 'src' directory is in the Python path for robust imports
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
+        streamlit_script_path = project_root / "src" / "gui" / "app_streamlit" / "main.py"
 
         if not streamlit_script_path.exists():
             print(f"ERROR: Streamlit script not found at {streamlit_script_path}")

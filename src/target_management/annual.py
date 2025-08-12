@@ -3,21 +3,19 @@ import sqlite3
 import json
 import traceback
 import numpy # For _placeholder_safe_evaluate_formula if it uses numpy functions directly
-import app_config
+from src import app_config
 from pathlib import Path
+import data_retriever
+
 
 # Configuration imports
-from gui.shared.constants import (
+from src.gui.shared.constants import (
     REPARTITION_LOGIC_ANNO,
     PROFILE_ANNUAL_PROGRESSIVE,
 )
 
-from data_retriever import (
-    get_annual_target_entry,
-    get_kpi_role_details,
-    get_sub_kpis_for_master,
-)
-from target_management.repartition import calculate_and_save_all_repartitions
+from src import data_retriever
+from src.target_management import repartition as repartition_module
 
 
 # --- Formula Evaluation (Placeholder - Needs Secure Implementation) ---
@@ -94,13 +92,8 @@ def save_annual_targets(
        not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
         raise ConnectionError("DB_TARGETS or DB_KPIS is not properly configured. Cannot save annual targets.")
 
-    if not _data_retriever_available or not _repartition_module_available:
-        print(
-            "CRITICAL ERROR: Missing data_retriever or repartition module. Cannot save annual targets."
-        )
-        # Depending on how critical this is, you might raise an ImportError or Exception.
-        # For now, just printing and returning to avoid partial execution if mocks are active.
-        return
+    # Check if necessary modules/functions are available
+    
 
     if not targets_data_map:
         print("INFO: No annual target data provided to save.")
@@ -838,7 +831,7 @@ def save_annual_targets(
                     print(
                         f"    Calculating repartitions for KPI {kpi_id_recalc}, Target 1..."
                     )
-                    calculate_and_save_all_repartitions(
+                    repartition_module.calculate_and_save_all_repartitions(
                         year, stabilimento_id, kpi_id_recalc, 1
                     )
                 else:
@@ -851,7 +844,7 @@ def save_annual_targets(
                     print(
                         f"    Calculating repartitions for KPI {kpi_id_recalc}, Target 2..."
                     )
-                    calculate_and_save_all_repartitions(
+                    repartition_module.calculate_and_save_all_repartitions(
                         year, stabilimento_id, kpi_id_recalc, 2
                     )
                 else:
@@ -884,11 +877,7 @@ if __name__ == "__main__":
 
     # --- Mocking for test execution ---
     # This simulates that the necessary modules and DBs are "available"
-    # Overwrite global flags for the scope of this test
-    _data_retriever_available_orig = _data_retriever_available
-    _repartition_module_available_orig = _repartition_module_available
-    _data_retriever_available = True
-    _repartition_module_available = True
+    
 
     # Save original app_config settings for database paths
     original_db_base_dir = app_config.SETTINGS["database_base_dir"]
@@ -1110,8 +1099,6 @@ if __name__ == "__main__":
         get_kpi_role_details = get_kpi_role_details_orig
         get_sub_kpis_for_master = get_sub_kpis_for_master_orig
         calculate_and_save_all_repartitions = calculate_and_save_all_repartitions_orig
-        _data_retriever_available = _data_retriever_available_orig
-        _repartition_module_available = _repartition_module_available_orig
 
         import os
 

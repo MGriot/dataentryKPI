@@ -1,7 +1,7 @@
 # src/kpi_management/links.py
 import sqlite3
 import traceback
-import app_config
+from src import app_config
 from pathlib import Path
 
 

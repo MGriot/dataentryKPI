@@ -3,11 +3,11 @@ from tkinter import ttk, messagebox
 import traceback
 import sqlite3
 
-from kpi_management import specs as kpi_specs_manager
-from kpi_management import indicators as kpi_indicators_manager
-from kpi_management import visibility as kpi_visibility
-import data_retriever as db_retriever
-from ...shared.constants import KPI_CALC_TYPE_OPTIONS
+from src.kpi_management import specs as kpi_specs_manager
+from src.kpi_management import indicators as kpi_indicators_manager
+from src.kpi_management import visibility as kpi_visibility
+from src import data_retriever as db_retriever
+from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
 
 class KpiSpecsTab(ttk.Frame):
     def __init__(self, parent, app):

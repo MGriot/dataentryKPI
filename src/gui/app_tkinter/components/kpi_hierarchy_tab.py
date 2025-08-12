@@ -2,11 +2,11 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import traceback
 
-from kpi_management import groups as kpi_groups_manager
-from kpi_management import subgroups as kpi_subgroups_manager
-from kpi_management import indicators as kpi_indicators_manager
-import data_retriever as db_retriever
-from ..dialogs.subgroup_editor import SubgroupEditorDialog
+from src.kpi_management import groups as kpi_groups_manager
+from src.kpi_management import subgroups as kpi_subgroups_manager
+from src.kpi_management import indicators as kpi_indicators_manager
+from src import data_retriever as db_retriever
+from src.gui.app_tkinter.dialogs.subgroup_editor import SubgroupEditorDialog
 
 class KpiHierarchyTab(ttk.Frame):
     def __init__(self, parent, app):

@@ -5,10 +5,10 @@ import datetime
 import calendar
 import numpy as np
 import traceback
-import app_config
+from src import app_config
 
 # Configuration imports
-from gui.shared.constants import (
+from src.gui.shared.constants import (
     CALC_TYPE_INCREMENTALE,
     CALC_TYPE_MEDIA,
     REPARTITION_LOGIC_ANNO,
@@ -35,14 +35,14 @@ from gui.shared.constants import (
     WEEKDAY_BIAS_FACTOR_MEDIA,
 )
 
-from data_retriever import get_annual_target_entry, get_kpi_detailed_by_id
-from utils.repartition_utils import (
+from src import data_retriever
+from src.utils.repartition_utils import (
     get_weighted_proportions,
     get_parabolic_proportions,
     get_sinusoidal_proportions,
     get_date_ranges_for_quarters,
 )
-from utils.kpi_utils import get_kpi_display_name
+from src.utils.kpi_utils import get_kpi_display_name
 
 # --- Repartition Logic and Calculation ---
 
@@ -865,7 +865,7 @@ def _aggregate_and_save_periodic_targets(
 
     if db_daily_recs:
         try:
-            with sqlite3.connect(DB_KPI_DAYS) as conn_days:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_days.db")) as conn_days:
                 conn_days.executemany(
                     "INSERT INTO daily_targets (year,stabilimento_id,kpi_id,target_number,date_value,target_value) VALUES (?,?,?,?,?,?)",
                     db_daily_recs,
@@ -909,7 +909,7 @@ def _aggregate_and_save_periodic_targets(
 
     if db_week_recs:
         try:
-            with sqlite3.connect(DB_KPI_WEEKS) as conn_weeks:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_weeks.db")) as conn_weeks:
                 conn_weeks.executemany(
                     "INSERT INTO weekly_targets (year,stabilimento_id,kpi_id,target_number,week_value,target_value) VALUES (?,?,?,?,?,?)",
                     db_week_recs,
@@ -949,7 +949,7 @@ def _aggregate_and_save_periodic_targets(
 
     if db_month_recs:
         try:
-            with sqlite3.connect(DB_KPI_MONTHS) as conn_months:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_months.db")) as conn_months:
                 conn_months.executemany(
                     "INSERT INTO monthly_targets (year,stabilimento_id,kpi_id,target_number,month_value,target_value) VALUES (?,?,?,?,?,?)",
                     db_month_recs,
@@ -998,7 +998,7 @@ def _aggregate_and_save_periodic_targets(
 
     if db_quarter_recs:
         try:
-            with sqlite3.connect(DB_KPI_QUARTERS) as conn_quarters:
+            with sqlite3.connect(app_config.get_database_path("db_kpi_quarters.db")) as conn_quarters:
                 conn_quarters.executemany(
                     "INSERT INTO quarterly_targets (year,stabilimento_id,kpi_id,target_number,quarter_value,target_value) VALUES (?,?,?,?,?,?)",
                     db_quarter_recs,
@@ -1019,19 +1019,15 @@ def calculate_and_save_all_repartitions(
     It fetches annual target details, KPI calculation type, then orchestrates
     the calculation and saving steps.
     """
-    if not _data_retriever_available or not _db_core_utils_available:
-        print(
-            f"CRITICAL ERROR (Repart): Missing data_retriever or db_core.utils. Cannot calculate repartitions for KPI {kpi_spec_id}, T{target_number}."
-        )
-        return
+    
 
     # --- FIX: Convert Path objects to strings before checking ---
     db_paths_to_check = [
-        app_config.DB_TARGETS,
-        app_config.DB_KPI_DAYS,
-        app_config.DB_KPI_WEEKS,
-        app_config.DB_KPI_MONTHS,
-        app_config.DB_KPI_QUARTERS,
+        app_config.get_database_path("db_kpi_targets.db"),
+        app_config.get_database_path("db_kpi_days.db"),
+        app_config.get_database_path("db_kpi_weeks.db"),
+        app_config.get_database_path("db_kpi_months.db"),
+        app_config.get_database_path("db_kpi_quarters.db"),
     ]
     for db_path_obj in db_paths_to_check:
         db_path_str = str(db_path_obj)
@@ -1072,10 +1068,10 @@ def calculate_and_save_all_repartitions(
             f"    INFO: Annual target {target_number} for KPI {kpi_spec_id} is None. Cleaning up any existing periodic data."
         )
         dbs_to_clear_for_none = [
-            (app_config.DB_KPI_DAYS, "daily_targets"),
-            (app_config.DB_KPI_WEEKS, "weekly_targets"),
-            (app_config.DB_KPI_MONTHS, "monthly_targets"),
-            (app_config.DB_KPI_QUARTERS, "quarterly_targets"),
+            (app_config.get_database_path("db_kpi_days.db"), "daily_targets"),
+            (app_config.get_database_path("db_kpi_weeks.db"), "weekly_targets"),
+            (app_config.get_database_path("db_kpi_months.db"), "monthly_targets"),
+            (app_config.get_database_path("db_kpi_quarters.db"), "quarterly_targets"),
         ]
         for db_path_clear, table_name_clear in dbs_to_clear_for_none:
             try:
@@ -1119,10 +1115,10 @@ def calculate_and_save_all_repartitions(
     # 3. Clear any old periodic data for this specific target before saving new
     print(f"    Clearing old periodic data for KPI {kpi_spec_id}, T{target_number}...")
     dbs_to_clear = [
-        (app_config.DB_KPI_DAYS, "daily_targets"),
-        (app_config.DB_KPI_WEEKS, "weekly_targets"),
-        (app_config.DB_KPI_MONTHS, "monthly_targets"),
-        (app_config.DB_KPI_QUARTERS, "quarterly_targets"),
+        (app_config.get_database_path("db_kpi_days.db"), "daily_targets"),
+        (app_config.get_database_path("db_kpi_weeks.db"), "weekly_targets"),
+        (app_config.get_database_path("db_kpi_months.db"), "monthly_targets"),
+        (app_config.get_database_path("db_kpi_quarters.db"), "quarterly_targets"),
     ]
     for db_path_clear, table_name_clear in dbs_to_clear:
         try:
@@ -1210,183 +1206,3 @@ def calculate_and_save_all_repartitions(
     print(
         f"  Successfully calculated and saved all repartitions for KPI: {kpi_full_name_display} (ID {kpi_spec_id}), Target {target_number}."
     )
-
-
-
-
-
-if __name__ == "__main__":
-    print("--- Running target_management/repartition.py for testing ---")
-    # This test block is complex. It needs:
-    # - app_config.py to be fully populated with constants.
-    # - data_retriever.py and db_core.utils.py to be available and working.
-    # - DB_TARGETS and periodic DBs (Days, Weeks, etc.) to exist and be schema-correct.
-    # - An annual target entry in DB_TARGETS for the KPI being tested.
-    # - A KPI detail entry (via data_retriever) for the KPI being tested.
-
-    # --- Test Setup ---
-    # For a real test, you would:
-    # 1. Use temporary, dedicated test database files.
-    # 2. Populate DB_TARGETS with a test annual_target record.
-    # 3. Populate DB_KPIS so that data_retriever.get_kpi_detailed_by_id returns test KPI details.
-    # 4. Call calculate_and_save_all_repartitions.
-    # 5. Query the periodic DBs to verify the results.
-
-    print("INFO: Repartition module testing requires significant setup.")
-    print(
-        "      Consider testing through save_annual_targets in annual.py, which calls this."
-    )
-    print(
-        "      Or, implement a dedicated test suite with proper database mocking/setup."
-    )
-
-    # Example of a *very* simplified direct call (would need mocks for data_retriever to run standalone)
-    # Save original app_config settings for database paths
-    original_db_base_dir = app_config.SETTINGS["database_base_dir"]
-
-    test_db_file_targets = "test_repart_targets.sqlite"
-    test_db_file_days = "test_repart_days.sqlite"
-    test_db_file_weeks = "test_repart_weeks.sqlite"
-    test_db_file_months = "test_repart_months.sqlite"
-    test_db_file_quarters = "test_repart_quarters.sqlite"
-
-    # Create dummy DB files for testing if they don't exist
-    for db_file in [test_db_file_targets, test_db_file_days, test_db_file_weeks, test_db_file_months, test_db_file_quarters]:
-        if not Path(db_file).exists():
-            Path(db_file).touch()
-
-    # Temporarily set app_config to use the test files' directory
-    app_config.SETTINGS["database_base_dir"] = str(Path(test_db_file_targets).parent)
-
-    if (
-        _data_retriever_available
-        and _db_core_utils_available
-    ):
-
-        print(
-            "\nAttempting a simplified test case (requires pre-existing data or robust mocks):"
-        )
-        test_year_repart = datetime.date.today().year
-        test_stab_id_repart = 1  # Assume exists
-        test_kpi_spec_id_repart = 1  # Assume exists with an annual target and details
-
-        # Mock get_annual_target_entry for this test
-        _get_annual_target_entry_orig = get_annual_target_entry
-
-        def _mock_get_annual_target_entry_repart(year, stab_id, kpi_id):
-            if (
-                year == test_year_repart
-                and stab_id == test_stab_id_repart
-                and kpi_id == test_kpi_spec_id_repart
-            ):
-                return {  # Simulate a sqlite3.Row like dictionary
-                    "annual_target1": 1200.0,
-                    "annual_target2": 2400.0,
-                    "repartition_logic": REPARTITION_LOGIC_MESE,  # Test monthly
-                    "repartition_values": json.dumps(
-                        {calendar.month_name[i + 1]: (100.0 / 12.0) for i in range(12)}
-                    ),  # Evenly
-                    "distribution_profile": PROFILE_EVEN,  # Test even distribution within month
-                    "profile_params": json.dumps({"events": []}),
-                }
-            return None
-
-        get_annual_target_entry = _mock_get_annual_target_entry_repart
-
-        # Mock get_kpi_detailed_by_id
-        _get_kpi_detailed_by_id_orig = get_kpi_detailed_by_id
-
-        def _mock_get_kpi_detailed_by_id_repart(kpi_id):
-            if kpi_id == test_kpi_spec_id_repart:
-                return {  # Simulate
-                    "calculation_type": CALC_TYPE_INCREMENTALE,
-                    "group_name": "TestGrp",
-                    "subgroup_name": "TestSubGrp",
-                    "indicator_name": "TestKPIName",
-                }
-            return None
-
-        get_kpi_detailed_by_id = _mock_get_kpi_detailed_by_id_repart
-
-        # Setup minimal schemas for periodic DBs if they are memory/error strings
-        periodic_dbs_to_check_setup = {
-            "db_kpi_days.db": app_config.get_database_path("db_kpi_days.db"),
-            "db_kpi_weeks.db": app_config.get_database_path("db_kpi_weeks.db"),
-            "db_kpi_months.db": app_config.get_database_path("db_kpi_months.db"),
-            "db_kpi_quarters.db": app_config.get_database_path("db_kpi_quarters.db"),
-        }
-
-        for db_file_name, path_obj in periodic_dbs_to_check_setup.items():
-            table_sql_name = db_file_name.replace("db_kpi_", "").replace(".db", "") + "_targets"
-            period_col_name = "date_value"  # Default, adjust if needed per table
-            if "weeks" in db_file_name:
-                period_col_name = "week_value"
-            elif "months" in db_file_name:
-                period_col_name = "month_value"
-            elif "quarters" in db_file_name:
-                period_col_name = "quarter_value"
-
-            with sqlite3.connect(path_obj) as conn_setup:
-                conn_setup.execute(f"DROP TABLE IF EXISTS {table_sql_name};")
-                conn_setup.execute(
-                    f"""
-                    CREATE TABLE {table_sql_name} (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, stabilimento_id INTEGER,
-                        kpi_id INTEGER, target_number INTEGER, {period_col_name} TEXT, target_value REAL,
-                        UNIQUE(year, stabilimento_id, kpi_id, target_number, {period_col_name}));
-                    """
-                )
-            print(f"  Using DB '{path_obj}' for {db_file_name}")
-
-        try:
-            print(
-                f"  Running calculate_and_save_all_repartitions for KPI {test_kpi_spec_id_repart}, Target 1..."
-            )
-            calculate_and_save_all_repartitions(
-                test_year_repart, test_stab_id_repart, test_kpi_spec_id_repart, 1
-            )
-
-            # Verification (example for monthly)
-            with sqlite3.connect(app_config.get_database_path("db_kpi_months.db")) as conn_verify_month:
-                cursor = conn_verify_month.execute(
-                    "SELECT month_value, target_value FROM monthly_targets WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=?",
-                    (test_year_repart, test_stab_id_repart, test_kpi_spec_id_repart, 1),
-                )
-                results = cursor.fetchall()
-                assert len(results) == 12, "Should have 12 monthly records"
-                for month_name, val in results:
-                    assert (
-                        abs(val - (1200.0 / 12.0)) < 0.01
-                    ), f"Monthly value for {month_name} incorrect: {val}"
-                print(
-                    f"    SUCCESS: Verified {len(results)} monthly targets, values are as expected (e.g., ~100.0)."
-                )
-
-        except Exception as e_test:
-            print(f"    ERROR during simplified repartition test: {e_test}")
-            print(traceback.format_exc())
-        finally:
-            # Restore original functions and paths
-            get_annual_target_entry = _get_annual_target_entry_orig
-            get_kpi_detailed_by_id = _get_kpi_detailed_by_id_orig
-            
-            # Restore original app_config setting
-            app_config.SETTINGS["database_base_dir"] = original_db_base_dir
-
-            import os
-
-            for db_file in [test_db_file_targets, test_db_file_days, test_db_file_weeks, test_db_file_months, test_db_file_quarters]:
-                if os.path.exists(db_file):
-                    try:
-                        os.remove(db_file)
-                        print(f"  Cleaned up temp DB: {db_file}")
-                    except OSError as e_clean:
-                        print(f"ERROR: Could not clean up test file {db_file}: {e_clean}")
-
-            print("  Restored original repartition dependencies and DB paths.")
-    else:
-        print(
-            "  Skipping simplified direct test due to missing dependencies (data_retriever, db_core.utils or valid DB paths)."
-        )
-
-    print("\n--- Repartition module testing notes complete ---")

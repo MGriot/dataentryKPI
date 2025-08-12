@@ -1,43 +1,26 @@
 # your_project_root/kpi_management/groups.py
 import sqlite3
 import traceback
-import app_config
+from src import app_config
 from pathlib import Path
 
 # Function imports from other modules
 _data_retriever_available = False
 _indicators_module_available = False
 
-try:
-    # Assumes data_retriever.py is at the project root, accessible via PYTHONPATH
-    from data_retriever import get_kpi_subgroups_by_group_revised
-
-    _data_retriever_available = True
-except ImportError:
-    print(
-        "WARNING: Could not import 'get_kpi_subgroups_by_group_revised' from 'data_retriever'. "
-        "The 'delete_kpi_group' function will be non-operational. "
-        "Ensure data_retriever.py is in your PYTHONPATH."
-    )
-
-    # Define a mock function if not available, so the script can load for other functions
-    def get_kpi_subgroups_by_group_revised(group_id):
-        print(
-            f"MOCK ALERT: 'get_kpi_subgroups_by_group_revised({group_id})' called - data_retriever not loaded."
-        )
-        return []
+_data_retriever_available = True # Assume available, will fail at runtime if not
 
 
 try:
-    # Relative import for a sibling module 'indicators.py' within the 'kpi_management' package
-    from .indicators import delete_kpi_indicator
+    # Absolute import for a sibling module 'indicators.py' within the 'kpi_management' package
+    from src.kpi_management.indicators import delete_kpi_indicator
 
     _indicators_module_available = True
 except ImportError:
     # This might happen if indicators.py doesn't exist yet or if this script is run
     # in a way that Python doesn't recognize 'kpi_management' as a package.
     print(
-        "WARNING: Could not import 'delete_kpi_indicator' from '.indicators'. "
+        "WARNING: Could not import 'delete_kpi_indicator' from 'src.kpi_management.indicators'. "
         "The 'delete_kpi_group' function will be non-operational. "
         "Ensure indicators.py exists in the same kpi_management package."
     )
@@ -180,7 +163,8 @@ def delete_kpi_group(group_id: int):
     indicators_to_delete_ids = []
     try:
         # Get all subgroups for the group
-        subgroups_in_group = get_kpi_subgroups_by_group_revised(group_id)
+        from src import data_retriever
+        subgroups_in_group = data_retriever.get_kpi_subgroups_by_group_revised(group_id)
         if not subgroups_in_group:
             print(f"INFO: KPI group ID {group_id} has no subgroups.")
         else:

@@ -1,10 +1,11 @@
 import sqlite3
 import traceback
 
-import app_config
-from db_core.utils import get_database_path
+from src import app_config
+from src.db_core.utils import get_database_path
 
-DB_KPIS = get_database_path('db_kpis.db')
+def _get_db_kpis_path():
+    return get_database_path('db_kpis.db')
 
 def _validate_db_path(db_path_obj, db_name_str):
     """Validates if the provided DB path object is usable."""
@@ -15,8 +16,8 @@ def set_kpi_stabilimento_visibility(kpi_id: int, stabilimento_id: int, is_enable
     """Sets or updates the visibility of a KPI for a specific stabilimento.
     If the entry does not exist, it will be created.
     """
-    _validate_db_path(DB_KPIS, "DB_KPIS")
-    with sqlite3.connect(DB_KPIS) as conn:
+    _validate_db_path(_get_db_kpis_path(), "DB_KPIS")
+    with sqlite3.connect(_get_db_kpis_path()) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -31,8 +32,8 @@ def get_kpi_stabilimento_visibility(kpi_id: int, stabilimento_id: int) -> bool:
     """Gets the visibility status of a KPI for a specific stabilimento.
     Returns True if enabled, False if disabled, and True if no specific entry exists (default).
     """
-    _validate_db_path(DB_KPIS, "DB_KPIS")
-    with sqlite3.connect(DB_KPIS) as conn:
+    _validate_db_path(_get_db_kpis_path(), "DB_KPIS")
+    with sqlite3.connect(_get_db_kpis_path()) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -48,8 +49,8 @@ def get_stabilimenti_for_kpi(kpi_id: int) -> list:
     """Returns a list of stabilimento IDs for which a KPI has explicit visibility settings.
     Each item in the list is a dictionary with 'stabilimento_id' and 'is_enabled'.
     """
-    _validate_db_path(DB_KPIS, "DB_KPIS")
-    with sqlite3.connect(DB_KPIS) as conn:
+    _validate_db_path(_get_db_kpis_path(), "DB_KPIS")
+    with sqlite3.connect(_get_db_kpis_path()) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -62,8 +63,8 @@ def get_kpis_for_stabilimento(stabilimento_id: int) -> list:
     """Returns a list of KPI IDs for which a stabilimento has explicit visibility settings.
     Each item in the list is a dictionary with 'kpi_id' and 'is_enabled'.
     """
-    _validate_db_path(DB_KPIS, "DB_KPIS")
-    with sqlite3.connect(DB_KPIS) as conn:
+    _validate_db_path(_get_db_kpis_path(), "DB_KPIS")
+    with sqlite3.connect(_get_db_kpis_path()) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -76,8 +77,8 @@ def delete_kpi_stabilimento_visibility(kpi_id: int, stabilimento_id: int):
     """Deletes a specific KPI-stabilimento visibility entry.
     This effectively reverts to the default visibility (True) for that pair.
     """
-    _validate_db_path(DB_KPIS, "DB_KPIS")
-    with sqlite3.connect(DB_KPIS) as conn:
+    _validate_db_path(_get_db_kpis_path(), "DB_KPIS")
+    with sqlite3.connect(_get_db_kpis_path()) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(

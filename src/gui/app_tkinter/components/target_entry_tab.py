@@ -3,10 +3,10 @@ from tkinter import ttk, messagebox
 import datetime
 import json
 
-from target_management import annual as annual_targets_manager
-import data_retriever as db_retriever
-from ...shared.helpers import get_kpi_display_name
-from ..dialogs.formula_inputs import FormulaInputsDialog
+from src.target_management import annual as annual_targets_manager
+from src import data_retriever as db_retriever
+from src.gui.shared.helpers import get_kpi_display_name
+from src.gui.app_tkinter.dialogs.formula_inputs import FormulaInputsDialog
 
 class TargetEntryTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -56,7 +56,7 @@ class TargetEntryTab(ttk.Frame):
         self.canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
         self.canvas_target.configure(yscrollcommand=scrollbar.set)
 
-        self.scrollable_frame_target.bind('<Configure>', lambda e: canvas_target.configure(scrollregion=canvas_target.bbox('all')))
+        self.scrollable_frame_target.bind('<Configure>', lambda e: self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all')))
 
         # Save button
         save_button = ttk.Button(self, text="SALVA TUTTI I TARGET", command=self.save_all_targets_entry)
@@ -380,7 +380,7 @@ class TargetEntryTab(ttk.Frame):
             )
             messagebox.showinfo("Successo", "Tutti i target sono stati salvati.")
         except Exception as e:
-            messagebox.showerror("Errore Salvataggio", f"Errore nel salvataggio dei target: {e}")
+            messagebox.showerror("Errore nel salvataggio dei target", f"Si è verificato un errore: {e}")
         
         self.load_kpi_targets_for_entry_target()
 
@@ -399,3 +399,92 @@ class TargetEntryTab(ttk.Frame):
         # For now, we don't have specific UI for profile_params, so we return an empty dict.
         # This can be expanded in the future.
         return {}
+
+    def _populate_target_kpi_entries(self, kpi_id, target_data):
+        if self._populating_target_kpi_entries:
+            return
+        self._populating_target_kpi_entries = True
+
+        try:
+            widgets = self.kpi_target_entry_widgets.get(kpi_id)
+            if not widgets:
+                return
+
+            for i in range(1, 3):
+                target_widgets = widgets['targets'][i]
+                target_key = f'annual_target{i}'
+                manual_key = f'is_target{i}_manual'
+                formula_key = f'target{i}_is_formula_based'
+                formula_str_key = f'target{i}_formula'
+
+                target_widgets['target_var'].set(str(target_data.get(target_key, '')))
+                if target_widgets.get('manual_var'):
+                    target_widgets['manual_var'].set(target_data.get(manual_key, False))
+                target_widgets['formula_var'].set(target_data.get(formula_key, False))
+                target_widgets['formula_entry_var'].set(target_data.get(formula_str_key, ''))
+
+                self._on_use_formula_toggle(kpi_id, i)
+                if target_widgets.get('manual_cb'):
+                    self._on_force_manual_toggle(kpi_id, i)
+
+            repartition_widgets = widgets['repartition']
+            repartition_widgets['profile_var'].set(target_data.get('distribution_profile', 'uniforme'))
+            self._update_repartition_input_area_tk(kpi_id)
+
+            # Populate repartition values
+            repartition_values = target_data.get('repartition_values')
+            if repartition_values:
+                profile = repartition_widgets['profile_var'].get()
+                if profile in ['custom_monthly', 'custom_quarterly']:
+                    period_vars = repartition_widgets['repartition_widgets'].get('period_vars', [])
+                    for i, var in enumerate(period_vars):
+                        var.set(repartition_values.get(str(i+1), 0.0))
+                elif profile in ['custom_weekly', 'event_based']:
+                    text_area = repartition_widgets['repartition_widgets'].get('text_area')
+                    if text_area:
+                        text_area.delete('1.0', tk.END)
+                        text_area.insert('1.0', json.dumps(repartition_values, indent=2))
+
+        finally:
+            self._populating_target_kpi_entries = False
+            
+    def on_data_changed(self, event_type, data):
+        """
+        This method is called by the main app when data changes.
+        """
+        if event_type in ["kpi_updated", "stabilimento_updated", "settings_updated"]:
+            self.populate_filters()
+        elif event_type == "annual_targets_saved":
+            # Optionally, refresh only the relevant parts
+            self.load_kpi_targets_for_entry_target()
+        elif event_type == "master_sub_link_changed":
+            # A link has changed, we need to refresh the UI to reflect this
+            self.load_kpi_targets_for_entry_target()
+            
+    def _update_all_sub_kpi_fields_for_master(self, master_kpi_id):
+        """
+        When a master KPI's target is changed, this function can be called to update all its sub-KPIs.
+        """
+        if self._master_sub_update_active:
+            return
+        self._master_sub_update_active = True
+        
+        try:
+            # This logic is complex and depends on how distribution should be handled.
+            # For now, this is a placeholder for the logic that would be implemented.
+            # It would be similar to recalculate_master_sub_distribution but for all targets.
+            pass
+        finally:
+            self._master_sub_update_active = False
+            
+    def _get_current_stabilimento_id(self):
+        """Helper to get the currently selected stabilimento ID."""
+        stabilimento_name = self.stabilimento_cb_target.get()
+        if not stabilimento_name:
+            return None
+        
+        # Find the ID from the cached list of stabilimenti
+        for s in self.stabilimenti:
+            if s['name'] == stabilimento_name:
+                return s['id']
+        return None

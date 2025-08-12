@@ -2,9 +2,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import traceback
 
-from kpi_management import templates as kpi_templates_manager
-import data_retriever as db_retriever
-from ..dialogs.template_definition_editor import TemplateDefinitionEditorDialog
+from src.kpi_management import templates as kpi_templates_manager
+from src import data_retriever as db_retriever
+from src.gui.app_tkinter.dialogs.template_definition_editor import TemplateDefinitionEditorDialog
 
 class KpiTemplatesTab(ttk.Frame):
     def __init__(self, parent, app):

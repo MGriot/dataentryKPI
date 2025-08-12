@@ -1,9 +1,9 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, colorchooser
 import traceback
 
-from stabilimenti_management import crud as stabilimenti_manager
-import data_retriever
+from src.stabilimenti_management import crud as stabilimenti_manager
+from src import data_retriever
 
 class StabilimentiTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -117,16 +117,7 @@ class StabilimentiTab(ttk.Frame):
             else (None, "", "", "Sì", "#000000") # Default color for new stabilimento
         )
 
-        if s_id is not None:
-            # Fetch the full stabilimento data, including color, from the database
-            stabilimento_data = stabilimenti_manager.get_stabilimento_by_id(s_id)
-            if stabilimento_data:
-                s_color = stabilimento_data.get('color', '#000000')
-            else:
-                # Handle case where stabilimento is not found (e.g., deleted by another user)
-                messagebox.showerror("Errore", "Stabilimento non trovato.", parent=win)
-                win.destroy()
-                return
+        
 
         form_frame = ttk.Frame(win, padding=15)
         form_frame.pack(expand=True, fill="both")
@@ -177,7 +168,7 @@ class StabilimentiTab(ttk.Frame):
         ttk.Button(btn_frame, text="Annulla", command=win.destroy).pack(side="left", padx=10)
 
     def _choose_color_for_editor(self, color_var, color_label):
-        color_code = tk.colorchooser.askcolor(title="Scegli colore")
+        color_code = colorchooser.askcolor(title="Scegli colore")
         if color_code:
             color_hex = color_code[1]
             color_var.set(color_hex)
