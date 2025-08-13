@@ -58,6 +58,9 @@ class TargetEntryTab(ttk.Frame):
 
         self.scrollable_frame_target.bind('<Configure>', lambda e: self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all')))
 
+        self.canvas_target.bind('<Enter>', self._bind_to_mousewheel)
+        self.canvas_target.bind('<Leave>', self._unbind_from_mousewheel)
+
         # Save button
         save_button = ttk.Button(self, text="SALVA TUTTI I TARGET", command=self.save_all_targets_entry)
         save_button.pack(pady=10)
@@ -488,3 +491,12 @@ class TargetEntryTab(ttk.Frame):
             if s['name'] == stabilimento_name:
                 return s['id']
         return None
+
+    def _on_mousewheel(self, event):
+        self.canvas_target.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _bind_to_mousewheel(self, event):
+        self.canvas_target.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _unbind_from_mousewheel(self, event):
+        self.canvas_target.unbind_all("<MouseWheel>")

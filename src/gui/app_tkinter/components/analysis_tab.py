@@ -662,6 +662,9 @@ class AnalysisTab(ttk.Frame):
 
         self.scrollable_frame.bind("<Configure>", lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
 
+        self.main_canvas.bind('<Enter>', self._bind_dashboard_mousewheel)
+        self.main_canvas.bind('<Leave>', self._unbind_dashboard_mousewheel)
+
     def populate_dashboard_comboboxes(self):
         years = [str(y["year"]) for y in db_retriever.get_distinct_years()]
         self.dashboard_year_cb["values"] = ["All"] + years
@@ -752,3 +755,12 @@ class AnalysisTab(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Errore Caricamento Dati", f"Impossibile caricare i dati della dashboard: {e}")
             traceback.print_exc()
+
+    def _on_dashboard_mousewheel(self, event):
+        self.main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _bind_dashboard_mousewheel(self, event):
+        self.main_canvas.bind_all("<MouseWheel>", self._on_dashboard_mousewheel)
+
+    def _unbind_dashboard_mousewheel(self, event):
+        self.main_canvas.unbind_all("<MouseWheel>")
