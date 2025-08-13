@@ -76,37 +76,45 @@ def add_kpi_spec(
                     f"INFO: KPI Spec for indicator_id {indicator_id} already exists. Attempting to update."
                 )
                 try:
-                    # First, get the existing kpis.id
+                    # The transaction is implicitly rolled back on error, so we can issue new commands.
+                    cursor = conn.cursor()
+                    
+                    # Get the existing kpis.id
                     cursor.execute(
                         "SELECT id FROM kpis WHERE indicator_id=?", (indicator_id,)
                     )
                     existing_kpi_row = cursor.fetchone()
+                    
                     if existing_kpi_row:
                         existing_kpi_spec_id = existing_kpi_row[0]
                         print(
-                            f"  Found existing kpis.id: {existing_kpi_spec_id}. Updating..."
+                            f"  Found existing kpis.id: {existing_kpi_spec_id}. Updating within the same connection..."
                         )
-                        update_kpi_spec(
-                            kpi_spec_id=existing_kpi_spec_id,  # Pass the kpis.id
-                            indicator_id=indicator_id,  # Pass the kpi_indicators.id
-                            description=description,
-                            calculation_type=calculation_type,
-                            unit_of_measure=unit_of_measure,
-                            visible=visible,
+                        # Perform the update directly using the existing connection 'conn'
+                        cursor.execute(
+                            """UPDATE kpis SET description=?, calculation_type=?,
+                               unit_of_measure=?, visible=? WHERE id=?""",
+                            (
+                                description,
+                                calculation_type,
+                                unit_of_measure,
+                                1 if visible else 0,
+                                existing_kpi_spec_id,
+                            ),
                         )
-                        return existing_kpi_spec_id  # Return the ID of the updated spec
+                        conn.commit()
+                        print(f"  SUCCESS: KPI Spec with kpis.id {existing_kpi_spec_id} updated.")
+                        return existing_kpi_spec_id
                     else:
                         # This state (UNIQUE error but no row found) should be rare.
                         print(
                             f"ERROR: UNIQUE constraint for indicator_id {indicator_id} failed, "
                             "but could not find the existing kpi_spec to update. This is unexpected."
                         )
-                        raise  # Re-raise the original integrity error
-                except Exception as e_update:
-                    print(
-                        f"ERROR: Failed to update existing KPI Spec for indicator_id {indicator_id}. Details: {e_update}"
-                    )
-                    raise  # Re-raise the update error
+                        raise # Re-raise the original integrity error
+                except sqlite3.Error as e_update:
+                    print(f"ERROR: Database error while attempting to update existing KPI Spec for indicator_id {indicator_id}. Details: {e_update}")
+                    raise Exception(f"Failed to update existing KPI Spec for indicator_id {indicator_id}.") from e_update
             elif "FOREIGN KEY constraint failed" in str(e):
                 print(
                     f"ERROR: Could not add KPI Spec. Indicator ID {indicator_id} "

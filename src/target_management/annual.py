@@ -5,7 +5,7 @@ import traceback
 import numpy # For _placeholder_safe_evaluate_formula if it uses numpy functions directly
 from src import app_config
 from pathlib import Path
-import data_retriever
+from src.data_retriever import get_annual_target_entry, get_kpi_role_details, get_sub_kpis_for_master
 
 
 # Configuration imports
@@ -14,7 +14,6 @@ from src.gui.shared.constants import (
     PROFILE_ANNUAL_PROGRESSIVE,
 )
 
-from src import data_retriever
 from src.target_management import repartition as repartition_module
 
 

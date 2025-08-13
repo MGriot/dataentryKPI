@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 
-from gui.shared.constants import KPI_CALC_TYPE_OPTIONS
+from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
 
 class TemplateDefinitionEditorDialog(simpledialog.Dialog):
     def __init__(self, parent, title=None, template_id_context=None, initial_data=None):

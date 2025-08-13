@@ -35,7 +35,7 @@ from src.gui.shared.constants import (
     WEEKDAY_BIAS_FACTOR_MEDIA,
 )
 
-from src import data_retriever
+from src.data_retriever import get_annual_target_entry, get_kpi_detailed_by_id
 from src.utils.repartition_utils import (
     get_weighted_proportions,
     get_parabolic_proportions,
