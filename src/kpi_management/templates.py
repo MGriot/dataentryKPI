@@ -485,7 +485,7 @@ def remove_indicator_definition_from_template(definition_id: int):
 
     definition_to_delete_dict = None
     if _data_retriever_available:
-        definition_to_delete_row = get_template_indicator_definition_by_id(definition_id)
+        definition_to_delete_row = data_retriever.get_template_indicator_definition_by_id(definition_id)
         if not definition_to_delete_row:
             print(f"INFO: Indicator definition with ID {definition_id} not found. No removal needed.")
             return

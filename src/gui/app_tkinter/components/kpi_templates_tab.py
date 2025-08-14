@@ -65,6 +65,15 @@ class KpiTemplatesTab(ttk.Frame):
         self.remove_definition_btn.pack(side="left", padx=2)
 
     def refresh_display(self, pre_selected_template_name=None):
+        # If no specific state is passed, try to preserve the current state
+        if pre_selected_template_name is None and self.templates_listbox.curselection():
+            pre_selected_template_name = self.templates_listbox.get(self.templates_listbox.curselection()[0])
+
+        # Preserve selection in the definitions tree
+        selected_definition_id = None
+        if self.template_definitions_tree.focus():
+            selected_definition_id = self.current_template_definitions_map.get(self.template_definitions_tree.focus())
+
         self.templates_listbox.delete(0, tk.END)
         self.current_templates_map.clear()
         selected_idx = -1
@@ -77,9 +86,11 @@ class KpiTemplatesTab(ttk.Frame):
             self.templates_listbox.selection_set(selected_idx)
             self.templates_listbox.activate(selected_idx)
             self.templates_listbox.see(selected_idx)
-        self.on_template_select()
+        
+        # Pass the definition ID to on_template_select
+        self.on_template_select(pre_selected_definition_id=selected_definition_id)
 
-    def on_template_select(self, event=None):
+    def on_template_select(self, event=None, pre_selected_definition_id=None):
         for i in self.template_definitions_tree.get_children():
             self.template_definitions_tree.delete(i)
         self.current_template_definitions_map.clear()
@@ -94,6 +105,7 @@ class KpiTemplatesTab(ttk.Frame):
         self.edit_definition_btn.config(state="disabled")
         self.remove_definition_btn.config(state="disabled")
 
+        selected_definition_iid = None
         if buttons_state == "normal":
             template_name = self.templates_listbox.get(self.templates_listbox.curselection()[0])
             template_id = self.current_templates_map.get(template_name)
@@ -109,6 +121,14 @@ class KpiTemplatesTab(ttk.Frame):
                         )
                     )
                     self.current_template_definitions_map[iid] = defi["id"]
+                    if defi["id"] == pre_selected_definition_id:
+                        selected_definition_iid = iid
+        
+        if selected_definition_iid:
+            self.template_definitions_tree.selection_set(selected_definition_iid)
+            self.template_definitions_tree.focus(selected_definition_iid)
+            self.template_definitions_tree.see(selected_definition_iid)
+
         self.on_template_definition_select()
 
     def on_template_definition_select(self, event=None):

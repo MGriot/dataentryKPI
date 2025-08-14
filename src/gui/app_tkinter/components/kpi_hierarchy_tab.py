@@ -71,6 +71,15 @@ class KpiHierarchyTab(ttk.Frame):
         self.delete_indicator_btn.pack(side="left", padx=2)
 
     def refresh_displays(self, pre_selected_group_name=None, pre_selected_subgroup_raw_name=None):
+        # If no specific state is passed, try to preserve the current state
+        if pre_selected_group_name is None and self.groups_listbox.curselection():
+            pre_selected_group_name = self.groups_listbox.get(self.groups_listbox.curselection()[0])
+        
+        if pre_selected_subgroup_raw_name is None and self.subgroups_listbox.curselection():
+            display_subgroup_name = self.subgroups_listbox.get(self.subgroups_listbox.curselection()[0])
+            # Parsing the name is safer than relying on a potentially stale map
+            pre_selected_subgroup_raw_name = display_subgroup_name.split(" (Tpl:")[0]
+
         self.groups_listbox.delete(0, tk.END)
         self.current_groups_map.clear()
         groups_data = db_retriever.get_kpi_groups()
