@@ -32,16 +32,16 @@ class TargetEntryTab(ttk.Frame):
         filter_frame_outer.pack(fill='x', padx=10, pady=5)
 
         # Year filter
-        ttk.Label(filter_frame_outer, text="Anno:").pack(side='left', padx=(0, 5))
+        ttk.Label(filter_frame_outer, text="Year:").pack(side='left', padx=(0, 5))
         self.year_cb_target = ttk.Combobox(filter_frame_outer, state='readonly')
         self.year_cb_target.pack(side='left')
         self.year_cb_target.bind('<<ComboboxSelected>>', self.load_kpi_targets_for_entry_target)
 
-        # Stabilimento filter
-        ttk.Label(filter_frame_outer, text="Stabilimento:").pack(side='left', padx=(10, 5))
-        self.stabilimento_cb_target = ttk.Combobox(filter_frame_outer, state='readonly')
-        self.stabilimento_cb_target.pack(side='left', fill='x', expand=True)
-        self.stabilimento_cb_target.bind('<<ComboboxSelected>>', self.load_kpi_targets_for_entry_target)
+        # Plant filter
+        ttk.Label(filter_frame_outer, text="Plant:").pack(side='left', padx=(10, 5))
+        self.plant_cb_target = ttk.Combobox(filter_frame_outer, state='readonly')
+        self.plant_cb_target.pack(side='left', fill='x', expand=True)
+        self.plant_cb_target.bind('<<ComboboxSelected>>', self.load_kpi_targets_for_entry_target)
 
         # Canvas for scrollable content
         self.canvas_target = tk.Canvas(main_frame)
@@ -62,7 +62,7 @@ class TargetEntryTab(ttk.Frame):
         self.canvas_target.bind('<Leave>', self._unbind_from_mousewheel)
 
         # Save button
-        save_button = ttk.Button(self, text="SALVA TUTTI I TARGET", command=self.save_all_targets_entry)
+        save_button = ttk.Button(self, text="SAVE ALL TARGETS", command=self.save_all_targets_entry)
         save_button.pack(pady=10)
 
     def populate_filters(self):
@@ -71,11 +71,11 @@ class TargetEntryTab(ttk.Frame):
         self.year_cb_target['values'] = [str(y) for y in range(current_year - 5, current_year + 5)]
         self.year_cb_target.set(current_year)
 
-        # Populate stabilimenti
-        self.stabilimenti = db_retriever.get_all_stabilimenti(visible_only=True)
-        self.stabilimento_cb_target['values'] = [s['name'] for s in self.stabilimenti]
-        if self.stabilimenti:
-            self.stabilimento_cb_target.current(0)
+        # Populate plants
+        self.plants = db_retriever.get_all_plants(visible_only=True)
+        self.plant_cb_target['values'] = [s['name'] for s in self.plants]
+        if self.plants:
+            self.plant_cb_target.current(0)
 
         self.load_kpi_targets_for_entry_target()
 
@@ -87,8 +87,8 @@ class TargetEntryTab(ttk.Frame):
 
         # Get selected filters
         year = self.year_cb_target.get()
-        stabilimento_name = self.stabilimento_cb_target.get()
-        if not year or not stabilimento_name:
+        plant_name = self.plant_cb_target.get()
+        if not year or not plant_name:
             return
 
         # Recreate the scrollable frame to ensure it's clean
@@ -98,11 +98,11 @@ class TargetEntryTab(ttk.Frame):
         self.canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
         self.scrollable_frame_target.bind('<Configure>', lambda e: self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all')))
 
-        stabilimento_id = [s['id'] for s in self.stabilimenti if s['name'] == stabilimento_name][0]
+        plant_id = [s['id'] for s in self.plants if s['name'] == plant_name][0]
 
         # Get KPIs and targets
-        kpis = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True, stabilimento_id=stabilimento_id)]
-        targets = [dict(row) for row in db_retriever.get_annual_targets(stabilimento_id, int(year))]
+        kpis = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True, plant_id=plant_id)]
+        targets = [dict(row) for row in db_retriever.get_annual_targets(plant_id, int(year))]
         targets_map = {t['kpi_id']: t for t in targets}
 
         # Create widgets for each KPI
@@ -157,7 +157,7 @@ class TargetEntryTab(ttk.Frame):
         
         # Use formula checkbox
         formula_var = tk.BooleanVar()
-        formula_cb = ttk.Checkbutton(frame, text="Usa Formula", variable=formula_var,
+        formula_cb = ttk.Checkbutton(frame, text="Use Formula", variable=formula_var,
                                      command=lambda k=kpi_id, tn=target_num: self._on_use_formula_toggle(k, tn))
         formula_cb.pack(side='left', padx=5)
 
@@ -167,7 +167,7 @@ class TargetEntryTab(ttk.Frame):
         formula_entry.pack(side='left', padx=5, fill='x', expand=True)
 
         # Formula inputs button
-        formula_button = ttk.Button(frame, text="Input...", 
+        formula_button = ttk.Button(frame, text="Inputs...", 
                                     command=lambda k=kpi_id, tn=target_num: self._open_formula_inputs_dialog(k, tn))
         formula_button.pack(side='left', padx=5)
 
@@ -190,11 +190,11 @@ class TargetEntryTab(ttk.Frame):
         frame.pack(fill='x', expand=True, padx=5, pady=5)
 
         # Profile combobox
-        ttk.Label(frame, text="Profilo di Distribuzione:").pack(side='left', padx=(0,5))
-        profile_var = tk.StringVar(value=target_data.get('distribution_profile', 'uniforme') if target_data else 'uniforme')
+        ttk.Label(frame, text="Distribution Profile:").pack(side='left', padx=(0,5))
+        profile_var = tk.StringVar(value=target_data.get('distribution_profile', 'uniform') if target_data else 'uniform')
         
         # TODO: Populate profiles from a central source
-        profiles = ['uniforme', 'progressivo', 'sinusoidale', 'custom_monthly', 'custom_quarterly', 'custom_weekly', 'event_based']
+        profiles = ['uniform', 'progressive', 'sinusoidal', 'custom_monthly', 'custom_quarterly', 'custom_weekly', 'event_based']
         profile_cb = ttk.Combobox(frame, textvariable=profile_var, values=profiles, state='readonly')
         profile_cb.pack(side='left', padx=5)
         profile_cb.bind('<<ComboboxSelected>>', lambda e, k=kpi_id: self._update_repartition_input_area_tk(k))
@@ -223,7 +223,7 @@ class TargetEntryTab(ttk.Frame):
 
         if profile in ['custom_monthly', 'custom_quarterly']:
             num_periods = 12 if profile == 'custom_monthly' else 4
-            period_label = "Mese" if profile == 'custom_monthly' else "Trimestre"
+            period_label = "Month" if profile == 'custom_monthly' else "Quarter"
             
             container = ttk.Frame(frame)
             container.pack(fill='x', expand=True)
@@ -238,7 +238,7 @@ class TargetEntryTab(ttk.Frame):
             widgets['repartition_widgets']['period_vars'] = vars
 
         elif profile in ['custom_weekly', 'event_based']:
-            label_text = "Pesi Settimanali (JSON):" if profile == 'custom_weekly' else "Eventi (JSON):"
+            label_text = "Weekly Weights (JSON):" if profile == 'custom_weekly' else "Events (JSON):"
             text_area = tk.Text(frame, height=4, width=80)
             text_area.pack(fill='x', expand=True)
             widgets['repartition_widgets']['text_area'] = text_area
@@ -340,13 +340,13 @@ class TargetEntryTab(ttk.Frame):
 
     def save_all_targets_entry(self):
         year_str = self.year_cb_target.get()
-        stabilimento_name = self.stabilimento_cb_target.get()
-        if not year_str or not stabilimento_name:
-            messagebox.showerror("Errore", "Anno e stabilimento devono essere selezionati.")
+        plant_name = self.plant_cb_target.get()
+        if not year_str or not plant_name:
+            messagebox.showerror("Error", "Year and plant must be selected.")
             return
 
         year = int(year_str)
-        stabilimento_id = [s['id'] for s in self.stabilimenti if s['name'] == stabilimento_name][0]
+        plant_id = [s['id'] for s in self.plants if s['name'] == plant_name][0]
         
         targets_data_map = {}
         for kpi_id, kpi_widgets in self.kpi_target_entry_widgets.items():
@@ -357,7 +357,7 @@ class TargetEntryTab(ttk.Frame):
                 t1_val = float(t1_val_str) if t1_val_str else None
                 t2_val = float(t2_val_str) if t2_val_str else None
             except ValueError:
-                messagebox.showerror("Errore", f"Valore non valido per KPI {kpi_id}. Inserire un numero.")
+                messagebox.showerror("Error", f"Invalid value for KPI {kpi_id}. Please enter a number.")
                 return
 
             targets_data = {
@@ -378,12 +378,12 @@ class TargetEntryTab(ttk.Frame):
         try:
             annual_targets_manager.save_annual_targets(
                 year=year,
-                stabilimento_id=stabilimento_id,
+                plant_id=plant_id,
                 targets_data_map=targets_data_map
             )
-            messagebox.showinfo("Successo", "Tutti i target sono stati salvati.")
+            messagebox.showinfo("Success", "All targets have been saved.")
         except Exception as e:
-            messagebox.showerror("Errore nel salvataggio dei target", f"Si è verificato un errore: {e}")
+            messagebox.showerror("Error saving targets", f"An error occurred: {e}")
         
         self.load_kpi_targets_for_entry_target()
 
@@ -431,7 +431,7 @@ class TargetEntryTab(ttk.Frame):
                     self._on_force_manual_toggle(kpi_id, i)
 
             repartition_widgets = widgets['repartition']
-            repartition_widgets['profile_var'].set(target_data.get('distribution_profile', 'uniforme'))
+            repartition_widgets['profile_var'].set(target_data.get('distribution_profile', 'uniform'))
             self._update_repartition_input_area_tk(kpi_id)
 
             # Populate repartition values
@@ -455,7 +455,7 @@ class TargetEntryTab(ttk.Frame):
         """
         This method is called by the main app when data changes.
         """
-        if event_type in ["kpi_updated", "stabilimento_updated", "settings_updated"]:
+        if event_type in ["kpi_updated", "plant_updated", "settings_updated"]:
             self.populate_filters()
         elif event_type == "annual_targets_saved":
             # Optionally, refresh only the relevant parts
@@ -480,15 +480,15 @@ class TargetEntryTab(ttk.Frame):
         finally:
             self._master_sub_update_active = False
             
-    def _get_current_stabilimento_id(self):
-        """Helper to get the currently selected stabilimento ID."""
-        stabilimento_name = self.stabilimento_cb_target.get()
-        if not stabilimento_name:
+    def _get_current_plant_id(self):
+        """Helper to get the currently selected plant ID."""
+        plant_name = self.plant_cb_target.get()
+        if not plant_name:
             return None
         
-        # Find the ID from the cached list of stabilimenti
-        for s in self.stabilimenti:
-            if s['name'] == stabilimento_name:
+        # Find the ID from the cached list of plants
+        for s in self.plants:
+            if s['name'] == plant_name:
                 return s['id']
         return None
 

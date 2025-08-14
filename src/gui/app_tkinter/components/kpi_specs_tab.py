@@ -19,24 +19,24 @@ class KpiSpecsTab(ttk.Frame):
         self.create_widgets()
 
     def create_widgets(self):
-        add_kpi_frame_outer = ttk.LabelFrame(self, text="Aggiungi/Modifica Specifica KPI", padding=10)
+        add_kpi_frame_outer = ttk.LabelFrame(self, text="Add/Edit KPI Specification", padding=10)
         add_kpi_frame_outer.pack(fill="x", pady=10, padx=5)
 
         hier_frame = ttk.Frame(add_kpi_frame_outer)
         hier_frame.pack(fill="x", pady=5)
-        ttk.Label(hier_frame, text="Gruppo:").pack(side="left")
+        ttk.Label(hier_frame, text="Group:").pack(side="left")
         self.kpi_spec_group_var = tk.StringVar()
         self.kpi_spec_group_cb = ttk.Combobox(hier_frame, textvariable=self.kpi_spec_group_var, state="readonly", width=20)
         self.kpi_spec_group_cb.pack(side="left", padx=5)
         self.kpi_spec_group_cb.bind("<<ComboboxSelected>>", self.on_kpi_spec_group_selected)
 
-        ttk.Label(hier_frame, text="Sottogruppo:").pack(side="left")
+        ttk.Label(hier_frame, text="Subgroup:").pack(side="left")
         self.kpi_spec_subgroup_var = tk.StringVar()
         self.kpi_spec_subgroup_cb = ttk.Combobox(hier_frame, textvariable=self.kpi_spec_subgroup_var, state="readonly", width=30)
         self.kpi_spec_subgroup_cb.pack(side="left", padx=5)
         self.kpi_spec_subgroup_cb.bind("<<ComboboxSelected>>", self.on_kpi_spec_subgroup_selected)
 
-        ttk.Label(hier_frame, text="Indicatore:").pack(side="left")
+        ttk.Label(hier_frame, text="Indicator:").pack(side="left")
         self.kpi_spec_indicator_var = tk.StringVar()
         self.kpi_spec_indicator_cb = ttk.Combobox(hier_frame, textvariable=self.kpi_spec_indicator_var, state="readonly", width=25)
         self.kpi_spec_indicator_cb.pack(side="left", padx=5)
@@ -44,57 +44,57 @@ class KpiSpecsTab(ttk.Frame):
 
         attr_frame = ttk.Frame(add_kpi_frame_outer)
         attr_frame.pack(fill="x", pady=5)
-        ttk.Label(attr_frame, text="Descrizione:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(attr_frame, text="Description:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         self.kpi_spec_desc_var = tk.StringVar()
         ttk.Entry(attr_frame, textvariable=self.kpi_spec_desc_var, width=40).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
         attr_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(attr_frame, text="Tipo Calcolo:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(attr_frame, text="Calc Type:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
         self.kpi_spec_type_var = tk.StringVar(value=KPI_CALC_TYPE_OPTIONS[0])
         self.kpi_spec_type_cb = ttk.Combobox(attr_frame, textvariable=self.kpi_spec_type_var, values=KPI_CALC_TYPE_OPTIONS, state="readonly")
         self.kpi_spec_type_cb.grid(row=1, column=1, sticky="ew", padx=5, pady=2)
 
-        ttk.Label(attr_frame, text="Unità Misura:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(attr_frame, text="Unit:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         self.kpi_spec_unit_var = tk.StringVar()
         ttk.Entry(attr_frame, textvariable=self.kpi_spec_unit_var, width=40).grid(row=2, column=1, padx=5, pady=2, sticky="ew")
 
         self.kpi_spec_visible_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(attr_frame, text="Visibile per Target (Globale)", variable=self.kpi_spec_visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=2)
+        ttk.Checkbutton(attr_frame, text="Visible for Target (Global)", variable=self.kpi_spec_visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-        # --- KPI-Stabilimento Visibility ---
-        self.stabilimento_visibility_frame = ttk.LabelFrame(add_kpi_frame_outer, text="Visibilità per Stabilimento", padding=5)
-        self.stabilimento_visibility_frame.pack(fill="x", pady=5)
-        self.stabilimento_checkboxes = {}
-        self.all_stabilimenti = db_retriever.get_all_stabilimenti() # Fetch all stabilimenti once
-        self._populate_stabilimento_checkboxes()
+        # --- KPI-Plant Visibility ---
+        self.plant_visibility_frame = ttk.LabelFrame(add_kpi_frame_outer, text="Visibility per Plant", padding=5)
+        self.plant_visibility_frame.pack(fill="x", pady=5)
+        self.plant_checkboxes = {}
+        self.all_plants = db_retriever.get_all_plants() # Fetch all plants once
+        self._populate_plant_checkboxes()
 
         kpi_spec_btn_frame_outer = ttk.Frame(add_kpi_frame_outer)
         kpi_spec_btn_frame_outer.pack(pady=10)
         kpi_spec_btn_frame = ttk.Frame(kpi_spec_btn_frame_outer)
         kpi_spec_btn_frame.pack()
-        self.save_kpi_spec_btn = ttk.Button(kpi_spec_btn_frame, text="Aggiungi Specifica", command=self.save_kpi_specification, style="Accent.TButton")
+        self.save_kpi_spec_btn = ttk.Button(kpi_spec_btn_frame, text="Add Specification", command=self.save_kpi_specification, style="Accent.TButton")
         self.save_kpi_spec_btn.pack(side="left", padx=5)
-        ttk.Button(kpi_spec_btn_frame, text="Pulisci Campi", command=self.clear_kpi_spec_fields_button_action).pack(side="left", padx=5)
+        ttk.Button(kpi_spec_btn_frame, text="Clear Fields", command=self.clear_kpi_spec_fields_button_action).pack(side="left", padx=5)
 
         tree_frame = ttk.Frame(self)
         tree_frame.pack(expand=True, fill="both", pady=(10, 0), padx=5)
-        self.kpi_specs_tree = ttk.Treeview(tree_frame, columns=("ID", "Gruppo", "Sottogruppo", "Indicatore", "Descrizione", "Tipo Calcolo", "Unità", "Visibile", "Template SG"), show="headings")
+        self.kpi_specs_tree = ttk.Treeview(tree_frame, columns=("ID", "Group", "Subgroup", "Indicator", "Description", "Calc Type", "Unit", "Visible", "Template SG"), show="headings")
         cols_widths = {
             "ID": 40,
-            "Gruppo": 120,
-            "Sottogruppo": 150,
-            "Indicatore": 150,
-            "Descrizione": 180,
-            "Tipo Calcolo": 90,
-            "Unità": 80,
-            "Visibile": 60,
+            "Group": 120,
+            "Subgroup": 150,
+            "Indicator": 150,
+            "Description": 180,
+            "Calc Type": 90,
+            "Unit": 80,
+            "Visible": 60,
             "Template SG": 120,
         }
         for col, width in cols_widths.items():
             self.kpi_specs_tree.heading(col, text=col)
-            anchor = "center" if col in ["ID", "Visibile"] else "w"
+            anchor = "center" if col in ["ID", "Visible"] else "w"
             stretch = (
-                tk.NO if col in ["ID", "Visibile", "Tipo Calcolo", "Unità"] else tk.YES
+                tk.NO if col in ["ID", "Visible", "Calc Type", "Unit"] else tk.YES
             )
             self.kpi_specs_tree.column(col, width=width, anchor=anchor, stretch=stretch)
         tree_scrollbar = ttk.Scrollbar(
@@ -108,26 +108,26 @@ class KpiSpecsTab(ttk.Frame):
         tree_buttons_frame.pack(fill="x", pady=5)
         ttk.Button(
             tree_buttons_frame,
-            text="Elimina Specifica Selezionata",
+            text="Delete Selected Specification",
             command=self.delete_selected_kpi_spec,
         ).pack(side="left", padx=5)
 
-    def _populate_stabilimento_checkboxes(self):
-        for widget in self.stabilimento_visibility_frame.winfo_children():
+    def _populate_plant_checkboxes(self):
+        for widget in self.plant_visibility_frame.winfo_children():
             widget.destroy()
-        self.stabilimento_checkboxes = {}
+        self.plant_checkboxes = {}
 
         row_idx = 0
         col_idx = 0
         max_cols = 3 # Max 3 columns for checkboxes
 
-        for stabilimento in self.all_stabilimenti:
-            stab_id = stabilimento['id']
-            stab_name = stabilimento['name']
+        for plant in self.all_plants:
+            plant_id = plant['id']
+            plant_name = plant['name']
             var = tk.BooleanVar(value=True) # Default to True (visible) if no specific setting
-            chk = ttk.Checkbutton(self.stabilimento_visibility_frame, text=stab_name, variable=var)
+            chk = ttk.Checkbutton(self.plant_visibility_frame, text=plant_name, variable=var)
             chk.grid(row=row_idx, column=col_idx, sticky="w", padx=5, pady=2)
-            self.stabilimento_checkboxes[stab_id] = var
+            self.plant_checkboxes[plant_id] = var
 
             col_idx += 1
             if col_idx >= max_cols:
@@ -178,7 +178,9 @@ class KpiSpecsTab(ttk.Frame):
         self._populating_kpi_spec_combos = False
 
     def _populate_kpi_spec_subgroups(
-        self, subgroup_to_select_raw_name=None, pre_selected_indicator_name=None
+        self,
+        subgroup_to_select_raw_name=None,
+        pre_selected_indicator_name=None,
     ):
         group_name = self.kpi_spec_group_var.get()
         self.kpi_spec_subgroup_cb["values"] = []
@@ -277,7 +279,7 @@ class KpiSpecsTab(ttk.Frame):
         indicator_name = self.kpi_spec_indicator_var.get()
         self.selected_indicator_id_for_spec = None
         self.current_editing_kpi_id = None
-        self.save_kpi_spec_btn.config(text="Aggiungi Specifica")
+        self.save_kpi_spec_btn.config(text="Add Specification")
         selected_indicator_obj = (
             next(
                 (
@@ -305,7 +307,7 @@ class KpiSpecsTab(ttk.Frame):
             if existing_kpi_spec_for_indicator:
                 self._set_kpi_spec_fields_from_data(existing_kpi_spec_for_indicator)
                 self.current_editing_kpi_id = existing_kpi_spec_for_indicator["id"]
-                self.save_kpi_spec_btn.config(text="Modifica Specifica")
+                self.save_kpi_spec_btn.config(text="Edit Specification")
             else:
                 self.clear_kpi_spec_fields(
                     keep_hierarchy=True,
@@ -374,14 +376,14 @@ class KpiSpecsTab(ttk.Frame):
         self.kpi_spec_unit_var.set(kpi_data_dict.get("unit_of_measure", ""))
         self.kpi_spec_visible_var.set(bool(kpi_data_dict.get("visible", True)))
 
-        # Load stabilimento-specific visibility
+        # Load plant-specific visibility
         kpi_id = kpi_data_dict['id']
-        explicit_visibility_settings = kpi_visibility.get_stabilimenti_for_kpi(kpi_id)
-        explicit_settings_map = {s['stabilimento_id']: s['is_enabled'] for s in explicit_visibility_settings}
+        explicit_visibility_settings = kpi_visibility.get_plants_for_kpi(kpi_id)
+        explicit_settings_map = {s['plant_id']: s['is_enabled'] for s in explicit_visibility_settings}
 
-        for stab_id, checkbox_var in self.stabilimento_checkboxes.items():
+        for plant_id, checkbox_var in self.plant_checkboxes.items():
             # If an explicit setting exists, use it. Otherwise, default to True.
-            checkbox_var.set(explicit_settings_map.get(stab_id, True))
+            checkbox_var.set(explicit_settings_map.get(plant_id, True))
 
     def load_kpi_spec_for_editing(self, kpi_data_full_dict):
         self._populating_kpi_spec_combos = True
@@ -395,7 +397,7 @@ class KpiSpecsTab(ttk.Frame):
         self._populating_kpi_spec_combos = False
         if self.kpi_spec_indicator_var.get() == kpi_data_full_dict["indicator_name"]:
             self._set_kpi_spec_fields_from_data(kpi_data_full_dict)
-            self.save_kpi_spec_btn.config(text="Modifica Specifica")
+            self.save_kpi_spec_btn.config(text="Edit Specification")
         else:
             self.clear_kpi_spec_fields_button_action()
 
@@ -447,18 +449,18 @@ class KpiSpecsTab(ttk.Frame):
         self.kpi_spec_type_var.set(KPI_CALC_TYPE_OPTIONS[0])
         self.kpi_spec_unit_var.set("")
         self.kpi_spec_visible_var.set(True)
-        # Reset stabilimento checkboxes to default (all visible)
-        for stab_id, var in self.stabilimento_checkboxes.items():
+        # Reset plant checkboxes to default (all visible)
+        for plant_id, var in self.plant_checkboxes.items():
             var.set(True)
 
         if not (keep_hierarchy and keep_indicator and keep_subgroup and keep_group):
             self.current_editing_kpi_id = None
-            self.save_kpi_spec_btn.config(text="Aggiungi Specifica")
+            self.save_kpi_spec_btn.config(text="Add Specification")
 
     def save_kpi_specification(self):
         if not self.selected_indicator_id_for_spec:
             messagebox.showerror(
-                "Errore", "Nessun indicatore valido selezionato per la specifica."
+                "Error", "No valid indicator selected for the specification."
             )
             return
         desc = self.kpi_spec_desc_var.get().strip()
@@ -475,20 +477,20 @@ class KpiSpecsTab(ttk.Frame):
                     unit,
                     visible,
                 )
-                messagebox.showinfo("Successo", "Specifica KPI aggiornata!")
+                messagebox.showinfo("Success", "KPI Specification updated!")
                 kpi_id_to_save_visibility = self.current_editing_kpi_id
             else:
                 new_kpi_id = kpi_specs_manager.add_kpi_spec(
                     self.selected_indicator_id_for_spec, desc, calc_type, unit, visible
                 )
                 messagebox.showinfo(
-                    "Successo", "Nuova specifica KPI aggiunta/aggiornata!"
+                    "Success", "New KPI specification added/updated!"
                 )
                 kpi_id_to_save_visibility = new_kpi_id
 
-            # Save per-stabilimento visibility settings
-            for stab_id, var in self.stabilimento_checkboxes.items():
-                kpi_visibility.set_kpi_stabilimento_visibility(kpi_id_to_save_visibility, stab_id, var.get())
+            # Save per-plant visibility settings
+            for plant_id, var in self.plant_checkboxes.items():
+                kpi_visibility.set_kpi_plant_visibility(kpi_id_to_save_visibility, plant_id, var.get())
 
         except sqlite3.IntegrityError as ie:
             if (
@@ -496,32 +498,32 @@ class KpiSpecsTab(ttk.Frame):
                 and self.current_editing_kpi_id is None
             ):
                 messagebox.showerror(
-                    "Errore",
-                    f"Specifica KPI per '{self.kpi_spec_indicator_var.get()}' esiste già.",
+                    "Error",
+                    f"KPI Specification for '{self.kpi_spec_indicator_var.get()}' already exists.",
                 )
             else:
-                messagebox.showerror("Errore Integrità DB", f"Errore DB: {ie}")
+                messagebox.showerror("DB Integrity Error", f"DB Error: {ie}")
         except Exception as e:
             messagebox.showerror(
-                "Errore Salvataggio",
-                f"Salvataggio fallito: {e}\n{traceback.format_exc()}",
+                "Save Error",
+                f"Save failed: {e}\n{traceback.format_exc()}",
             )
 
     def delete_selected_kpi_spec(self):
         selected_item_iid = self.kpi_specs_tree.focus()
         if not selected_item_iid:
-            messagebox.showwarning("Attenzione", "Nessuna specifica KPI selezionata.")
+            messagebox.showwarning("Warning", "No KPI specification selected.")
             return
         item_values = self.kpi_specs_tree.item(selected_item_iid, "values")
         try:
             kpi_spec_id_to_delete = int(item_values[0])
         except (TypeError, ValueError, IndexError):
-            messagebox.showerror("Errore", "ID specifica KPI non valido.")
+            messagebox.showerror("Error", "Invalid KPI specification ID.")
             return
         kpi_name_confirm = f"{item_values[1]} > {item_values[2]} > {item_values[3]}"
         if messagebox.askyesno(
-            "Conferma",
-            f"Eliminare specifica KPI:\n{kpi_name_confirm} (ID Spec: {kpi_spec_id_to_delete})?\nEliminerà anche tutti i target associati e i link master/sub.",
+            "Confirm",
+            f"Delete KPI specification:\n{kpi_name_confirm} (Spec ID: {kpi_spec_id_to_delete})?\nThis will also delete all associated targets and master/sub links.",
             parent=self,
         ):
             try:
@@ -533,25 +535,25 @@ class KpiSpecsTab(ttk.Frame):
                     or "actual_indicator_id" not in kpi_spec_details
                 ):
                     messagebox.showerror(
-                        "Errore",
-                        f"Impossibile trovare kpi_indicator.id per kpi_spec.id {kpi_spec_id_to_delete}.",
+                        "Error",
+                        f"Could not find kpi_indicator.id for kpi_spec.id {kpi_spec_id_to_delete}.",
                     )
                     return
                 actual_indicator_id_to_delete = kpi_spec_details["actual_indicator_id"]
                 kpi_indicators_manager.delete_kpi_indicator(actual_indicator_id_to_delete)
-                # Also delete associated kpi_stabilimento_visibility entries
+                # Also delete associated kpi_plant_visibility entries
                 # This is handled by ON DELETE CASCADE in the database schema, but good to be explicit
                 # if there were any other related tables not covered by cascade.
                 # For now, no explicit call needed here due to CASCADE.
                 messagebox.showinfo(
-                    "Successo", "Specifica KPI e relativi dati eliminati."
+                    "Success", "KPI Specification and related data deleted."
                 )
                 self.app.refresh_all_data()
                 self.clear_kpi_spec_fields_button_action()
             except Exception as e:
                 messagebox.showerror(
-                    "Errore Eliminazione",
-                    f"Impossibile eliminare: {e}\n{traceback.format_exc()}",
+                    "Deletion Error",
+                    f"Could not delete: {e}\n{traceback.format_exc()}",
                 )
 
     def refresh_tree(self):
@@ -588,7 +590,7 @@ class KpiSpecsTab(ttk.Frame):
                     kpi_row_dict["description"],
                     kpi_row_dict["calculation_type"],
                     kpi_row_dict["unit_of_measure"] or "",
-                    "Sì" if kpi_row_dict["visible"] else "No",
+                    "Yes" if kpi_row_dict["visible"] else "No",
                     template_name_display,
                 ),
             )
@@ -627,13 +629,13 @@ class KpiSpecsTab(ttk.Frame):
         try:
             kpi_id_to_edit = int(item_values[0])
         except (TypeError, ValueError, IndexError):
-            messagebox.showerror("Errore", "ID KPI non valido.")
+            messagebox.showerror("Error", "Invalid KPI ID.")
             return
         kpi_data_full_dict = db_retriever.get_kpi_detailed_by_id(kpi_id_to_edit)
         if kpi_data_full_dict:
             self.load_kpi_spec_for_editing(kpi_data_full_dict)
         else:
             messagebox.showerror(
-                "Errore",
-                f"Impossibile caricare dettagli per KPI Spec ID {kpi_id_to_edit}.",
+                "Error",
+                f"Could not load details for KPI Spec ID {kpi_id_to_edit}.",
             )

@@ -420,7 +420,7 @@ if __name__ == "__main__":
                                VALUES (?, 'Tpl Ind 1', ?, 'Units')""", (template_id, CALC_TYPE_INCREMENTALE))
             cur_tpl.execute("""INSERT OR IGNORE INTO template_defined_indicators
                                (template_id, indicator_name_in_template, default_calculation_type, default_unit_of_measure)
-                               VALUES (?, 'Tpl Ind 2', ?, 'Count')""", (template_id, CALC_TYPE_MEDIA))
+                               VALUES (?, 'Tpl Ind 2', ?, 'Count')""", (template_id, CALC_TYPE_AVERAGE))
             conn_tpl.commit()
         print(f"INFO: Minimal tables for subgroups testing ensured/created in {db_kpis_path} and {db_templates_path}")
 

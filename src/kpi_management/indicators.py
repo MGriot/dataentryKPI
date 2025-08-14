@@ -279,7 +279,7 @@ if __name__ == "__main__":
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS kpis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL, description TEXT,
-                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('Incrementale', 'Media')),
+                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('Incremental', 'Average')),
                     unit_of_measure TEXT, visible BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE,
                     UNIQUE (indicator_id) );
@@ -326,7 +326,7 @@ if __name__ == "__main__":
             cur = conn.cursor()
             cur.execute(
                 "INSERT INTO kpis (indicator_id, calculation_type, unit_of_measure) VALUES (?, ?, ?)",
-                (indicator_id_test, "Incrementale", "EUR")
+                (indicator_id_test, "Incremental", "EUR")
             )
             kpi_spec_id_for_test_indicator = cur.lastrowid
             conn.commit()

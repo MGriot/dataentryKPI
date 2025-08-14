@@ -9,12 +9,12 @@ from src import app_config
 
 # Configuration imports
 from src.gui.shared.constants import (
-    CALC_TYPE_INCREMENTALE,
-    CALC_TYPE_MEDIA,
-    REPARTITION_LOGIC_ANNO,
-    REPARTITION_LOGIC_MESE,
-    REPARTITION_LOGIC_TRIMESTRE,
-    REPARTITION_LOGIC_SETTIMANA,
+    CALC_TYPE_INCREMENTAL,
+    CALC_TYPE_AVERAGE,
+    REPARTITION_LOGIC_YEAR,
+    REPARTITION_LOGIC_MONTH,
+    REPARTITION_LOGIC_QUARTER,
+    REPARTITION_LOGIC_WEEK,
     PROFILE_ANNUAL_PROGRESSIVE,
     PROFILE_EVEN,
     PROFILE_TRUE_ANNUAL_SINUSOIDAL,
@@ -59,11 +59,11 @@ def _get_period_allocations(
     Calculates initial allocations to larger periods (month, quarter, week)
     based on user-defined repartition percentages or multipliers.
 
-    For CALC_TYPE_INCREMENTALE:
+    For CALC_TYPE_INCREMENTAL:
         - Values in user_repartition_values are percentages of the annual_target for that period.
         - The sum of these percentages is normalized to 100% if it doesn't already sum to 100.
         - Returns a map of {period_index_or_key: allocated_target_sum_for_period}.
-    For CALC_TYPE_MEDIA:
+    For CALC_TYPE_AVERAGE:
         - Values in user_repartition_values are multipliers (as percentages, e.g., 110 for 1.1x)
           applied to the base annual_target (which is treated as an average).
         - Returns a map of {period_index_or_key: multiplier_for_period (e.g., 1.1)}.
@@ -72,8 +72,8 @@ def _get_period_allocations(
         {}
     )  # Key: month_idx (0-11), quarter_idx (0-3), or week_str. Value: allocated sum or multiplier.
 
-    if kpi_calc_type == CALC_TYPE_INCREMENTALE:
-        if user_repartition_logic == REPARTITION_LOGIC_MESE:
+    if kpi_calc_type == CALC_TYPE_INCREMENTAL:
+        if user_repartition_logic == REPARTITION_LOGIC_MONTH:
             # User provides { "January": 10, "February": 5, ... } (percentages)
             raw_proportions_list = [
                 float(
@@ -88,7 +88,7 @@ def _get_period_allocations(
             if abs(total_user_prop_sum) < 1e-9:  # If sum is zero (e.g. all months 0%)
                 final_proportions = [1.0 / 12.0] * 12  # Distribute evenly by default
                 print(
-                    f"    WARN (get_period_allocations/Inc/Mese): User month proportions sum to zero. Defaulting to even 1/12 distribution."
+                    f"    WARN (get_period_allocations/Inc/Month): User month proportions sum to zero. Defaulting to even 1/12 distribution."
                 )
             elif (
                 abs(total_user_prop_sum - 100.0) > 0.01
@@ -97,7 +97,7 @@ def _get_period_allocations(
                     (p / total_user_prop_sum) for p in raw_proportions_list
                 ]
                 print(
-                    f"    INFO (get_period_allocations/Inc/Mese): User month proportions (sum: {total_user_prop_sum}%) normalized."
+                    f"    INFO (get_period_allocations/Inc/Month): User month proportions (sum: {total_user_prop_sum}%) normalized."
                     )
             else:  # Already sums to 100 (or close enough)
                 final_proportions = [p / 100.0 for p in raw_proportions_list]
@@ -105,7 +105,7 @@ def _get_period_allocations(
             for i in range(12):  # month_idx 0-11
                 period_allocations[i] = annual_target * final_proportions[i]
 
-        elif user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE:
+        elif user_repartition_logic == REPARTITION_LOGIC_QUARTER:
             # User provides { "Q1": 25, "Q2": 30, ... } (percentages)
             raw_proportions_list = [
                 float(user_repartition_values.get(f"Q{i + 1}", 0.0) or 0.0)
@@ -118,14 +118,14 @@ def _get_period_allocations(
             if abs(total_user_prop_sum) < 1e-9:
                 final_proportions = [1.0 / 4.0] * 4
                 print(
-                    f"    WARN (get_period_allocations/Inc/Trim): User quarter proportions sum to zero. Defaulting to even 1/4 distribution."
+                    f"    WARN (get_period_allocations/Inc/Quarter): User quarter proportions sum to zero. Defaulting to even 1/4 distribution."
                 )
             elif abs(total_user_prop_sum - 100.0) > 0.01:
                 final_proportions = [
                     (p / total_user_prop_sum) for p in raw_proportions_list
                 ]
                 print(
-                    f"    INFO (get_period_allocations/Inc/Trim): User quarter proportions (sum: {total_user_prop_sum}%) normalized."
+                    f"    INFO (get_period_allocations/Inc/Quarter): User quarter proportions (sum: {total_user_prop_sum}%) normalized."
                 )
             else:
                 final_proportions = [p / 100.0 for p in raw_proportions_list]
@@ -133,7 +133,7 @@ def _get_period_allocations(
             for i in range(4):  # quarter_idx 0-3
                 period_allocations[i] = annual_target * final_proportions[i]
 
-        elif user_repartition_logic == REPARTITION_LOGIC_SETTIMANA:
+        elif user_repartition_logic == REPARTITION_LOGIC_WEEK:
             # User provides { "YYYY-Www": percentage, ... }
             # Example: { "2023-W01": 2, "2023-W02": 1.5 }
             sum_of_week_percentages = 0.0
@@ -149,7 +149,7 @@ def _get_period_allocations(
                     sum_of_week_percentages += prop_val
                 except (ValueError, TypeError):
                     print(
-                        f"    WARN (get_period_allocations/Inc/Sett): Invalid week format or percentage for '{week_str}': '{prop_val_maybe_str}'. Skipping."
+                        f"    WARN (get_period_allocations/Inc/Week): Invalid week format or percentage for '{week_str}': '{prop_val_maybe_str}'. Skipping."
                     )
 
             unique_iso_weeks_in_year = sorted(
@@ -169,7 +169,7 @@ def _get_period_allocations(
                 for wk_key in unique_iso_weeks_in_year:
                     period_allocations[wk_key] = annual_target * default_prop_per_week
                 print(
-                    f"    WARN (get_period_allocations/Inc/Sett): No valid week proportions or sum is zero. Defaulting to even distribution over {num_iso_weeks} ISO weeks."
+                    f"    WARN (get_period_allocations/Inc/Week): No valid week proportions or sum is zero. Defaulting to even distribution over {num_iso_weeks} ISO weeks."
                 )
             else:
                 normalization_factor = 1.0
@@ -182,7 +182,7 @@ def _get_period_allocations(
                         else 0
                     )
                     print(
-                        f"    INFO (get_period_allocations/Inc/Sett): User week percentages (sum: {sum_of_week_percentages}%) normalized."
+                        f"    INFO (get_period_allocations/Inc/Week): User week percentages (sum: {sum_of_week_percentages}%) normalized."
                     )
 
                 for week_str, percentage in valid_week_props.items():
@@ -197,16 +197,16 @@ def _get_period_allocations(
                             0.0  # Or distribute remaining if that's the desired logic
                         )
 
-        # Default for REPARTITION_LOGIC_ANNO or unrecognized for Incremental: no specific period allocations, handled by daily distribution.
-        else:  # REPARTITION_LOGIC_ANNO or other
+        # Default for REPARTITION_LOGIC_YEAR or unrecognized for Incremental: no specific period allocations, handled by daily distribution.
+        else:  # REPARTITION_LOGIC_YEAR or other
             print(
                 f"    INFO (get_period_allocations/Inc): Logic '{user_repartition_logic}'. No specific period pre-allocations needed beyond annual."
             )
 
-    elif kpi_calc_type == CALC_TYPE_MEDIA:
-        # For MEDIA, user_repartition_values are multipliers (e.g., 110 for 1.1x of base average)
+    elif kpi_calc_type == CALC_TYPE_AVERAGE:
+        # For AVERAGE, user_repartition_values are multipliers (e.g., 110 for 1.1x of base average)
         # The 'annual_target' is the base average.
-        if user_repartition_logic == REPARTITION_LOGIC_MESE:
+        if user_repartition_logic == REPARTITION_LOGIC_MONTH:
             for i in range(12):  # month_idx 0-11
                 month_name = calendar.month_name[i + 1]
                 multiplier_perc = float(
@@ -216,7 +216,7 @@ def _get_period_allocations(
                     multiplier_perc / 100.0
                 )  # Store as actual multiplier e.g. 1.1
 
-        elif user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE:
+        elif user_repartition_logic == REPARTITION_LOGIC_QUARTER:
             # Quarter multipliers apply to all months within that quarter
             q_map_month_indices = [
                 [0, 1, 2],
@@ -234,7 +234,7 @@ def _get_period_allocations(
                         multiplier_perc / 100.0
                     )
 
-        elif user_repartition_logic == REPARTITION_LOGIC_SETTIMANA:
+        elif user_repartition_logic == REPARTITION_LOGIC_WEEK:
             # User provides { "YYYY-Www": multiplier_percentage, ... }
             unique_iso_weeks_in_year = sorted(
                 list(
@@ -258,11 +258,11 @@ def _get_period_allocations(
                     period_allocations[week_str] = multiplier_perc / 100.0
                 except (ValueError, TypeError):
                     print(
-                        f"    WARN (get_period_allocations/Media/Sett): Invalid week format or multiplier for '{week_str}': '{mult_val_maybe_str}'. Using default 1.0 for this week if it exists."
+                        f"    WARN (get_period_allocations/Avg/Week): Invalid week format or multiplier for '{week_str}': '{mult_val_maybe_str}'. Using default 1.0 for this week if it exists."
                     )
-        else:  # REPARTITION_LOGIC_ANNO or other
+        else:  # REPARTITION_LOGIC_YEAR or other
             print(
-                f"    INFO (get_period_allocations/Media): Logic '{user_repartition_logic}'. All days will use base annual average target modified by overall profile."
+                f"    INFO (get_period_allocations/Avg): Logic '{user_repartition_logic}'. All days will use base annual average target modified by overall profile."
             )
 
     return period_allocations
@@ -289,10 +289,10 @@ def _get_raw_daily_values_for_repartition(
     raw_daily_values = np.zeros(days_in_year)
 
     # --- INCREMENTAL KPI Calculation ---
-    if kpi_calc_type == CALC_TYPE_INCREMENTALE:
+    if kpi_calc_type == CALC_TYPE_INCREMENTAL:
         if distribution_profile == PROFILE_EVEN:
             if (
-                user_repartition_logic == REPARTITION_LOGIC_ANNO
+                user_repartition_logic == REPARTITION_LOGIC_YEAR
                 or not period_allocations_map
             ):
                 daily_val = annual_target / days_in_year if days_in_year > 0 else 0
@@ -302,7 +302,7 @@ def _get_raw_daily_values_for_repartition(
                     target_sum_for_this_day_period = 0
                     num_days_in_this_day_period = 0
 
-                    if user_repartition_logic == REPARTITION_LOGIC_MESE:
+                    if user_repartition_logic == REPARTITION_LOGIC_MONTH:
                         month_idx_0based = date_val.month - 1
                         target_sum_for_this_day_period = period_allocations_map.get(
                             month_idx_0based, 0.0
@@ -310,7 +310,7 @@ def _get_raw_daily_values_for_repartition(
                         _, num_days_in_this_day_period = calendar.monthrange(
                             year, date_val.month
                         )
-                    elif user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE:
+                    elif user_repartition_logic == REPARTITION_LOGIC_QUARTER:
                         q_idx_0_based = (date_val.month - 1) // 3
                         target_sum_for_this_day_period = period_allocations_map.get(
                             q_idx_0_based, 0.0
@@ -320,7 +320,7 @@ def _get_raw_daily_values_for_repartition(
                         )  # Assumes this util is available
                         q_start, q_end = q_ranges[q_idx_0_based + 1]
                         num_days_in_this_day_period = (q_end - q_start).days + 1
-                    elif user_repartition_logic == REPARTITION_LOGIC_SETTIMANA:
+                    elif user_repartition_logic == REPARTITION_LOGIC_WEEK:
                         iso_y, iso_w, _ = date_val.isocalendar()
                         wk_key = f"{iso_y:04d}-W{iso_w:02d}"
                         target_sum_for_this_day_period = period_allocations_map.get(
@@ -341,12 +341,12 @@ def _get_raw_daily_values_for_repartition(
                     )
 
         elif distribution_profile == PROFILE_ANNUAL_PROGRESSIVE:
-            # Applies to annual target directly if REPARTITION_LOGIC_ANNO
-            # If MESE/TRIMESTRE, this profile logic is usually applied *within* those periods, see below.
+            # Applies to annual target directly if REPARTITION_LOGIC_YEAR
+            # If MONTH/QUARTER, this profile logic is usually applied *within* those periods, see below.
             # For now, let's assume this means progressive over the whole year if selected.
             # This part of the original code was complex. A simpler interpretation:
-            # If logic is ANNO, then apply annual progressive. Otherwise, the intra-period profiles take over.
-            if user_repartition_logic == REPARTITION_LOGIC_ANNO:
+            # If logic is YEAR, then apply annual progressive. Otherwise, the intra-period profiles take over.
+            if user_repartition_logic == REPARTITION_LOGIC_YEAR:
                 props = get_weighted_proportions(
                     days_in_year,
                     WEIGHT_INITIAL_FACTOR_INC,
@@ -360,7 +360,7 @@ def _get_raw_daily_values_for_repartition(
                 )
 
         elif distribution_profile == PROFILE_TRUE_ANNUAL_SINUSOIDAL:
-            if user_repartition_logic == REPARTITION_LOGIC_ANNO:
+            if user_repartition_logic == REPARTITION_LOGIC_YEAR:
                 amp = float(
                     profile_params.get("sine_amplitude", SINE_AMPLITUDE_INCREMENTAL)
                 )
@@ -373,7 +373,7 @@ def _get_raw_daily_values_for_repartition(
                 )
 
         elif distribution_profile == PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS:
-            if user_repartition_logic == REPARTITION_LOGIC_ANNO:
+            if user_repartition_logic == REPARTITION_LOGIC_YEAR:
                 base_props = get_weighted_proportions(
                     days_in_year,
                     WEIGHT_INITIAL_FACTOR_INC,
@@ -415,20 +415,20 @@ def _get_raw_daily_values_for_repartition(
             PROFILE_QUARTERLY_PROGRESSIVE,
             PROFILE_QUARTERLY_SINUSOIDAL,
         ]:
-            if user_repartition_logic == REPARTITION_LOGIC_MESE or (
-                user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE
+            if user_repartition_logic == REPARTITION_LOGIC_MONTH or (
+                user_repartition_logic == REPARTITION_LOGIC_QUARTER
                 and distribution_profile
                 in [PROFILE_MONTHLY_SINUSOIDAL, PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE]
             ):
                 # Determine monthly target sums first
                 monthly_target_sums_final = [0.0] * 12
-                if user_repartition_logic == REPARTITION_LOGIC_MESE:
+                if user_repartition_logic == REPARTITION_LOGIC_MONTH:
                     for m_idx_0based in range(12):
                         monthly_target_sums_final[m_idx_0based] = (
                             period_allocations_map.get(m_idx_0based, 0.0)
                         )
                 elif (
-                    user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE
+                    user_repartition_logic == REPARTITION_LOGIC_QUARTER
                 ):  # Distribute quarter sum progressively/sinusoidally into months
                     q_map_month_indices = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]]
                     for q_idx_0based, months_in_q_indices in enumerate(
@@ -511,7 +511,7 @@ def _get_raw_daily_values_for_repartition(
                             )
 
             elif (
-                user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE
+                user_repartition_logic == REPARTITION_LOGIC_QUARTER
                 and distribution_profile
                 in [PROFILE_QUARTERLY_PROGRESSIVE, PROFILE_QUARTERLY_SINUSOIDAL]
             ):
@@ -565,26 +565,26 @@ def _get_raw_daily_values_for_repartition(
             )
             raw_daily_values = np.array([annual_target * p for p in props])
 
-    # --- MEDIA KPI Calculation ---
-    elif kpi_calc_type == CALC_TYPE_MEDIA:
+    # --- AVERAGE KPI Calculation ---
+    elif kpi_calc_type == CALC_TYPE_AVERAGE:
         # Base daily average is annual_target. This is then modified by period multipliers and distribution profiles.
         for d_idx, date_val in enumerate(all_dates_in_year):
             # Step 1: Get base average for the day from period_allocations_map (which stores multipliers)
             base_avg_for_day_from_repart = (
                 annual_target  # Default is the overall annual average
             )
-            if user_repartition_logic == REPARTITION_LOGIC_MESE:
+            if user_repartition_logic == REPARTITION_LOGIC_MONTH:
                 month_idx_0based = date_val.month - 1
                 base_avg_for_day_from_repart = (
                     annual_target * period_allocations_map.get(month_idx_0based, 1.0)
                 )
-            elif user_repartition_logic == REPARTITION_LOGIC_TRIMESTRE:
-                # Recall period_allocations_map for Trimestral Media stores by month_idx
+            elif user_repartition_logic == REPARTITION_LOGIC_QUARTER:
+                # Recall period_allocations_map for Quarter Average stores by month_idx
                 month_idx_0based = date_val.month - 1
                 base_avg_for_day_from_repart = (
                     annual_target * period_allocations_map.get(month_idx_0based, 1.0)
                 )
-            elif user_repartition_logic == REPARTITION_LOGIC_SETTIMANA:
+            elif user_repartition_logic == REPARTITION_LOGIC_WEEK:
                 iso_y, iso_w, _ = date_val.isocalendar()
                 wk_key = f"{iso_y:04d}-W{iso_w:02d}"
                 base_avg_for_day_from_repart = (
@@ -631,7 +631,7 @@ def _get_raw_daily_values_for_repartition(
                     day_target_val_bias *= WEEKDAY_BIAS_FACTOR_MEDIA
                 raw_daily_values[d_idx] = day_target_val_bias
 
-            # Intra-period profiles for Media
+            # Intra-period profiles for Average
             elif distribution_profile in [
                 PROFILE_MONTHLY_SINUSOIDAL,
                 PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE,
@@ -725,14 +725,14 @@ def _get_raw_daily_values_for_repartition(
                     1 + modulation_factor_deviation
                 )
 
-            else:  # Default profile for Media if not specified above
+            else:  # Default profile for Average if not specified above
                 raw_daily_values[d_idx] = (
                     base_avg_for_day_from_repart  # No specific daily modulation, just period avg.
                 )
 
     else:
         print(
-            f"ERROR (get_raw_daily): Tipo calcolo KPI sconosciuto: {kpi_calc_type}. Returning zeros."
+            f"ERROR (get_raw_daily): Unknown KPI calculation type: {kpi_calc_type}. Returning zeros."
         )
     return raw_daily_values
 
@@ -741,7 +741,7 @@ def _apply_event_adjustments_to_daily_values(
     raw_daily_values_input: np.ndarray,
     event_data_list: list,  # List of event dicts from profile_params["events"]
     kpi_calc_type: str,
-    annual_target_for_normalization: float,  # Only for CALC_TYPE_INCREMENTALE
+    annual_target_for_normalization: float,  # Only for CALC_TYPE_INCREMENTAL
     all_dates_in_year: list,  # List of datetime.date objects for the year
 ) -> np.ndarray:
     """
@@ -774,11 +774,11 @@ def _apply_event_adjustments_to_daily_values(
 
             for d_idx, date_val_event_loop in enumerate(all_dates_in_year):
                 if start_event_date_obj <= date_val_event_loop <= end_event_date_obj:
-                    if kpi_calc_type == CALC_TYPE_MEDIA:
+                    if kpi_calc_type == CALC_TYPE_AVERAGE:
                         adjusted_daily_values[d_idx] = (
                             adjusted_daily_values[d_idx] * multiplier_event
                         ) + addition_event
-                    elif kpi_calc_type == CALC_TYPE_INCREMENTALE:
+                    elif kpi_calc_type == CALC_TYPE_INCREMENTAL:
                         # For incremental, multiplier applies, then addition.
                         # Normalization to annual total happens *after* all events.
                         adjusted_daily_values[d_idx] *= multiplier_event
@@ -794,7 +794,7 @@ def _apply_event_adjustments_to_daily_values(
             continue
 
     # For INCREMENTAL, re-normalize the sum of daily values to the original annual target
-    if kpi_calc_type == CALC_TYPE_INCREMENTALE:
+    if kpi_calc_type == CALC_TYPE_INCREMENTAL:
         current_total_after_events = np.sum(adjusted_daily_values)
         if (
             abs(annual_target_for_normalization) < 1e-9
@@ -896,7 +896,7 @@ def _aggregate_and_save_periodic_targets(
         num_days_in_week_for_avg = len(tgts_in_wk_list)
         wt_val = (
             sum(tgts_in_wk_list)
-            if kpi_calc_type == CALC_TYPE_INCREMENTALE
+            if kpi_calc_type == CALC_TYPE_INCREMENTAL
             else (
                 sum(tgts_in_wk_list) / num_days_in_week_for_avg
                 if num_days_in_week_for_avg > 0
@@ -936,7 +936,7 @@ def _aggregate_and_save_periodic_targets(
             )  # Actual number of days with data in this month
             mt_val = (
                 sum(tgts_in_m_list)
-                if kpi_calc_type == CALC_TYPE_INCREMENTALE
+                if kpi_calc_type == CALC_TYPE_INCREMENTAL
                 else (
                     sum(tgts_in_m_list) / num_days_in_month_for_avg
                     if num_days_in_month_for_avg > 0
@@ -985,7 +985,7 @@ def _aggregate_and_save_periodic_targets(
             num_months_in_q_for_avg = len(tgts_in_q_list)
             qt_val = (
                 sum(tgts_in_q_list)
-                if kpi_calc_type == CALC_TYPE_INCREMENTALE
+                if kpi_calc_type == CALC_TYPE_INCREMENTAL
                 else (
                     sum(tgts_in_q_list) / num_months_in_q_for_avg
                     if num_months_in_q_for_avg > 0
@@ -1038,14 +1038,14 @@ def calculate_and_save_all_repartitions(
     # --- END OF FIX ---
 
     print(
-        f"  Calculating repartitions for: Year={year}, Stab={stabilimento_id}, KPI Spec={kpi_spec_id}, TargetNum={target_number}"
+        f"  Calculating repartitions for: Year={year}, Plant={stabilimento_id}, KPI Spec={kpi_spec_id}, TargetNum={target_number}"
     )
 
     # 1. Get Annual Target Info
     target_info_row = get_annual_target_entry(year, stabilimento_id, kpi_spec_id)
     if not target_info_row:
         print(
-            f"    ERROR: No annual target entry found for KPI {kpi_spec_id}, Year {year}, Stab {stabilimento_id}. Cannot repartition."
+            f"    ERROR: No annual target entry found for KPI {kpi_spec_id}, Year {year}, Plant {stabilimento_id}. Cannot repartition."
         )
         return
     target_info = dict(target_info_row)
@@ -1058,7 +1058,7 @@ def calculate_and_save_all_repartitions(
         )
         return
     kpi_details = dict(kpi_details_row)
-    kpi_calc_type = kpi_details.get("calculation_type", CALC_TYPE_INCREMENTALE)
+    kpi_calc_type = kpi_details.get("calculation_type", CALC_TYPE_INCREMENTAL)
 
     annual_target_to_use = target_info.get(f"annual_target{target_number}")
 
@@ -1089,7 +1089,7 @@ def calculate_and_save_all_repartitions(
 
     # Proceed with calculation
     annual_target_to_use = float(annual_target_to_use)
-    user_repart_logic = target_info.get("repartition_logic", REPARTITION_LOGIC_ANNO)
+    user_repart_logic = target_info.get("repartition_logic", REPARTITION_LOGIC_YEAR)
     distribution_profile = target_info.get(
         "distribution_profile", PROFILE_ANNUAL_PROGRESSIVE
     )

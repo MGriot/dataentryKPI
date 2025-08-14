@@ -15,7 +15,7 @@ from gui.app_streamlit.pages import target_entry
 # ... other page imports will go here
 
 st.set_page_config(
-    page_title="Gestione Target KPI",
+    page_title="KPI Target Management",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -28,28 +28,28 @@ if 'db_setup_done' not in st.session_state:
     try:
         setup_databases()
         st.session_state.db_setup_done = True
-        st.success("Controllo e setup database completato.")
+        st.success("Database check and setup completed.")
     except Exception as e:
-        st.error(f"Errore durante il setup del database: {e}")
+        st.error(f"Error during database setup: {e}")
         st.session_state.db_setup_done = False
 
 # --- Page Navigation ---
-st.sidebar.title("Navigazione")
+st.sidebar.title("Navigation")
 
 # Define pages (mirroring Tkinter tabs)
 pages = {
-    "🎯 Inserimento Target": target_entry,
-    "🗂️ Gestione Gerarchia KPI": None, # Placeholder
-    "📋 Gestione Template Indicatori": None, # Placeholder
-    "⚙️ Gestione Specifiche KPI": None, # Placeholder
-    "🔗 Gestione Link Master/Sub": None, # Placeholder
-    "🏭 Gestione Stabilimenti": None, # Placeholder
-    "📦 Esportazione Dati": None, # Placeholder
-    "📈 Analisi Risultati": None, # Placeholder
-    "⚙️ Impostazioni": None, # Placeholder
+    "🎯 Target Entry": target_entry,
+    "🗂️ KPI Hierarchy Management": None, # Placeholder
+    "📋 Indicator Template Management": None, # Placeholder
+    "⚙️ KPI Specification Management": None, # Placeholder
+    "🔗 Master/Sub Link Management": None, # Placeholder
+    "🏭 Plant Management": plants, # Placeholder
+    "📦 Data Export": None, # Placeholder
+    "📈 Results Analysis": None, # Placeholder
+    "⚙️ Settings": None, # Placeholder
 }
 
-selected_page_name = st.sidebar.radio("Vai a:", list(pages.keys()))
+selected_page_name = st.sidebar.radio("Go to:", list(pages.keys()))
 selected_page_module = pages[selected_page_name]
 
 # Dynamically import and run the selected page
@@ -57,6 +57,6 @@ if st.session_state.db_setup_done:
     if selected_page_module:
         selected_page_module.app()
     else:
-        st.info("Pagina in costruzione.")
+        st.info("Page under construction.")
 else:
-    st.warning("Il database non è stato configurato correttamente. Alcune funzionalità potrebbero non essere disponibili.")
+    st.warning("Database not configured correctly. Some features may not be available.")

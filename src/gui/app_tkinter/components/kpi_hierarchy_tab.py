@@ -24,7 +24,7 @@ class KpiHierarchyTab(ttk.Frame):
         main_frame.pack(fill="both", expand=True)
 
         # --- Group Frame ---
-        group_frame = ttk.LabelFrame(main_frame, text="Gruppi KPI", padding=10)
+        group_frame = ttk.LabelFrame(main_frame, text="KPI Groups", padding=10)
         group_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         self.groups_listbox = tk.Listbox(group_frame, exportselection=False, height=15, width=25)
         self.groups_listbox.pack(fill="both", expand=True, pady=(0, 5))
@@ -32,14 +32,14 @@ class KpiHierarchyTab(ttk.Frame):
 
         group_btn_frame = ttk.Frame(group_frame)
         group_btn_frame.pack(fill="x")
-        ttk.Button(group_btn_frame, text="Nuovo", command=self.add_new_group, width=8, style="Accent.TButton").pack(side="left", padx=2)
-        self.edit_group_btn = ttk.Button(group_btn_frame, text="Modifica", command=self.edit_selected_group, state="disabled", width=8)
+        ttk.Button(group_btn_frame, text="New", command=self.add_new_group, width=8, style="Accent.TButton").pack(side="left", padx=2)
+        self.edit_group_btn = ttk.Button(group_btn_frame, text="Edit", command=self.edit_selected_group, state="disabled", width=8)
         self.edit_group_btn.pack(side="left", padx=2)
-        self.delete_group_btn = ttk.Button(group_btn_frame, text="Elimina", command=self.delete_selected_group, state="disabled", width=8)
+        self.delete_group_btn = ttk.Button(group_btn_frame, text="Delete", command=self.delete_selected_group, state="disabled", width=8)
         self.delete_group_btn.pack(side="left", padx=2)
 
         # --- Subgroup Frame ---
-        subgroup_frame = ttk.LabelFrame(main_frame, text="Sottogruppi", padding=10)
+        subgroup_frame = ttk.LabelFrame(main_frame, text="Subgroups", padding=10)
         subgroup_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         self.subgroups_listbox = tk.Listbox(subgroup_frame, exportselection=False, height=15, width=35)
         self.subgroups_listbox.pack(fill="both", expand=True, pady=(0, 5))
@@ -47,15 +47,15 @@ class KpiHierarchyTab(ttk.Frame):
 
         subgroup_btn_frame = ttk.Frame(subgroup_frame)
         subgroup_btn_frame.pack(fill="x")
-        self.add_subgroup_btn = ttk.Button(subgroup_btn_frame, text="Nuovo", command=self.add_new_subgroup, state="disabled", width=8, style="Accent.TButton")
+        self.add_subgroup_btn = ttk.Button(subgroup_btn_frame, text="New", command=self.add_new_subgroup, state="disabled", width=8, style="Accent.TButton")
         self.add_subgroup_btn.pack(side="left", padx=2)
-        self.edit_subgroup_btn = ttk.Button(subgroup_btn_frame, text="Modifica", command=self.edit_selected_subgroup, state="disabled", width=8)
+        self.edit_subgroup_btn = ttk.Button(subgroup_btn_frame, text="Edit", command=self.edit_selected_subgroup, state="disabled", width=8)
         self.edit_subgroup_btn.pack(side="left", padx=2)
-        self.delete_subgroup_btn = ttk.Button(subgroup_btn_frame, text="Elimina", command=self.delete_selected_subgroup, state="disabled", width=8)
+        self.delete_subgroup_btn = ttk.Button(subgroup_btn_frame, text="Delete", command=self.delete_selected_subgroup, state="disabled", width=8)
         self.delete_subgroup_btn.pack(side="left", padx=2)
 
         # --- Indicator Frame ---
-        indicator_frame = ttk.LabelFrame(main_frame, text="Indicatori", padding=10)
+        indicator_frame = ttk.LabelFrame(main_frame, text="Indicators", padding=10)
         indicator_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         self.indicators_listbox = tk.Listbox(indicator_frame, exportselection=False, height=15, width=30)
         self.indicators_listbox.pack(fill="both", expand=True, pady=(0, 5))
@@ -63,11 +63,11 @@ class KpiHierarchyTab(ttk.Frame):
 
         indicator_btn_frame = ttk.Frame(indicator_frame)
         indicator_btn_frame.pack(fill="x")
-        self.add_indicator_btn = ttk.Button(indicator_btn_frame, text="Nuovo", command=self.add_new_indicator, state="disabled", width=8, style="Accent.TButton")
+        self.add_indicator_btn = ttk.Button(indicator_btn_frame, text="New", command=self.add_new_indicator, state="disabled", width=8, style="Accent.TButton")
         self.add_indicator_btn.pack(side="left", padx=2)
-        self.edit_indicator_btn = ttk.Button(indicator_btn_frame, text="Modifica", command=self.edit_selected_indicator, state="disabled", width=8)
+        self.edit_indicator_btn = ttk.Button(indicator_btn_frame, text="Edit", command=self.edit_selected_indicator, state="disabled", width=8)
         self.edit_indicator_btn.pack(side="left", padx=2)
-        self.delete_indicator_btn = ttk.Button(indicator_btn_frame, text="Elimina", command=self.delete_selected_indicator, state="disabled", width=8)
+        self.delete_indicator_btn = ttk.Button(indicator_btn_frame, text="Delete", command=self.delete_selected_indicator, state="disabled", width=8)
         self.delete_indicator_btn.pack(side="left", padx=2)
 
     def refresh_displays(self, pre_selected_group_name=None, pre_selected_subgroup_raw_name=None):
@@ -160,7 +160,7 @@ class KpiHierarchyTab(ttk.Frame):
             if not is_templated:
                 self.add_indicator_btn.config(state="normal")
             else:
-                self.add_indicator_btn.config(text="Nuovo (da Tpl)", state="disabled")
+                self.add_indicator_btn.config(text="New (from Tpl)", state="disabled")
 
             for ind in db_retriever.get_kpi_indicators_by_subgroup(subgroup_id):
                 self.indicators_listbox.insert(tk.END, ind["name"])
@@ -180,51 +180,51 @@ class KpiHierarchyTab(ttk.Frame):
                 self.delete_indicator_btn.config(state="normal")
 
     def add_new_group(self):
-        name = simpledialog.askstring("Nuovo Gruppo", "Nome Gruppo KPI:", parent=self)
+        name = simpledialog.askstring("New Group", "KPI Group Name:", parent=self)
         if name:
             try:
                 kpi_groups_manager.add_kpi_group(name)
                 self.app.refresh_all_data()
                 self.after(100, lambda: self._select_item_in_listbox(self.groups_listbox, name))
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile aggiungere gruppo: {e}")
+                messagebox.showerror("Error", f"Could not add group: {e}")
 
     def edit_selected_group(self):
         if not self.groups_listbox.curselection(): return
         old_name = self.groups_listbox.get(self.groups_listbox.curselection()[0])
         group_id = self.current_groups_map.get(old_name)
-        new_name = simpledialog.askstring("Modifica Gruppo", "Nuovo nome:", initialvalue=old_name, parent=self)
+        new_name = simpledialog.askstring("Edit Group", "New name:", initialvalue=old_name, parent=self)
         if new_name and new_name != old_name:
             try:
                 kpi_groups_manager.update_kpi_group(group_id, new_name)
                 self.app.refresh_all_data()
                 self.after(100, lambda: self._select_item_in_listbox(self.groups_listbox, new_name))
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile modificare gruppo: {e}")
+                messagebox.showerror("Error", f"Could not edit group: {e}")
 
     def delete_selected_group(self):
         if not self.groups_listbox.curselection(): return
         name = self.groups_listbox.get(self.groups_listbox.curselection()[0])
         group_id = self.current_groups_map.get(name)
-        if messagebox.askyesno("Conferma", f"Eliminare gruppo '{name}' e tutti i suoi contenuti?"):
+        if messagebox.askyesno("Confirm", f"Delete group '{name}' and all its contents?"):
             try:
                 kpi_groups_manager.delete_kpi_group(group_id)
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile eliminare gruppo: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not delete group: {e}\n{traceback.format_exc()}")
 
     def add_new_subgroup(self):
         if not self.groups_listbox.curselection(): return
         group_name = self.groups_listbox.get(self.groups_listbox.curselection()[0])
         group_id = self.current_groups_map.get(group_name)
-        dialog = SubgroupEditorDialog(self, title="Nuovo Sottogruppo", group_id_context=group_id)
+        dialog = SubgroupEditorDialog(self, title="New Subgroup", group_id_context=group_id)
         if dialog.result_name:
             try:
                 kpi_subgroups_manager.add_kpi_subgroup(dialog.result_name, group_id, dialog.result_template_id)
                 self.app.refresh_all_data()
                 self.after(100, lambda: self.refresh_displays(pre_selected_group_name=group_name, pre_selected_subgroup_raw_name=dialog.result_name))
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile aggiungere sottogruppo: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not add subgroup: {e}\n{traceback.format_exc()}")
 
     def edit_selected_subgroup(self):
         if not self.subgroups_listbox.curselection() or not self.groups_listbox.curselection(): return
@@ -235,14 +235,14 @@ class KpiHierarchyTab(ttk.Frame):
         if not subgroup_info: return
         
         old_raw_name = display_name.split(" (Tpl:")[0]
-        dialog = SubgroupEditorDialog(self, title="Modifica Sottogruppo", group_id_context=group_id, initial_name=old_raw_name, initial_template_id=subgroup_info.get("template_id"))
+        dialog = SubgroupEditorDialog(self, title="Edit Subgroup", group_id_context=group_id, initial_name=old_raw_name, initial_template_id=subgroup_info.get("template_id"))
         if dialog.result_name:
             try:
                 kpi_subgroups_manager.update_kpi_subgroup(subgroup_info["id"], dialog.result_name, group_id, dialog.result_template_id)
                 self.app.refresh_all_data()
                 self.after(100, lambda: self.refresh_displays(pre_selected_group_name=group_name, pre_selected_subgroup_raw_name=dialog.result_name))
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile modificare sottogruppo: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not edit subgroup: {e}\n{traceback.format_exc()}")
 
     def delete_selected_subgroup(self):
         if not self.subgroups_listbox.curselection(): return
@@ -250,12 +250,12 @@ class KpiHierarchyTab(ttk.Frame):
         subgroup_info = self.current_subgroups_map.get(display_name)
         if not subgroup_info: return
 
-        if messagebox.askyesno("Conferma", f"Eliminare sottogruppo '{display_name.split(' (Tpl:')[0]}' e tutti i suoi contenuti?"):
+        if messagebox.askyesno("Confirm", f"Delete subgroup '{display_name.split(' (Tpl:')[0]}' and all its contents?"):
             try:
                 kpi_subgroups_manager.delete_kpi_subgroup(subgroup_info["id"])
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile eliminare sottogruppo: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not delete subgroup: {e}\n{traceback.format_exc()}")
 
     def add_new_indicator(self):
         if not self.subgroups_listbox.curselection(): return
@@ -263,13 +263,13 @@ class KpiHierarchyTab(ttk.Frame):
         subgroup_info = self.current_subgroups_map.get(display_subgroup_name)
         if not subgroup_info: return
 
-        name = simpledialog.askstring("Nuovo Indicatore", "Nome Indicatore:", parent=self)
+        name = simpledialog.askstring("New Indicator", "Indicator Name:", parent=self)
         if name:
             try:
                 kpi_indicators_manager.add_kpi_indicator(name, subgroup_info["id"])
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile aggiungere indicatore: {e}")
+                messagebox.showerror("Error", f"Could not add indicator: {e}")
 
     def edit_selected_indicator(self):
         if not self.indicators_listbox.curselection() or not self.subgroups_listbox.curselection(): return
@@ -278,24 +278,24 @@ class KpiHierarchyTab(ttk.Frame):
         display_subgroup_name = self.subgroups_listbox.get(self.subgroups_listbox.curselection()[0])
         subgroup_id = self.current_subgroups_map.get(display_subgroup_name)["id"]
 
-        new_name = simpledialog.askstring("Modifica Indicatore", "Nuovo nome:", initialvalue=old_name, parent=self)
+        new_name = simpledialog.askstring("Edit Indicator", "New name:", initialvalue=old_name, parent=self)
         if new_name and new_name != old_name:
             try:
                 kpi_indicators_manager.update_kpi_indicator(indicator_id, new_name, subgroup_id)
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile modificare indicatore: {e}")
+                messagebox.showerror("Error", f"Could not edit indicator: {e}")
 
     def delete_selected_indicator(self):
         if not self.indicators_listbox.curselection(): return
         name = self.indicators_listbox.get(self.indicators_listbox.curselection()[0])
         indicator_id = self.current_indicators_map.get(name)
-        if messagebox.askyesno("Conferma", f"Eliminare indicatore '{name}' e la sua specifica/target?"):
+        if messagebox.askyesno("Confirm", f"Delete indicator '{name}' and its spec/targets?"):
             try:
                 kpi_indicators_manager.delete_kpi_indicator(indicator_id)
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile eliminare indicatore: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not delete indicator: {e}\n{traceback.format_exc()}")
 
     def _select_item_in_listbox(self, listbox, item_name):
         for i in range(listbox.size()):

@@ -1,5 +1,5 @@
 import streamlit as st
 
 def app():
-    st.title("📈 Analisi Risultati")
-    st.write("Contenuto della pagina Analisi Risultati.")
+    st.title("📈 Results Analysis")
+    st.write("Content of the Results Analysis page.")

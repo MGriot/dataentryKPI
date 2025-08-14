@@ -4,7 +4,7 @@ import traceback
 from src import app_config
 from pathlib import Path # Ensure Path is imported
 
-from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+from src.gui.shared.constants import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 # --- KPI Specification (kpis table) CRUD Operations ---
 
@@ -23,7 +23,7 @@ def add_kpi_spec(
     Args:
         indicator_id (int): The ID from the 'kpi_indicators' table this spec is for. Must be unique in 'kpis'.
         description (str): Description of the KPI.
-        calculation_type (str): How the KPI is calculated (e.g., 'Incrementale', 'Media').
+        calculation_type (str): How the KPI is calculated (e.g., 'Incremental', 'Average').
                                 Must match one of the allowed types.
         unit_of_measure (str): The unit of measure for this KPI.
         visible (bool): Whether this KPI spec is visible by default.
@@ -43,7 +43,7 @@ def add_kpi_spec(
             f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot add KPI spec."
         )
 
-    allowed_calc_types = [CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA]
+    allowed_calc_types = [CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE]
     if calculation_type not in allowed_calc_types:
         msg = f"Invalid calculation_type: '{calculation_type}'. Must be one of {allowed_calc_types}."
         print(f"ERROR: {msg}")
@@ -168,7 +168,7 @@ def update_kpi_spec(
             f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot update KPI spec."
         )
 
-    allowed_calc_types = [CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA]
+    allowed_calc_types = [CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE]
     if calculation_type not in allowed_calc_types:
         msg = f"Invalid calculation_type: '{calculation_type}'. Must be one of {allowed_calc_types}."
         print(f"ERROR: {msg}")
@@ -288,7 +288,7 @@ if __name__ == "__main__":
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     indicator_id INTEGER NOT NULL UNIQUE,
                     description TEXT,
-                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
                     unit_of_measure TEXT,
                     visible BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE
@@ -321,7 +321,7 @@ if __name__ == "__main__":
         kpi_spec_id_created = add_kpi_spec(
             indicator_id=TEST_INDICATOR_ID_FOR_SPEC,
             description="Total Sales Revenue",
-            calculation_type=CALC_TYPE_INCREMENTALE,
+            calculation_type=CALC_TYPE_INCREMENTAL,
             unit_of_measure="USD",
             visible=True,
         )
@@ -336,7 +336,7 @@ if __name__ == "__main__":
         updated_kpi_spec_id = add_kpi_spec(
             indicator_id=TEST_INDICATOR_ID_FOR_SPEC,
             description="Total Sales Revenue (Updated)",
-            calculation_type=CALC_TYPE_INCREMENTALE,
+            calculation_type=CALC_TYPE_INCREMENTAL,
             unit_of_measure="EUR",  # Changed unit
             visible=True,
         )
@@ -363,7 +363,7 @@ if __name__ == "__main__":
             kpi_spec_id=kpi_spec_id_created,
             indicator_id=TEST_INDICATOR_ID_FOR_SPEC,  # indicator_id usually doesn't change here
             description="Gross Sales Revenue",
-            calculation_type=CALC_TYPE_MEDIA,
+            calculation_type=CALC_TYPE_AVERAGE,
             unit_of_measure="GBP",
             visible=False,
         )
@@ -375,7 +375,7 @@ if __name__ == "__main__":
             assert (
                 row
                 and row[0] == "Gross Sales Revenue"
-                and row[1] == CALC_TYPE_MEDIA
+                and row[1] == CALC_TYPE_AVERAGE
                 and row[2] == "GBP"
                 and row[3] == 0
             ), "KPI Spec not updated correctly by direct call."
@@ -404,7 +404,7 @@ if __name__ == "__main__":
         NON_EXISTENT_INDICATOR_ID = 9999
         try:
             add_kpi_spec(
-                NON_EXISTENT_INDICATOR_ID, "Test", CALC_TYPE_INCREMENTALE, "Units", True
+                NON_EXISTENT_INDICATOR_ID, "Test", CALC_TYPE_INCREMENTAL, "Units", True
             )
             print(
                 "  FAILURE: Adding spec for non-existent indicator_id did not raise IntegrityError."

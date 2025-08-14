@@ -62,7 +62,7 @@ class MasterSubLinkTab(ttk.Frame):
     def link_sub_kpi(self):
         selected_master_item = self.master_kpi_tree.focus()
         if not selected_master_item: 
-            messagebox.showwarning("Attenzione", "Seleziona un Master KPI.")
+            messagebox.showwarning("Warning", "Select a Master KPI.")
             return
 
         master_kpi_id = int(selected_master_item)
@@ -77,7 +77,7 @@ class MasterSubLinkTab(ttk.Frame):
         sub_kpi_to_link = dialog.result_kpi
 
         if not sub_kpi_to_link:
-            messagebox.showerror("Errore", "Sub-KPI non trovato.")
+            messagebox.showerror("Error", "Sub-KPI not found.")
             return
 
         weight = simpledialog.askfloat("Insert Weight", "Enter weight for this Sub-KPI:", initialvalue=1.0)
@@ -87,7 +87,7 @@ class MasterSubLinkTab(ttk.Frame):
             kpi_links_manager.link_sub_kpi(master_kpi_id, sub_kpi_to_link["id"], weight)
             self.on_kpi_select()
         except Exception as e:
-            messagebox.showerror("Errore", f"Impossibile collegare Sub-KPI: {e}")
+            messagebox.showerror("Error", f"Could not link Sub-KPI: {e}")
 
     def unlink_sub_kpi(self):
         selected_master_item = self.master_kpi_tree.focus()
@@ -96,7 +96,7 @@ class MasterSubLinkTab(ttk.Frame):
 
         selected_sub_indices = self.sub_kpi_listbox.curselection()
         if not selected_sub_indices: 
-            messagebox.showwarning("Attenzione", "Seleziona uno o più Sub-KPI da scollegare.")
+            messagebox.showwarning("Warning", "Select one or more Sub-KPIs to unlink.")
             return
 
         linked_subs = db_retriever.get_linked_sub_kpis_detailed(master_kpi_id)
@@ -105,7 +105,7 @@ class MasterSubLinkTab(ttk.Frame):
             try:
                 kpi_links_manager.unlink_sub_kpi(master_kpi_id, sub_kpi_id_to_unlink)
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile scollegare Sub-KPI: {e}")
+                messagebox.showerror("Error", f"Could not unlink Sub-KPI: {e}")
         self.on_kpi_select()
 
     def update_weight(self):
@@ -115,7 +115,7 @@ class MasterSubLinkTab(ttk.Frame):
 
         selected_sub_index = self.sub_kpi_listbox.curselection()
         if len(selected_sub_index) != 1:
-            messagebox.showwarning("Attenzione", "Seleziona un solo Sub-KPI per aggiornare il peso.")
+            messagebox.showwarning("Warning", "Select a single Sub-KPI to update the weight.")
             return
 
         linked_subs = db_retriever.get_linked_sub_kpis_detailed(master_kpi_id)
@@ -127,4 +127,4 @@ class MasterSubLinkTab(ttk.Frame):
                 kpi_links_manager.update_link_weight(master_kpi_id, sub_kpi_to_update['id'], new_weight)
                 self.on_kpi_select()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile aggiornare il peso: {e}")
+                messagebox.showerror("Error", f"Could not update weight: {e}")

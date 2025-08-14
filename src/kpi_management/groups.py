@@ -32,7 +32,7 @@ except ImportError:
         pass
 
 
-# --- KPI Group CRUD Operations ---
+# --- KPI Group CRUD Operations --- 
 
 
 def add_kpi_group(name: str) -> int:
@@ -77,7 +77,6 @@ def add_kpi_group(name: str) -> int:
             raise Exception(
                 f"A database error occurred while adding KPI group '{name}'."
             ) from e
-
 
 def update_kpi_group(group_id: int, new_name: str):
     """
@@ -125,7 +124,6 @@ def update_kpi_group(group_id: int, new_name: str):
             raise Exception(
                 f"A database error occurred while updating KPI group ID {group_id}."
             ) from e
-
 
 def delete_kpi_group(group_id: int):
     """
@@ -295,15 +293,17 @@ if __name__ == "__main__":
                 "CREATE TABLE kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);"
             )
             cursor_setup.execute(
-                """CREATE TABLE kpi_subgroups (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
-                    indicator_template_id INTEGER,
-                    FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));"""
+                """
+CREATE TABLE kpi_subgroups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
+    indicator_template_id INTEGER,
+    FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));"""
             )
             cursor_setup.execute(
-                """CREATE TABLE kpi_indicators (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
-                    FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));"""
+                """
+CREATE TABLE kpi_indicators (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
+    FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));"""
             )
             conn_test_setup.commit()
             conn_test_setup.close()

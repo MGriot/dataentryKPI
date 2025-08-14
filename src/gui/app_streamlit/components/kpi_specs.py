@@ -6,7 +6,7 @@ from kpi_management import visibility as kpi_visibility
 from gui.shared.constants import KPI_CALC_TYPE_OPTIONS
 
 def app():
-    st.title("⚙️ Gestione Specifiche KPI")
+    st.title("⚙️ KPI Specification Management")
 
     # State management for selected KPI
     if 'selected_kpi_spec_id' not in st.session_state:
@@ -14,20 +14,20 @@ def app():
     if 'kpi_edit_mode' not in st.session_state:
         st.session_state.kpi_edit_mode = False
 
-    # Fetch all stabilimenti for visibility controls
-    all_stabilimenti = data_retriever.get_all_stabilimenti()
-    stabilimento_options = {s['name']: s['id'] for s in all_stabilimenti}
+    # Fetch all plants for visibility controls
+    all_plants = data_retriever.get_all_plants()
+    plant_options = {s['name']: s['id'] for s in all_plants}
 
     # --- Add/Edit KPI Specification ---
-    st.header("Aggiungi/Modifica Specifica KPI")
+    st.header("Add/Edit KPI Specification")
 
     with st.form(key='kpi_spec_form'):
         # Hierarchy selection (simplified for now, assuming pre-existing groups/subgroups/indicators)
         # In a real app, these would be dynamic dropdowns based on selections
-        st.subheader("Selezione Gerarchia KPI")
+        st.subheader("KPI Hierarchy Selection")
         groups = data_retriever.get_kpi_groups()
         group_names = [g['name'] for g in groups]
-        selected_group_name = st.selectbox("Gruppo:", group_names, key='kpi_spec_group')
+        selected_group_name = st.selectbox("Group:", group_names, key='kpi_spec_group')
 
         selected_group_id = next((g['id'] for g in groups if g['name'] == selected_group_name), None)
         subgroups = []
@@ -41,7 +41,7 @@ def app():
             subgroup_display_names.append(display_name)
             subgroup_raw_to_display_map[raw_name] = display_name
 
-        selected_subgroup_display_name = st.selectbox("Sottogruppo:", subgroup_display_names, key='kpi_spec_subgroup')
+        selected_subgroup_display_name = st.selectbox("Subgroup:", subgroup_display_names, key='kpi_spec_subgroup')
         selected_subgroup_raw_name = next((raw for raw, display in subgroup_raw_to_display_map.items() if display == selected_subgroup_display_name), None)
 
         selected_subgroup_id = next((sg['id'] for sg in subgroups if sg['name'] == selected_subgroup_raw_name), None)
@@ -49,38 +49,38 @@ def app():
         if selected_subgroup_id:
             indicators = data_retriever.get_kpi_indicators_by_subgroup(selected_subgroup_id)
         indicator_names = [ind['name'] for ind in indicators]
-        selected_indicator_name = st.selectbox("Indicatore:", indicator_names, key='kpi_spec_indicator')
+        selected_indicator_name = st.selectbox("Indicator:", indicator_names, key='kpi_spec_indicator')
         selected_indicator_id = next((ind['id'] for ind in indicators if ind['name'] == selected_indicator_name), None)
 
-        st.subheader("Dettagli Specifica")
-        description = st.text_area("Descrizione:", key='kpi_spec_desc')
-        calculation_type = st.selectbox("Tipo Calcolo:", KPI_CALC_TYPE_OPTIONS, key='kpi_spec_calc_type')
-        unit_of_measure = st.text_input("Unità Misura:", key='kpi_spec_unit')
-        visible_global = st.checkbox("Visibile per Target (Globale)", value=True, key='kpi_spec_visible_global')
+        st.subheader("Specification Details")
+        description = st.text_area("Description:", key='kpi_spec_desc')
+        calculation_type = st.selectbox("Calculation Type:", KPI_CALC_TYPE_OPTIONS, key='kpi_spec_calc_type')
+        unit_of_measure = st.text_input("Unit of Measure:", key='kpi_spec_unit')
+        visible_global = st.checkbox("Visible for Target (Global)", value=True, key='kpi_spec_visible_global')
 
-        # --- KPI-Stabilimento Visibility Controls ---
-        st.subheader("Visibilità per Stabilimento")
+        # --- KPI-Plant Visibility Controls ---
+        st.subheader("Visibility per Plant")
         # Use a dictionary to store the state of each checkbox
-        stabilimento_checkbox_states = {}
-        for stab_name, stab_id in stabilimento_options.items():
+        plant_checkbox_states = {}
+        for plant_name, plant_id in plant_options.items():
             # Default to True if no specific setting is found
             default_enabled = True
             if st.session_state.selected_kpi_spec_id:
                 # If editing, try to load existing setting
-                current_kpi_stab_visibility = kpi_visibility.get_kpi_stabilimento_visibility(st.session_state.selected_kpi_spec_id, stab_id)
-                default_enabled = current_kpi_stab_visibility
+                current_kpi_plant_visibility = kpi_visibility.get_kpi_plant_visibility(st.session_state.selected_kpi_spec_id, plant_id)
+                default_enabled = current_kpi_plant_visibility
             
-            stabilimento_checkbox_states[stab_id] = st.checkbox(
-                f"Abilita per {stab_name}", 
+            plant_checkbox_states[plant_id] = st.checkbox(
+                f"Enable for {plant_name}", 
                 value=default_enabled, 
-                key=f"stab_chk_{stab_id}"
+                key=f"plant_chk_{plant_id}"
             )
 
         col1, col2 = st.columns(2)
         with col1:
-            save_button = st.form_submit_button("Salva Specifica KPI")
+            save_button = st.form_submit_button("Save KPI Specification")
         with col2:
-            clear_button = st.form_submit_button("Pulisci Campi")
+            clear_button = st.form_submit_button("Clear Fields")
 
         if save_button:
             if selected_indicator_id:
@@ -94,27 +94,27 @@ def app():
                             unit_of_measure,
                             visible_global,
                         )
-                        st.success("Specifica KPI aggiornata!")
+                        st.success("KPI Specification updated!")
                         kpi_id_to_save_visibility = st.session_state.selected_kpi_spec_id
                     else:
                         # Add new KPI spec
                         new_kpi_id = kpi_specs_manager.add_kpi_spec(
                             selected_indicator_id, description, calculation_type, unit_of_measure, visible_global
                         )
-                        st.success("Nuova specifica KPI aggiunta!")
+                        st.success("New KPI specification added!")
                         kpi_id_to_save_visibility = new_kpi_id
                     
-                    # Save per-stabilimento visibility settings
-                    for stab_id, is_enabled in stabilimento_checkbox_states.items():
-                        kpi_visibility.set_kpi_stabilimento_visibility(kpi_id_to_save_visibility, stab_id, is_enabled)
+                    # Save per-plant visibility settings
+                    for plant_id, is_enabled in plant_checkbox_states.items():
+                        kpi_visibility.set_kpi_plant_visibility(kpi_id_to_save_visibility, plant_id, is_enabled)
 
                     st.session_state.kpi_edit_mode = False
                     st.session_state.selected_kpi_spec_id = None
                     st.experimental_rerun()
                 except Exception as e:
-                    st.error(f"Errore nel salvare la specifica KPI: {e}")
+                    st.error(f"Error saving KPI specification: {e}")
             else:
-                st.warning("Seleziona un indicatore valido per la specifica KPI.")
+                st.warning("Select a valid indicator for the specification.")
 
         if clear_button:
             st.session_state.selected_kpi_spec_id = None
@@ -122,19 +122,19 @@ def app():
             st.experimental_rerun()
 
     # --- Display Existing KPI Specifications ---
-    st.header("Specifiche KPI Esistenti")
+    st.header("Existing KPI Specifications")
     
-    # Filter by Stabilimento for display
-    selected_stab_for_filter_name = st.selectbox(
-        "Filtra per Stabilimento:", 
-        ["Tutti"] + list(stabilimento_options.keys()), 
-        key='filter_stab_kpi_specs'
+    # Filter by Plant for display
+    selected_plant_for_filter_name = st.selectbox(
+        "Filter by Plant:", 
+        ["All"] + list(plant_options.keys()), 
+        key='filter_plant_kpi_specs'
     )
-    filter_stabilimento_id = None
-    if selected_stab_for_filter_name != "Tutti":
-        filter_stabilimento_id = stabilimento_options[selected_stab_for_filter_name]
+    filter_plant_id = None
+    if selected_plant_for_filter_name != "All":
+        filter_plant_id = plant_options[selected_plant_for_filter_name]
 
-    all_kpis_data = data_retriever.get_all_kpis_detailed(stabilimento_id=filter_stabilimento_id)
+    all_kpis_data = data_retriever.get_all_kpis_detailed(plant_id=filter_plant_id)
 
     if all_kpis_data:
         # Prepare data for display, including template name
@@ -149,24 +149,24 @@ def app():
 
             display_data.append({
                 "ID": kpi_row_dict["id"],
-                "Gruppo": kpi_row_dict["group_name"],
-                "Sottogruppo": kpi_row_dict["subgroup_name"],
-                "Indicatore": kpi_row_dict["indicator_name"],
-                "Descrizione": kpi_row_dict["description"],
-                "Tipo Calcolo": kpi_row_dict["calculation_type"],
-                "Unità": kpi_row_dict["unit_of_measure"] or "",
-                "Visibile (Globale)": "Sì" if kpi_row_dict["visible"] else "No",
+                "Group": kpi_row_dict["group_name"],
+                "Subgroup": kpi_row_dict["subgroup_name"],
+                "Indicator": kpi_row_dict["indicator_name"],
+                "Description": kpi_row_dict["description"],
+                "Calc Type": kpi_row_dict["calculation_type"],
+                "Unit": kpi_row_dict["unit_of_measure"] or "",
+                "Visible (Global)": "Yes" if kpi_row_dict["visible"] else "No",
                 "Template SG": template_name_display,
             })
         
         st.dataframe(display_data, use_container_width=True)
 
         # --- Edit/Delete Actions ---
-        st.subheader("Azioni")
+        st.subheader("Actions")
         col_edit, col_delete = st.columns(2)
         with col_edit:
-            edit_kpi_id = st.number_input("ID KPI da Modificare:", min_value=1, format="%d", key='edit_kpi_id_input')
-            if st.button("Carica per Modifica"):
+            edit_kpi_id = st.number_input("KPI ID to Edit:", min_value=1, format="%d", key='edit_kpi_id_input')
+            if st.button("Load for Editing"):
                 kpi_data_full_dict = data_retriever.get_kpi_detailed_by_id(edit_kpi_id)
                 if kpi_data_full_dict:
                     st.session_state.selected_kpi_spec_id = edit_kpi_id
@@ -186,18 +186,18 @@ def app():
                     st.session_state.kpi_spec_unit = kpi_data_full_dict['unit_of_measure']
                     st.session_state.kpi_spec_visible_global = kpi_data_full_dict['visible']
 
-                    # Load stabilimento-specific visibility for editing
-                    for stab_name, stab_id in stabilimento_options.items():
-                        current_kpi_stab_visibility = kpi_visibility.get_kpi_stabilimento_visibility(edit_kpi_id, stab_id)
-                        st.session_state[f"stab_chk_{stab_id}"] = current_kpi_stab_visibility
+                    # Load plant-specific visibility for editing
+                    for plant_name, plant_id in plant_options.items():
+                        current_kpi_plant_visibility = kpi_visibility.get_kpi_plant_visibility(edit_kpi_id, plant_id)
+                        st.session_state[f"plant_chk_{plant_id}"] = current_kpi_plant_visibility
 
                     st.experimental_rerun()
                 else:
-                    st.error(f"KPI con ID {edit_kpi_id} non trovato.")
+                    st.error(f"KPI with ID {edit_kpi_id} not found.")
 
         with col_delete:
-            delete_kpi_id = st.number_input("ID KPI da Eliminare:", min_value=1, format="%d", key='delete_kpi_id_input')
-            if st.button("Elimina Specifica KPI"):
+            delete_kpi_id = st.number_input("KPI ID to Delete:", min_value=1, format="%d", key='delete_kpi_id_input')
+            if st.button("Delete KPI Specification"):
                 if delete_kpi_id:
                     try:
                         # Fetch full details to get actual_indicator_id
@@ -205,14 +205,14 @@ def app():
                         if kpi_spec_details and "actual_indicator_id" in kpi_spec_details:
                             actual_indicator_id_to_delete = kpi_spec_details["actual_indicator_id"]
                             kpi_indicators_manager.delete_kpi_indicator(actual_indicator_id_to_delete)
-                            st.success(f"Specifica KPI con ID {delete_kpi_id} eliminata con successo!")
+                            st.success(f"KPI Specification with ID {delete_kpi_id} deleted successfully!")
                             st.experimental_rerun()
                         else:
-                            st.error(f"KPI con ID {delete_kpi_id} non trovato o dati incompleti.")
+                            st.error(f"KPI with ID {delete_kpi_id} not found or incomplete data.")
                     except Exception as e:
-                        st.error(f"Errore nell'eliminare la specifica KPI: {e}")
+                        st.error(f"Error deleting KPI specification: {e}")
                 else:
-                    st.warning("Inserisci un ID KPI valido per l'eliminazione.")
+                    st.warning("Enter a valid KPI ID to delete.")
 
     else:
-        st.info("Nessuna specifica KPI configurata.")
+        st.info("No KPI specifications configured.")

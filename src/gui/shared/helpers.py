@@ -1,6 +1,6 @@
 def get_kpi_display_name(kpi_data_row):
     if not kpi_data_row:
-        return "N/D (KPI Data Mancante)"
+        return "N/A (Missing KPI Data)"
     try:
         g_name = (
             kpi_data_row["group_name"]
@@ -17,9 +17,9 @@ def get_kpi_display_name(kpi_data_row):
             if "indicator_name" in kpi_data_row.keys()
             else "N/I (No Indicator)"
         )
-        g_name = g_name or "N/G (Nome Gruppo Vuoto)"
-        sg_name = sg_name or "N/S (Nome Sottogruppo Vuoto)"
-        i_name = i_name or "N/I (Nome Indicatore Vuoto)"
+        g_name = g_name or "N/G (Empty Group Name)"
+        sg_name = sg_name or "N/S (Empty Subgroup Name)"
+        i_name = i_name or "N/I (Empty Indicator Name)"
         return f"{g_name} > {sg_name} > {i_name}"
     except (
         AttributeError,
@@ -27,8 +27,8 @@ def get_kpi_display_name(kpi_data_row):
         IndexError,
         TypeError,
     ) as ex:
-        print(f"Errore in get_kpi_display_name (Dati: {type(kpi_data_row)}): {ex}")
-        return "N/D (Errore Struttura Dati KPI)"
+        print(f"Error in get_kpi_display_name (Data: {type(kpi_data_row)}): {ex}")
+        return "N/A (KPI Data Structure Error)"
     except Exception as ex_general:
-        print(f"Errore imprevisto in get_kpi_display_name: {ex_general}")
-        return "N/D (Errore Display Nome Imprevisto)"
+        print(f"Unexpected error in get_kpi_display_name: {ex_general}")
+        return "N/A (Unexpected Display Name Error)"

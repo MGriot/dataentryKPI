@@ -11,7 +11,7 @@ class FormulaInputsDialog(simpledialog.Dialog):
                 if not isinstance(self.current_inputs, list):
                     self.current_inputs = []
             except json.JSONDecodeError:
-                messagebox.showwarning("JSON Errato", "Stringa JSON input formula non valida. Inizio con lista vuota.", parent=parent)
+                messagebox.showwarning("Invalid JSON", "Invalid JSON string for formula input. Starting with an empty list.", parent=parent)
                 self.current_inputs = []
 
         self.all_kpis_map = all_kpis_for_selection_map
@@ -38,4 +38,4 @@ class FormulaInputsDialog(simpledialog.Dialog):
         try:
             self.result_json_str = json.dumps(self.current_inputs)
         except Exception as e:
-            messagebox.showerror("Errore JSON", f"Impossibile serializzare inputs: {e}", parent=self)
+            messagebox.showerror("JSON Error", f"Could not serialize inputs: {e}", parent=self)

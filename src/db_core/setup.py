@@ -7,9 +7,9 @@ from pathlib import Path  # To ensure CSV_EXPORT_BASE_PATH is handled as a Path 
 from src import app_config 
 
 from src.gui.shared.constants import (
-        CALC_TYPE_INCREMENTALE,
-        CALC_TYPE_MEDIA,
-        REPARTITION_LOGIC_ANNO,
+        CALC_TYPE_INCREMENTAL,
+        CALC_TYPE_AVERAGE,
+        REPARTITION_LOGIC_YEAR,
         PROFILE_ANNUAL_PROGRESSIVE,
         WEIGHT_INITIAL_FACTOR_INC,
         WEIGHT_FINAL_FACTOR_INC,
@@ -29,22 +29,22 @@ def setup_databases():
     Creates tables if they don't exist and attempts to alter existing tables
     to add new columns if they are missing.
     """
-    print("Inizio setup_databases...")
+    print("Starting database setup...")
 
     csv_export_path = app_config.get_csv_export_path()
     if csv_export_path:
         try:
             csv_export_path.mkdir(parents=True, exist_ok=True)
-            print(f"INFO: Assicurata directory per export CSV: {csv_export_path}")
+            print(f"INFO: Ensured directory for CSV export: {csv_export_path}")
         except Exception as e:
             print(
-                f"WARN: Impossibile creare/verificare la directory CSV_EXPORT_BASE_PATH {csv_export_path}: {e}"
+                f"WARN: Could not create/verify directory CSV_EXPORT_BASE_PATH {csv_export_path}: {e}"
             )
             print(traceback.format_exc())
 
     # --- DB_KPI_TEMPLATES Setup ---
     db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
-    print(f"Setup tabelle in {db_kpi_templates_path}...")
+    print(f"Setting up tables in {db_kpi_templates_path}...")
     try:
         with sqlite3.connect(db_kpi_templates_path) as conn:
             cursor = conn.cursor()
@@ -61,7 +61,7 @@ def setup_databases():
                     template_id INTEGER NOT NULL,
                     indicator_name_in_template TEXT NOT NULL,
                     default_description TEXT,
-                    default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                    default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
                     default_unit_of_measure TEXT,
                     default_visible BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (template_id) REFERENCES kpi_indicator_templates(id) ON DELETE CASCADE,
@@ -69,20 +69,20 @@ def setup_databases():
                 )"""
             )
             conn.commit()
-        print(f"Setup tabelle in {db_kpi_templates_path} completato.")
+        print(f"Table setup in {db_kpi_templates_path} completed.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {db_kpi_templates_path}: {e}")
+        print(f"ERROR during setup of {db_kpi_templates_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_KPIS Setup ---
     db_kpis_path = app_config.get_database_path("db_kpis.db")
-    print(f"Setup tabelle in {db_kpis_path}...")
+    print(f"Setting up tables in {db_kpis_path}...")
     try:
         with sqlite3.connect(db_kpis_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "PRAGMA foreign_keys = ON;"
-            )  # Ensure FK constraints are active during setup for consistency
+                "PRAGMA foreign_keys = ON;"  # Ensure FK constraints are active during setup for consistency
+            )
 
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS kpi_groups (
@@ -115,7 +115,7 @@ def setup_databases():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     indicator_id INTEGER NOT NULL,
                     description TEXT,
-                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
                     unit_of_measure TEXT,
                     visible BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE,
@@ -135,10 +135,10 @@ def setup_databases():
                     cursor.execute(
                         "ALTER TABLE kpi_subgroups ADD COLUMN indicator_template_id INTEGER REFERENCES kpi_indicator_templates(id) ON DELETE SET NULL"
                     )
-                    print("Aggiunta colonna 'indicator_template_id' a 'kpi_subgroups'.")
+                    print("Added column 'indicator_template_id' to 'kpi_subgroups'.")
                 except sqlite3.OperationalError as e:
                     print(
-                        f"WARN: Impossibile aggiungere 'indicator_template_id' a 'kpi_subgroups', potrebbe già esistere o altro problema: {e}"
+                        f"WARN: Could not add 'indicator_template_id' to 'kpi_subgroups', it might already exist or another issue occurred: {e}"
                     )
 
             # Check and add 'unit_of_measure' to 'kpis' if missing
@@ -147,12 +147,12 @@ def setup_databases():
             if "unit_of_measure" not in kpi_columns_set:
                 try:
                     cursor.execute("ALTER TABLE kpis ADD COLUMN unit_of_measure TEXT")
-                    print("Aggiunta colonna 'unit_of_measure' a 'kpis'.")
+                    print("Added column 'unit_of_measure' to 'kpis'.")
                 except (
                     sqlite3.OperationalError
                 ) as e:  # Usually means it already exists or other schema issue
                     print(
-                        f"WARN: Impossibile aggiungere 'unit_of_measure' a 'kpis', potrebbe già esistere o altro problema: {e}"
+                        f"WARN: Could not add 'unit_of_measure' to 'kpis', it might already exist or another issue occurred: {e}"
                     )
 
             cursor.execute(
@@ -175,15 +175,15 @@ def setup_databases():
                         "ALTER TABLE kpi_master_sub_links ADD COLUMN distribution_weight REAL NOT NULL DEFAULT 1.0"
                     )
                     print(
-                        "Aggiunta colonna 'distribution_weight' a 'kpi_master_sub_links'."
+                        "Added column 'distribution_weight' to 'kpi_master_sub_links'."
                     )
                 except sqlite3.OperationalError as e:
                     print(
-                        f"WARN: Impossibile aggiungere 'distribution_weight' a 'kpi_master_sub_links', potrebbe già esistere o altro problema: {e}"
+                        f"WARN: Could not add 'distribution_weight' to 'kpi_master_sub_links', it might already exist or another issue occurred: {e}"
                     )
             conn.commit()
 
-            # --- New table for KPI-Stabilimento Visibility ---
+            # --- New table for KPI-Plant Visibility ---
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS kpi_stabilimento_visibility (
                     kpi_id INTEGER NOT NULL,
@@ -196,14 +196,14 @@ def setup_databases():
             )
             conn.commit()
 
-        print(f"Setup tabelle in {db_kpis_path} completato.")
+        print(f"Table setup in {db_kpis_path} completed.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {db_kpis_path}: {e}")
+        print(f"ERROR during setup of {db_kpis_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_STABILIMENTI Setup ---
     db_stabilimenti_path = app_config.get_database_path("db_stabilimenti.db")
-    print(f"Setup tabelle in {db_stabilimenti_path}...")
+    print(f"Setting up tables in {db_stabilimenti_path}...")
     try:
         with sqlite3.connect(db_stabilimenti_path) as conn:
             cursor = conn.cursor()
@@ -224,10 +224,10 @@ def setup_databases():
                     cursor.execute(
                         "ALTER TABLE stabilimenti ADD COLUMN description TEXT"
                     )
-                    print("Aggiunta colonna 'description' a 'stabilimenti'.")
+                    print("Added column 'description' to 'stabilimenti'.")
                 except sqlite3.OperationalError as e:
                     print(
-                        f"WARN: Impossibile aggiungere 'description' a 'stabilimenti', potrebbe già esistere o altro problema: {e}"
+                        f"WARN: Could not add 'description' to 'stabilimenti', it might already exist or another issue occurred: {e}"
                     )
             # Check and add 'color' column if missing
             if "color" not in stabilimenti_cols:
@@ -235,27 +235,27 @@ def setup_databases():
                     cursor.execute(
                         "ALTER TABLE stabilimenti ADD COLUMN color TEXT NOT NULL DEFAULT '#000000'"
                     )
-                    print("Aggiunta colonna 'color' a 'stabilimenti'.")
+                    print("Added column 'color' to 'stabilimenti'.")
                 except sqlite3.OperationalError as e:
                     print(
-                        f"WARN: Impossibile aggiungere 'color' a 'stabilimenti', potrebbe già esistere o altro problema: {e}"
+                        f"WARN: Could not add 'color' to 'stabilimenti', it might already exist or another issue occurred: {e}"
                     )
             conn.commit()
-        print(f"Setup tabelle in {db_stabilimenti_path} completato.")
+        print(f"Table setup in {db_stabilimenti_path} completed.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {db_stabilimenti_path}: {e}")
+        print(f"ERROR during setup of {db_stabilimenti_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_TARGETS Setup (Annual Targets) ---
     db_targets_path = app_config.get_database_path("db_kpi_targets.db")
-    print(f"Setup tabelle in {db_targets_path}...")
+    print(f"Setting up tables in {db_targets_path}...")
     try:
         with sqlite3.connect(db_targets_path) as conn:
             cursor = conn.cursor()
             try:
                 from gui.shared.constants import (
                     PROFILE_ANNUAL_PROGRESSIVE,
-                    REPARTITION_LOGIC_ANNO,
+                    REPARTITION_LOGIC_YEAR,
                 )
 
                 cursor.execute(
@@ -266,7 +266,7 @@ def setup_databases():
                         kpi_id INTEGER NOT NULL,
                         annual_target1 REAL NOT NULL DEFAULT 0,
                         annual_target2 REAL NOT NULL DEFAULT 0,
-                        repartition_logic TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_ANNO}',
+                        repartition_logic TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_YEAR}',
                         repartition_values TEXT NOT NULL DEFAULT '{{}}',
                         distribution_profile TEXT NOT NULL DEFAULT '{PROFILE_ANNUAL_PROGRESSIVE}',
                         profile_params TEXT DEFAULT '{{}}',
@@ -303,7 +303,7 @@ def setup_databases():
             # Also ensure older columns have their defaults if added via ALTER
             # (though defaults in CREATE IF NOT EXISTS are better)
             older_columns_with_potential_missing_defaults = {
-                "repartition_logic": f"TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_ANNO}'",  # from app_config
+                "repartition_logic": f"TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_YEAR}'",  # from app_config
                 "repartition_values": "TEXT NOT NULL DEFAULT '{}'",
                 "distribution_profile": f"TEXT NOT NULL DEFAULT '{PROFILE_ANNUAL_PROGRESSIVE}'",  # from app_config
             }
@@ -319,26 +319,26 @@ def setup_databases():
                             f"ALTER TABLE annual_targets ADD COLUMN {col_name} {col_def_with_default}"
                         )
                         print(
-                            f"Aggiunta colonna '{col_name}' con definizione '{col_def_with_default}' a 'annual_targets'."
+                            f"Added column '{col_name}' with definition '{col_def_with_default}' to 'annual_targets'."
                         )
                     except sqlite3.OperationalError as e_alter:
                         print(
-                            f"WARN: Impossibile aggiungere colonna '{col_name}' a 'annual_targets': {e_alter}. Potrebbe già esistere o esserci un problema di default."
+                            f"WARN: Could not add column '{col_name}' to 'annual_targets': {e_alter}. It might already exist or there is a default value issue."
                         )
             conn.commit()
-        print(f"Setup tabelle in {db_targets_path} completato.")
+        print(f"Table setup in {db_targets_path} completed.")
     except sqlite3.Error as e:
-        print(f"ERRORE durante il setup di {db_targets_path}: {e}")
+        print(f"ERROR during setup of {db_targets_path}: {e}")
         print(traceback.format_exc())
     except (
         NameError
-    ) as ne:  # Catches if PROFILE_ANNUAL_PROGRESSIVE or REPARTITION_LOGIC_ANNO are not imported
+    ) as ne:  # Catches if PROFILE_ANNUAL_PROGRESSIVE or REPARTITION_LOGIC_YEAR are not imported
         print(
-            f"ERRORE di configurazione (NameError) per DB_TARGETS: {ne}. Assicurarsi che le costanti siano in app_config.py."
+            f"Configuration ERROR (NameError) for DB_TARGETS: {ne}. Ensure constants are in app_config.py."
         )
         print(traceback.format_exc())
 
-    # --- Setup Tabelle Periodiche (Days, Weeks, Months, Quarters) ---
+    # --- Setup Periodic Tables (Days, Weeks, Months, Quarters) ---
     db_kpi_days_path = app_config.get_database_path("db_kpi_days.db")
     db_kpi_weeks_path = app_config.get_database_path("db_kpi_weeks.db")
     db_kpi_months_path = app_config.get_database_path("db_kpi_months.db")
@@ -364,13 +364,11 @@ def setup_databases():
     ]
 
     for db_path, table_name, period_col_def in db_configs_periods:
-        print(f"Setup tabella '{table_name}' in {db_path}...")
+        print(f"Setting up table '{table_name}' in {db_path}...")
         try:
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
-                period_col_name_for_unique = period_col_def.split()[
-                    0
-                ]  # e.g., "date_value"
+                period_col_name_for_unique = period_col_def.split()[0]  # e.g., "date_value"
                 # Ensure the UNIQUE constraint includes target_number as one KPI can have Target 1 and Target 2 for the same period
                 cursor.execute(
                     f"""CREATE TABLE IF NOT EXISTS {table_name} (
@@ -379,31 +377,31 @@ def setup_databases():
                         stabilimento_id INTEGER NOT NULL,
                         kpi_id INTEGER NOT NULL,
                         target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
-                        {period_col_def.replace(' UNIQUE', '')},
+                        {period_col_name_for_unique.replace(' UNIQUE', '')},
                         target_value REAL NOT NULL,
                         UNIQUE(year, stabilimento_id, kpi_id, target_number, {period_col_name_for_unique})
                     )"""
                 )
                 conn.commit()
-            print(f"Setup tabella '{table_name}' in {db_path} completato.")
+            print(f"Table setup in '{table_name}' in {db_path} completed.")
         except sqlite3.Error as e:
-            print(f"ERRORE durante il setup di {table_name} in {db_path}: {e}")
+            print(f"ERROR during setup of {table_name} in {db_path}: {e}")
             print(traceback.format_exc())
 
-    print("Controllo e setup database completato.")
+    print("Database check and setup completed.")
 
 
 if __name__ == "__main__":
-    print("Esecuzione di db_core/setup.py come script principale (per setup/test).")
+    print("Running db_core/setup.py as main script (for setup/test).")
     # This will attempt to import from app_config.py located relative to this script
     # or in the PYTHONPATH. For robust testing, ensure app_config.py is accessible.
     try:
         setup_databases()
         print(
-            "\n--- Setup database completato con successo (eseguito da db_core/setup.py) ---"
+            "\n--- Database setup completed successfully (run from db_core/setup.py) ---"
         )
     except Exception as e:
         print(
-            f"\n--- ERRORE CRITICO durante l'esecuzione di setup_databases da db_core/setup.py: {e} ---"
+            f"\n--- CRITICAL ERROR during execution of setup_databases from db_core/setup.py: {e} ---"
         )
         print(traceback.format_exc())

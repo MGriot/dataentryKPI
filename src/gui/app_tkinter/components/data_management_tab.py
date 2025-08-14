@@ -16,19 +16,19 @@ class DataManagementTab(ttk.Frame):
         main_frame = ttk.Frame(self, padding=20)
         main_frame.pack(expand=True, fill="both")
 
-        ttk.Label(main_frame, text="Gestione Dati", font=("TkDefaultFont", 16, "bold")).pack(pady=(0, 20))
+        ttk.Label(main_frame, text="Data Management", font=("TkDefaultFont", 16, "bold")).pack(pady=(0, 20))
 
         backup_frame = ttk.LabelFrame(main_frame, text="Backup", padding=15)
         backup_frame.pack(fill="x", expand=True, pady=10)
 
-        ttk.Button(backup_frame, text="Crea Backup (ZIP)", command=self.create_backup).pack(pady=10, ipadx=10, ipady=5)
-        ttk.Label(backup_frame, text="Esporta tutti i dati (KPI, stabilimenti, target) in un singolo file ZIP.", wraplength=400).pack(pady=(0,10))
+        ttk.Button(backup_frame, text="Create Backup (ZIP)", command=self.create_backup).pack(pady=10, ipadx=10, ipady=5)
+        ttk.Label(backup_frame, text="Export all data (KPIs, plants, targets) into a single ZIP file.", wraplength=400).pack(pady=(0,10))
 
-        restore_frame = ttk.LabelFrame(main_frame, text="Ripristino", padding=15)
+        restore_frame = ttk.LabelFrame(main_frame, text="Restore", padding=15)
         restore_frame.pack(fill="x", expand=True, pady=10)
 
-        ttk.Button(restore_frame, text="Ripristina da Backup (ZIP)", command=self.restore_backup).pack(pady=10, ipadx=10, ipady=5)
-        ttk.Label(restore_frame, text="Ripristina i dati da un file ZIP. ATTENZIONE: questa operazione sovrascriverà i dati esistenti.", wraplength=400).pack(pady=(0,10))
+        ttk.Button(restore_frame, text="Restore from Backup (ZIP)", command=self.restore_backup).pack(pady=10, ipadx=10, ipady=5)
+        ttk.Label(restore_frame, text="Restore data from a ZIP file. WARNING: This operation will overwrite existing data.", wraplength=400).pack(pady=(0,10))
 
     def create_backup(self):
         try:
@@ -37,7 +37,7 @@ class DataManagementTab(ttk.Frame):
 
             # Then, ask where to save the ZIP
             output_zip_filepath = filedialog.asksaveasfilename(
-                title="Salva Backup",
+                title="Save Backup",
                 initialdir=CSV_EXPORT_BASE_PATH,
                 initialfile="dataentryKPI_backup.zip",
                 defaultextension=".zip",
@@ -48,28 +48,28 @@ class DataManagementTab(ttk.Frame):
 
             success, message = export_manager.package_all_csvs_as_zip(output_zip_filepath_str=output_zip_filepath)
             if success:
-                messagebox.showinfo("Successo", f"Backup creato con successo:{output_zip_filepath}")
+                messagebox.showinfo("Success", f"Backup created successfully:{output_zip_filepath}")
             else:
-                messagebox.showerror("Errore", f"Impossibile creare il backup:{message}")
+                messagebox.showerror("Error", f"Could not create backup:{message}")
         except Exception as e:
-            messagebox.showerror("Errore", f"Si è verificato un errore imprevisto durante la creazione del backup:{e}")
+            messagebox.showerror("Error", f"An unexpected error occurred during backup creation:{e}")
             traceback.print_exc()
 
     def restore_backup(self):
         file_path = filedialog.askopenfilename(
-            title="Seleziona il file di Backup da ripristinare",
+            title="Select the Backup file to restore",
             filetypes=[("ZIP files", "*.zip")]
         )
         if not file_path:
             return
 
-        if not messagebox.askyesno("Conferma Ripristino", "Sei sicuro di voler ripristinare i dati da questo backup? L'operazione è irreversibile e sovrascriverà tutti i dati attuali."):
+        if not messagebox.askyesno("Confirm Restore", "Are you sure you want to restore data from this backup? This operation is irreversible and will overwrite all current data."):
             return
 
         try:
             result = import_manager.import_from_zip(file_path)
-            messagebox.showinfo("Ripristino Completato", result)
+            messagebox.showinfo("Restore Complete", result)
             self.app.refresh_all_data()
         except Exception as e:
-            messagebox.showerror("Errore di Ripristino", f"Si è verificato un errore durante il ripristino:{e}")
+            messagebox.showerror("Restore Error", f"An error occurred during restore:{e}")
             traceback.print_exc()

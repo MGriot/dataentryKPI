@@ -2,10 +2,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 import traceback
 
-from src.stabilimenti_management import crud as stabilimenti_manager
+from src.stabilimenti_management import crud as plants_manager
 from src import data_retriever
 
-class StabilimentiTab(ttk.Frame):
+class PlantsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
@@ -15,19 +15,19 @@ class StabilimentiTab(ttk.Frame):
     def create_widgets(self):
         self.st_tree = ttk.Treeview(
             self,
-            columns=("ID", "Nome", "Descrizione", "Visibile", "Colore"),
+            columns=("ID", "Name", "Description", "Visible", "Color"),
             show="headings",
         )
         self.st_tree.heading("ID", text="ID")
         self.st_tree.column("ID", width=50, anchor="center", stretch=tk.NO)
-        self.st_tree.heading("Nome", text="Nome")
-        self.st_tree.column("Nome", width=200, stretch=tk.YES)
-        self.st_tree.heading("Descrizione", text="Descrizione")
-        self.st_tree.column("Descrizione", width=250, stretch=tk.YES)
-        self.st_tree.heading("Visibile", text="Visibile")
-        self.st_tree.column("Visibile", width=80, anchor="center", stretch=tk.NO)
-        self.st_tree.heading("Colore", text="Colore")
-        self.st_tree.column("Colore", width=100, anchor="center", stretch=tk.NO)
+        self.st_tree.heading("Name", text="Name")
+        self.st_tree.column("Name", width=200, stretch=tk.YES)
+        self.st_tree.heading("Description", text="Description")
+        self.st_tree.column("Description", width=250, stretch=tk.YES)
+        self.st_tree.heading("Visible", text="Visible")
+        self.st_tree.column("Visible", width=80, anchor="center", stretch=tk.NO)
+        self.st_tree.heading("Color", text="Color")
+        self.st_tree.column("Color", width=100, anchor="center", stretch=tk.NO)
 
         self.st_tree.pack(expand=True, fill="both", padx=5, pady=5)
 
@@ -36,9 +36,9 @@ class StabilimentiTab(ttk.Frame):
         bf = ttk.Frame(bf_container)
         bf.pack()
 
-        ttk.Button(bf, text="Aggiungi", command=self.add_stabilimento_window, style="Accent.TButton").pack(side="left", padx=5)
-        ttk.Button(bf, text="Modifica", command=self.edit_stabilimento_window).pack(side="left", padx=5)
-        ttk.Button(bf, text="Elimina", command=self.delete_stabilimento).pack(side="left", padx=5)
+        ttk.Button(bf, text="Add", command=self.add_plant_window, style="Accent.TButton").pack(side="left", padx=5)
+        ttk.Button(bf, text="Edit", command=self.edit_plant_window).pack(side="left", padx=5)
+        ttk.Button(bf, text="Delete", command=self.delete_plant).pack(side="left", padx=5)
 
     def refresh_tree(self):
         for i in self.st_tree.get_children():
@@ -48,23 +48,23 @@ class StabilimentiTab(ttk.Frame):
                 self.st_tree.insert(
                     "",
                     "end",
-                    values=(row["id"], row["name"], row["description"] if row["description"] is not None else "", "Sì" if row["visible"] else "No", row["color"]),
+                    values=(row["id"], row["name"], row["description"] if row["description"] is not None else "", "Yes" if row["visible"] else "No", row["color"]),
                 )
         except Exception as e:
-            messagebox.showerror("Errore di Caricamento", f"Impossibile caricare gli stabilimenti dal database:\n{e}")
+            messagebox.showerror("Loading Error", f"Could not load plants from the database:\n{e}")
 
-    def add_stabilimento_window(self):
-        self.stabilimento_editor_window()
+    def add_plant_window(self):
+        self.plant_editor_window()
 
-    def edit_stabilimento_window(self):
+    def edit_plant_window(self):
         selected_item_iid = self.st_tree.focus()
         if not selected_item_iid:
-            messagebox.showwarning("Attenzione", "Seleziona uno stabilimento da modificare.")
+            messagebox.showwarning("Warning", "Select a plant to edit.")
             return
         
         item_values = self.st_tree.item(selected_item_iid)["values"]
         if not item_values:
-            messagebox.showerror("Errore", "Impossibile leggere i dati dello stabilimento selezionato.")
+            messagebox.showerror("Error", "Could not read data for the selected plant.")
             return
             
         try:
@@ -75,100 +75,98 @@ class StabilimentiTab(ttk.Frame):
                 item_values[3],
                 item_values[4]
             )
-            self.stabilimento_editor_window(data_tuple=data_tuple)
+            self.plant_editor_window(data_tuple=data_tuple)
         except (ValueError, IndexError) as e:
-            messagebox.showerror("Errore Dati", f"I dati per lo stabilimento selezionato non sono validi: {e}")
+            messagebox.showerror("Data Error", f"Data for the selected plant is not valid: {e}")
 
-    def delete_stabilimento(self):
+    def delete_plant(self):
         selected_item = self.st_tree.focus()
         if not selected_item:
-            messagebox.showwarning("Attenzione", "Seleziona uno stabilimento da eliminare.")
+            messagebox.showwarning("Warning", "Select a plant to delete.")
             return
         
         item_values = self.st_tree.item(selected_item)["values"]
         try:
-            stabilimento_id = int(item_values[0])
-            stabilimento_name = item_values[1]
+            plant_id = int(item_values[0])
+            plant_name = item_values[1]
         except (ValueError, IndexError):
-            messagebox.showerror("Errore", "ID stabilimento non valido.")
+            messagebox.showerror("Error", "Invalid plant ID.")
             return
 
-        if messagebox.askyesno("Conferma Eliminazione", f"Sei sicuro di voler eliminare lo stabilimento '{stabilimento_name}'?\nQuesta azione è irreversibile."):
+        if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to delete plant '{plant_name}'?\nThis action is irreversible."):
             try:
-                stabilimenti_manager.delete_stabilimento(stabilimento_id)
+                plants_manager.delete_plant(plant_id)
                 self.app.refresh_all_data() 
-                messagebox.showinfo("Successo", f"Stabilimento '{stabilimento_name}' eliminato con successo.")
+                messagebox.showinfo("Success", f"Plant '{plant_name}' deleted successfully.")
             except ValueError as ve:
-                messagebox.showerror("Errore di Eliminazione", f"Impossibile eliminare lo stabilimento:\n{ve}")
+                messagebox.showerror("Deletion Error", f"Could not delete plant:\n{ve}")
             except Exception as e:
-                messagebox.showerror("Errore di Eliminazione", f"Impossibile eliminare lo stabilimento:\n{e}\n\n{traceback.format_exc()}")
+                messagebox.showerror("Deletion Error", f"Could not delete plant:\n{e}\n\n{traceback.format_exc()}")
 
-    def stabilimento_editor_window(self, data_tuple=None):
+    def plant_editor_window(self, data_tuple=None):
         win = tk.Toplevel(self)
-        win.title("Nuovo Stabilimento" if data_tuple is None else "Modifica Stabilimento")
+        win.title("New Plant" if data_tuple is None else "Edit Plant")
         win.transient(self)
         win.grab_set()
         win.geometry("450x220")
         win.resizable(False, False)
 
-        s_id, s_name, s_desc, s_vis_str, s_color = (
+        plant_id, plant_name, plant_desc, plant_vis_str, plant_color = (
             data_tuple
             if data_tuple
-            else (None, "", "", "Sì", "#000000") # Default color for new stabilimento
+            else (None, "", "", "Yes", "#000000") # Default color for new plant
         )
-
-        
 
         form_frame = ttk.Frame(win, padding=15)
         form_frame.pack(expand=True, fill="both")
 
-        ttk.Label(form_frame, text="Nome Stabilimento:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        name_var = tk.StringVar(value=s_name)
+        ttk.Label(form_frame, text="Plant Name:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        name_var = tk.StringVar(value=plant_name)
         name_entry = ttk.Entry(form_frame, textvariable=name_var, width=40)
         name_entry.grid(row=0, column=1, padx=5, pady=5)
         name_entry.focus_set()
 
-        ttk.Label(form_frame, text="Descrizione:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        desc_var = tk.StringVar(value=s_desc)
+        ttk.Label(form_frame, text="Description:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        desc_var = tk.StringVar(value=plant_desc)
         desc_entry = ttk.Entry(form_frame, textvariable=desc_var, width=40)
         desc_entry.grid(row=1, column=1, padx=5, pady=5)
 
-        ttk.Label(form_frame, text="Colore:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        color_var = tk.StringVar(value=s_color)
-        color_label = ttk.Label(form_frame, textvariable=color_var, background=s_color, width=10, relief="solid")
+        ttk.Label(form_frame, text="Color:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        color_var = tk.StringVar(value=plant_color)
+        color_label = ttk.Label(form_frame, textvariable=color_var, background=plant_color, width=10, relief="solid")
         color_label.grid(row=2, column=1, sticky="w", padx=5, pady=5)
-        ttk.Button(form_frame, text="Scegli...", command=lambda: self._choose_color_for_editor(color_var, color_label)).grid(row=2, column=2, padx=5, pady=5)
+        ttk.Button(form_frame, text="Choose...", command=lambda: self._choose_color_for_editor(color_var, color_label)).grid(row=2, column=2, padx=5, pady=5)
 
-        visible_var = tk.BooleanVar(value=(s_vis_str == "Sì"))
-        ttk.Checkbutton(form_frame, text="Visibile per Inserimento Target", variable=visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=10)
+        visible_var = tk.BooleanVar(value=(plant_vis_str == "Yes"))
+        ttk.Checkbutton(form_frame, text="Visible for Target Entry", variable=visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=10)
 
         btn_frame = ttk.Frame(form_frame)
         btn_frame.grid(row=4, columnspan=3, pady=15)
 
         def save_action():
-            nome_val = name_var.get().strip()
+            name_val = name_var.get().strip()
             desc_val = desc_var.get().strip()
-            if not nome_val:
-                messagebox.showerror("Errore di Validazione", "Il campo 'Nome' è obbligatorio.", parent=win)
+            if not name_val:
+                messagebox.showerror("Validation Error", "The 'Name' field is required.", parent=win)
                 return
 
             try:
-                if s_id is not None:
-                    stabilimenti_manager.update_stabilimento(s_id, nome_val, desc_val, visible_var.get(), color_var.get())
+                if plant_id is not None:
+                    plants_manager.update_plant(plant_id, name_val, desc_val, visible_var.get(), color_var.get())
                 else:
-                    stabilimenti_manager.add_stabilimento(nome_val, desc_val, visible_var.get(), color_var.get())
+                    plants_manager.add_plant(name_val, desc_val, visible_var.get(), color_var.get())
 
                 self.refresh_tree()
                 self.app.refresh_all_data()
                 win.destroy()
-                messagebox.showinfo("Successo", "Stabilimento salvato con successo.")
+                messagebox.showinfo("Success", "Plant saved successfully.")
             except Exception as e:
-                messagebox.showerror("Errore di Salvataggio", f"Salvataggio fallito:\n{e}\n\n{traceback.format_exc()}", parent=win)
-        ttk.Button(btn_frame, text="Salva", command=save_action, style="Accent.TButton").pack(side="left", padx=10)
-        ttk.Button(btn_frame, text="Annulla", command=win.destroy).pack(side="left", padx=10)
+                messagebox.showerror("Save Error", f"Save failed:\n{e}\n\n{traceback.format_exc()}", parent=win)
+        ttk.Button(btn_frame, text="Save", command=save_action, style="Accent.TButton").pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Cancel", command=win.destroy).pack(side="left", padx=10)
 
     def _choose_color_for_editor(self, color_var, color_label):
-        color_code = colorchooser.askcolor(title="Scegli colore")
+        color_code = colorchooser.askcolor(title="Choose color")
         if color_code:
             color_hex = color_code[1]
             color_var.set(color_hex)

@@ -1,5 +1,5 @@
 import streamlit as st
 
 def app():
-    st.title("🗂️ Gestione Gerarchia KPI")
-    st.write("Contenuto della pagina Gestione Gerarchia KPI.")
+    st.title("🗂️ KPI Hierarchy Management")
+    st.write("Content of the KPI Hierarchy Management page.")

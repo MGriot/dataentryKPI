@@ -10,7 +10,7 @@ from src.data_retriever import get_annual_target_entry, get_kpi_role_details, ge
 
 # Configuration imports
 from src.gui.shared.constants import (
-    REPARTITION_LOGIC_ANNO,
+    REPARTITION_LOGIC_YEAR,
     PROFILE_ANNUAL_PROGRESSIVE,
 )
 
@@ -794,7 +794,7 @@ def save_annual_targets(
                                 default_val_other_target,
                                 default_manual_other_target,
                                 default_formula_other_target,  # Other target defaults
-                                REPARTITION_LOGIC_ANNO,
+                                REPARTITION_LOGIC_YEAR,
                                 "{}",
                                 PROFILE_ANNUAL_PROGRESSIVE,
                                 "{}",  # Default repart/profile

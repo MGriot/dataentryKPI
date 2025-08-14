@@ -221,28 +221,29 @@ if __name__ == "__main__":
             # kpi_groups, kpi_subgroups, kpi_indicators are needed for kpis table FK
             cur.execute("CREATE TABLE IF NOT EXISTS kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);")
             cur.execute("INSERT OR IGNORE INTO kpi_groups (id, name) VALUES (1, 'Test Group for Links')")
-            cur.execute("""CREATE TABLE IF NOT EXISTS kpi_subgroups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
-                           FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));""")
+            cur.execute("CREATE TABLE IF NOT EXISTS kpi_subgroups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
+                           FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));")
             cur.execute("INSERT OR IGNORE INTO kpi_subgroups (id, name, group_id) VALUES (1, 'Test Subgroup for Links', 1)")
-            cur.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
-                           FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));""")
+            cur.execute("CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
+                           FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));")
             cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (1, 'Master Ind Link Test', 1)")
             cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (2, 'Sub Ind1 Link Test', 1)")
             cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (3, 'Sub Ind2 Link Test', 1)")
 
             # kpis table (parent for kpi_master_sub_links)
-            cur.execute("""
+            cur.execute(""
                 CREATE TABLE IF NOT EXISTS kpis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE,
                     description TEXT, calculation_type TEXT NOT NULL, unit_of_measure TEXT,
-                    FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE);""")
+                    FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE);
+                """ )
             # Create some kpis records to link
-            cur.execute("INSERT OR IGNORE INTO kpis (id, indicator_id, calculation_type) VALUES (100, 1, 'Media')") # Master
-            cur.execute("INSERT OR IGNORE INTO kpis (id, indicator_id, calculation_type) VALUES (101, 2, 'Media')") # Sub1
-            cur.execute("INSERT OR IGNORE INTO kpis (id, indicator_id, calculation_type) VALUES (102, 3, 'Media')") # Sub2
+            cur.execute("INSERT OR IGNORE INTO kpis (id, indicator_id, calculation_type) VALUES (100, 1, 'Average')") # Master
+            cur.execute("INSERT OR IGNORE INTO kpis (id, indicator_id, calculation_type) VALUES (101, 2, 'Average')") # Sub1
+            cur.execute("INSERT OR IGNORE INTO kpis (id, indicator_id, calculation_type) VALUES (102, 3, 'Average')") # Sub2
 
             # kpi_master_sub_links table (this module's target)
-            cur.execute("""
+            cur.execute(""
                 CREATE TABLE IF NOT EXISTS kpi_master_sub_links (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     master_kpi_spec_id INTEGER NOT NULL,

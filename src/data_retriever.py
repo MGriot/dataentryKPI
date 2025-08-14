@@ -277,7 +277,7 @@ def get_all_kpi_indicators() -> list:
         return []
 
 # --- KPI Specifications (from `kpis` table) ---
-def get_all_kpis_detailed(only_visible=False, stabilimento_id: int = None, group_id: int = None, subgroup_id: int = None) -> list:
+def get_all_kpis_detailed(only_visible=False, plant_id: int = None, group_id: int = None, subgroup_id: int = None) -> list:
     """Fetches all KPI specifications with their full hierarchy names. Returns list of sqlite3.Row. kpis.id is aliased as 'id' in the query and available."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpis_detailed"): return []
     query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
@@ -294,10 +294,10 @@ def get_all_kpis_detailed(only_visible=False, stabilimento_id: int = None, group
     if only_visible:
         conditions.append("k.visible = 1")
     
-    if stabilimento_id is not None:
+    if plant_id is not None:
         query += " LEFT JOIN kpi_stabilimento_visibility ksv ON k.id = ksv.kpi_id AND ksv.stabilimento_id = ?"
         conditions.append("(ksv.is_enabled = 1 OR (ksv.is_enabled IS NULL AND k.visible = 1))") # If no entry, assume visible
-        params.append(stabilimento_id)
+        params.append(plant_id)
 
     if group_id is not None:
         conditions.append("g.id = ?")
@@ -319,7 +319,7 @@ def get_all_kpis_detailed(only_visible=False, stabilimento_id: int = None, group
         print(f"ERROR (get_all_kpis_detailed): Database error: {e}")
         return []
 
-def get_kpi_detailed_by_id(kpi_spec_id: int, stabilimento_id: int = None): # -> dict or None
+def get_kpi_detailed_by_id(kpi_spec_id: int, plant_id: int = None): # -> dict or None
     """Fetches a specific KPI specification by its ID (kpis.id), including hierarchy and template info."""
     if _handle_db_connection_error("db_kpis.db", "get_kpi_detailed_by_id_kpis") or \
        _handle_db_connection_error("db_kpi_templates.db", "get_kpi_detailed_by_id_tpl"): return None
@@ -335,9 +335,9 @@ def get_kpi_detailed_by_id(kpi_spec_id: int, stabilimento_id: int = None): # -> 
                        WHERE k.id = ?"""
             params = [kpi_spec_id]
 
-            if stabilimento_id is not None:
+            if plant_id is not None:
                 query += " AND (SELECT is_enabled FROM kpi_stabilimento_visibility WHERE kpi_id = k.id AND stabilimento_id = ?) IS NOT 0"
-                params.append(stabilimento_id)
+                params.append(plant_id)
 
             kpi_info_row = conn_kpis.execute(query, params).fetchone()
 
@@ -356,10 +356,10 @@ def get_kpi_detailed_by_id(kpi_spec_id: int, stabilimento_id: int = None): # -> 
         return None
     return kpi_dict
 
-# --- Stabilimenti ---
-def get_all_stabilimenti(visible_only=False) -> list:
-    """Fetches all stabilimenti, optionally filtering by visibility, ordered by name."""
-    if _handle_db_connection_error("db_stabilimenti.db", "get_all_stabilimenti"): return []
+# --- Plants ---
+def get_all_plants(visible_only=False) -> list:
+    """Fetches all plants, optionally filtering by visibility, ordered by name."""
+    if _handle_db_connection_error("db_stabilimenti.db", "get_all_plants"): return []
     query = "SELECT id, name, description, visible, color FROM stabilimenti"
     if visible_only:
         query += " WHERE visible = 1"
@@ -369,22 +369,22 @@ def get_all_stabilimenti(visible_only=False) -> list:
             conn.row_factory = sqlite3.Row
             return conn.execute(query).fetchall()
     except sqlite3.Error as e:
-        print(f"ERROR (get_all_stabilimenti): Database error: {e}")
+        print(f"ERROR (get_all_plants): Database error: {e}")
         return []
 
-def get_stabilimento_color_by_name(stabilimento_name: str) -> str:
-    """Fetches the color for a specific stabilimento by its name."""
-    if _handle_db_connection_error("db_stabilimenti.db", "get_stabilimento_color_by_name"):
+def get_plant_color_by_name(plant_name: str) -> str:
+    """Fetches the color for a specific plant by its name."""
+    if _handle_db_connection_error("db_stabilimenti.db", "get_plant_color_by_name"):
         return "#000000"  # Return a default color on error
     try:
         with sqlite3.connect(app_config.get_database_path("db_stabilimenti.db")) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                "SELECT color FROM stabilimenti WHERE name = ?", (stabilimento_name,)
+                "SELECT color FROM stabilimenti WHERE name = ?", (plant_name,)
             ).fetchone()
             return row["color"] if row else "#000000"  # Return default if not found
     except sqlite3.Error as e:
-        print(f"ERROR (get_stabilimento_color_by_name): Database error for name {stabilimento_name}: {e}")
+        print(f"ERROR (get_plant_color_by_name): Database error for name {plant_name}: {e}")
         return "#000000"
 
 
@@ -419,65 +419,65 @@ def get_linked_sub_kpis_detailed(master_kpi_spec_id: int) -> list:
         print(traceback.format_exc())
         return []
 
-def get_annual_target_entry(year: int, stabilimento_id: int, kpi_spec_id: int): # -> sqlite3.Row or None
-    """Fetches the annual target entry for a specific year, stabilimento, and KPI spec ID (kpis.id)."""
+def get_annual_target_entry(year: int, plant_id: int, kpi_spec_id: int): # -> sqlite3.Row or None
+    """Fetches the annual target entry for a specific year, plant, and KPI spec ID (kpis.id)."""
     if _handle_db_connection_error("db_kpi_targets.db", "get_annual_target_entry"): return None
     try:
         with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
             conn.row_factory = sqlite3.Row
             return conn.execute(
                 "SELECT * FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
-                (year, stabilimento_id, kpi_spec_id),
+                (year, plant_id, kpi_spec_id),
             ).fetchone()
     except sqlite3.Error as e:
-        print(f"ERROR (get_annual_target_entry): Database error for Y{year},S{stabilimento_id},K{kpi_spec_id}: {e}")
+        print(f"ERROR (get_annual_target_entry): Database error for Y{year},S{plant_id},K{kpi_spec_id}: {e}")
         return None
 
-def get_annual_targets(stabilimento_id, year):
-    """Retrieves annual targets for a given stabilimento and year."""
+def get_annual_targets(plant_id, year):
+    """Retrieves annual targets for a given plant and year."""
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM annual_targets WHERE stabilimento_id = ? AND year = ?", (stabilimento_id, year)).fetchall()
+        return conn.execute("SELECT * FROM annual_targets WHERE stabilimento_id = ? AND year = ?", (plant_id, year)).fetchall()
 
 def get_periodic_targets_for_kpi(
-    year: int, stabilimento_id: int, kpi_spec_id: int, period_type: str, target_number: int
+    year: int, plant_id: int, kpi_spec_id: int, period_type: str, target_number: int
 ) -> list:
     """
-    Fetches repartited (periodic) target data for a specific KPI, year, stabilimento,
-    period type ('Giorno', 'Settimana', 'Mese', 'Trimestre'), and target number (1 or 2).
+    Fetches repartited (periodic) target data for a specific KPI, year, plant,
+    period type ('Day', 'Week', 'Month', 'Quarter'), and target number (1 or 2).
     """
     db_map = {
-        "Giorno": ("db_kpi_days.db", "daily_targets", "date_value"),
-        "Settimana": ("db_kpi_weeks.db", "weekly_targets", "week_value"),
-        "Mese": ("db_kpi_months.db", "monthly_targets", "month_value"),
-        "Trimestre": ("db_kpi_quarters.db", "quarterly_targets", "quarter_value"),
+        "Day": ("db_kpi_days.db", "daily_targets", "date_value"),
+        "Week": ("db_kpi_weeks.db", "weekly_targets", "week_value"),
+        "Month": ("db_kpi_months.db", "monthly_targets", "month_value"),
+        "Quarter": ("db_kpi_quarters.db", "quarterly_targets", "quarter_value"),
     }
     if period_type not in db_map:
         print(f"ERROR (get_periodic_targets_for_kpi): Invalid period_type '{period_type}'")
-        raise ValueError(f"Tipo periodo non valido: {period_type}")
+        raise ValueError(f"Invalid period type: {period_type}")
 
     db_file_name, table_name, period_col_name = db_map[period_type]
     if _handle_db_connection_error(db_file_name, f"get_periodic_targets_for_kpi_{period_type}"):
         return []
 
     order_clause = ""
-    if period_type == "Mese":
+    if period_type == "Month":
         month_order_cases = " ".join([f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)])
         order_clause = f"ORDER BY CASE {period_col_name} {month_order_cases} END"
-    elif period_type == "Trimestre":
+    elif period_type == "Quarter":
         quarter_order_cases = " ".join([f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)])
         order_clause = f"ORDER BY CASE {period_col_name} {quarter_order_cases} END"
-    elif period_type == "Settimana":
+    elif period_type == "Week":
         order_clause = f"ORDER BY SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER)"
     else:
         order_clause = f"ORDER BY {period_col_name}"
 
-    query = f"SELECT {period_col_name} AS Periodo, target_value AS Target FROM {table_name} WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=? {order_clause}"
+    query = f"SELECT {period_col_name} AS Period, target_value AS Target FROM {table_name} WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=? {order_clause}"
     
     try:
         with sqlite3.connect(app_config.get_database_path(db_file_name)) as conn:
             conn.row_factory = sqlite3.Row
-            return conn.execute(query, (year, stabilimento_id, kpi_spec_id, target_number)).fetchall()
+            return conn.execute(query, (year, plant_id, kpi_spec_id, target_number)).fetchall()
     except sqlite3.Error as e:
         print(f"ERROR (get_periodic_targets_for_kpi {period_type}): Database error: {e}")
         return []
@@ -574,7 +574,7 @@ def get_all_periodic_targets_for_export(period_type: str) -> list:
     }
     if period_type not in period_db_map:
         print(f"ERROR (get_all_periodic_targets_for_export): Invalid period_type '{period_type}'")
-        raise ValueError(f"Tipo periodo non valido per l\'export: {period_type}")
+        raise ValueError(f"Invalid period type for export: {period_type}")
 
     db_file_name, table_name, period_col_name = period_db_map[period_type]
     
@@ -617,49 +617,49 @@ def get_distinct_years() -> list:
         print(f"ERROR (get_distinct_years): Database error: {e}")
         return []
 
-def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type: str, year: int = None) -> list:
+def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, year: int = None) -> list:
     """
-    Fetches periodic targets for a specific KPI across all stabilimenti.
+    Fetches periodic targets for a specific KPI across all plants.
     """
     period_map = {
-        'Giorno': ("db_kpi_days.db", 'daily_targets', 'date_value'),
-        'Settimana': ("db_kpi_weeks.db", 'weekly_targets', 'week_value'),
-        'Mese': ("db_kpi_months.db", 'monthly_targets', 'month_value'),
-        'Trimestre': ("db_kpi_quarters.db", 'quarterly_targets', 'quarter_value'),
-        'Anno': ("db_kpi_targets.db", 'annual_targets', 'year') # Added for annual aggregation
+        'Day': ("db_kpi_days.db", 'daily_targets', 'date_value'),
+        'Week': ("db_kpi_weeks.db", 'weekly_targets', 'week_value'),
+        'Month': ("db_kpi_months.db", 'monthly_targets', 'month_value'),
+        'Quarter': ("db_kpi_quarters.db", 'quarterly_targets', 'quarter_value'),
+        'Year': ("db_kpi_targets.db", 'annual_targets', 'year') # Added for annual aggregation
     }
     if period_type not in period_map:
         raise ValueError(f"Invalid period_type: {period_type}")
 
     db_file_name, table_name, period_col = period_map[period_type]
 
-    if _handle_db_connection_error(db_file_name, "get_periodic_targets_for_kpi_all_stabilimenti") or \
-       _handle_db_connection_error("db_stabilimenti.db", "get_periodic_targets_for_kpi_all_stabilimenti"):
+    if _handle_db_connection_error(db_file_name, "get_periodic_targets_for_kpi_all_plants") or \
+       _handle_db_connection_error("db_stabilimenti.db", "get_periodic_targets_for_kpi_all_plants"):
         return []
 
     # --- Order Clause ---
     order_clause = ""
-    if period_type == "Mese":
+    if period_type == "Month":
         month_order_cases = " ".join([f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)])
-        order_clause = f"ORDER BY year, stabilimento_name, target_number, CASE period {month_order_cases} END"
-    elif period_type == "Trimestre":
+        order_clause = f"ORDER BY year, plant_name, target_number, CASE period {month_order_cases} END"
+    elif period_type == "Quarter":
         quarter_order_cases = " ".join([f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)])
-        order_clause = f"ORDER BY year, stabilimento_name, target_number, CASE period {quarter_order_cases} END"
-    elif period_type == "Settimana":
-        order_clause = f"ORDER BY year, stabilimento_name, target_number, CAST(SUBSTR(period, INSTR(period, '-W') + 2) AS INTEGER)"
-    elif period_type == "Giorno":
-        order_clause = f"ORDER BY year, stabilimento_name, target_number, period"
-    elif period_type == "Anno":
-        order_clause = f"ORDER BY year, stabilimento_name, target_number"
+        order_clause = f"ORDER BY year, plant_name, target_number, CASE period {quarter_order_cases} END"
+    elif period_type == "Week":
+        order_clause = f"ORDER BY year, plant_name, target_number, CAST(SUBSTR(period, INSTR(period, '-W') + 2) AS INTEGER)"
+    elif period_type == "Day":
+        order_clause = f"ORDER BY year, plant_name, target_number, period"
+    elif period_type == "Year":
+        order_clause = f"ORDER BY year, plant_name, target_number"
 
 
-    if period_type == 'Anno':
+    if period_type == 'Year':
         query = """
             SELECT
                 t.year,
                 t.kpi_id,
                 t.stabilimento_id,
-                s.name as stabilimento_name,
+                s.name as plant_name,
                 1 as target_number,
                 t.annual_target1 as target_value,
                 t.year as period
@@ -671,7 +671,7 @@ def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type:
                 t.year,
                 t.kpi_id,
                 t.stabilimento_id,
-                s.name as stabilimento_name,
+                s.name as plant_name,
                 2 as target_number,
                 t.annual_target2 as target_value,
                 t.year as period
@@ -692,7 +692,7 @@ def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type:
                 t.year,
                 t.kpi_id,
                 t.stabilimento_id,
-                s.name as stabilimento_name,
+                s.name as plant_name,
                 t.target_number,
                 t.target_value,
                 t.{period_col} as period
@@ -712,24 +712,24 @@ def get_periodic_targets_for_kpi_all_stabilimenti(kpi_spec_id: int, period_type:
     try:
         with sqlite3.connect(app_config.get_database_path(db_file_name)) as conn:
             conn.row_factory = sqlite3.Row
-            # Attach the stabilimenti database
+            # Attach the plants database
             conn.execute(f"ATTACH DATABASE '{str(get_database_path('db_stabilimenti.db')).replace('\\', '/')}' AS stab_db")
             result = conn.execute(query, params).fetchall()
             conn.execute("DETACH DATABASE stab_db")
             return result
     except sqlite3.Error as e:
-        print(f"ERROR (get_periodic_targets_for_kpi_all_stabilimenti): Database error: {e}")
+        print(f"ERROR (get_periodic_targets_for_kpi_all_plants): Database error: {e}")
         print(traceback.format_exc())
         return []
 
-def get_dashboard_data(stabilimento_id, year):
+def get_dashboard_data(plant_id, year):
     """Retrieves aggregated data for the dashboard."""
     # This is a placeholder. You need to implement the actual query.
     # This query should join annual_targets with aggregated actuals.
     return []
 
 
-def get_periodic_data_for_kpi(kpi_id, stabilimento_id, year):
+def get_periodic_data_for_kpi(kpi_id, plant_id, year):
     """Retrieves periodic data for a specific KPI."""
     # This is a placeholder. You need to implement the actual query.
     # This query should join periodic targets with actuals.
@@ -744,7 +744,7 @@ if __name__ == "__main__":
     test_template_id = 1
     test_kpi_spec_id = 1
     test_year = datetime.date.today().year
-    test_stabilimento_id = 1
+    test_plant_id = 1
 
     print("\n--- KPI Groups ---")
     groups = get_kpi_groups()
@@ -758,17 +758,17 @@ if __name__ == "__main__":
     all_kpis_detailed = get_all_kpis_detailed(only_visible=True)
     if all_kpis_detailed: print(f"Found {len(all_kpis_detailed)} visible KPI specs. First: {dict(all_kpis_detailed[0]) if all_kpis_detailed else 'None'}")
 
-    print(f"\n--- Annual Target for KPI Spec ID {test_kpi_spec_id}, Year {test_year}, Stab {test_stabilimento_id} ---")
-    annual_target = get_annual_target_entry(test_year, test_stabilimento_id, test_kpi_spec_id)
+    print(f"\n--- Annual Target for KPI Spec ID {test_kpi_spec_id}, Year {test_year}, Plant {test_plant_id} ---")
+    annual_target = get_annual_target_entry(test_year, test_plant_id, test_kpi_spec_id)
     if annual_target: print(dict(annual_target))
     else: print("No annual target found for test IDs.")
 
     print(f"\n--- Monthly Targets for KPI Spec ID {test_kpi_spec_id}, Target 1 ---")
-    monthly_targets = get_periodic_targets_for_kpi(test_year, test_stabilimento_id, test_kpi_spec_id, "Mese", 1)
+    monthly_targets = get_periodic_targets_for_kpi(test_year, test_plant_id, test_kpi_spec_id, "Month", 1)
     if monthly_targets:
         print(f"Found {len(monthly_targets)} monthly targets. First 3:")
-        for mt in monthly_targets[:3]: print(f"  {mt['Periodo']}: {mt['Target']}")
-    else: print("No monthly targets found for Mese.")
+        for mt in monthly_targets[:3]: print(f"  {mt['Period']}: {mt['Target']}")
+    else: print("No monthly targets found for Month.")
 
     print("\n--- Testing new export functions (basic calls) ---")
     all_annual = get_all_annual_target_entries_for_export()

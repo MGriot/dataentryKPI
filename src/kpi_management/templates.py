@@ -682,7 +682,7 @@ if __name__ == "__main__":
         print(f"\nTest 5: Delete template {template_id_created}")
         # Re-add a definition to test its removal during template deletion
         if _data_retriever_available and template_id_created: # Only if template still exists
-            add_indicator_definition_to_template(template_id_created, "Resolution Rate", CALC_TYPE_MEDIA, "%", True)
+            add_indicator_definition_to_template(template_id_created, "Resolution Rate", CALC_TYPE_AVERAGE, "%", True)
             # Ensure it's propagated to check if delete_kpi_indicator_template cleans it up
             if _indicators_module_available and _specs_module_available:
                  with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn: # Check propagation to subgroup

@@ -18,7 +18,7 @@ class KpiTemplatesTab(ttk.Frame):
         main_frame = ttk.Frame(self)
         main_frame.pack(fill="both", expand=True)
 
-        template_list_frame = ttk.LabelFrame(main_frame, text="Template Indicatori KPI", padding=10)
+        template_list_frame = ttk.LabelFrame(main_frame, text="KPI Indicator Templates", padding=10)
         template_list_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         self.templates_listbox = tk.Listbox(template_list_frame, exportselection=False, height=15, width=30)
         self.templates_listbox.pack(fill="both", expand=True, pady=(0, 5))
@@ -26,42 +26,42 @@ class KpiTemplatesTab(ttk.Frame):
 
         template_btn_frame = ttk.Frame(template_list_frame)
         template_btn_frame.pack(fill="x")
-        ttk.Button(template_btn_frame, text="Nuovo Tpl", command=self.add_new_kpi_template, width=10, style="Accent.TButton").pack(side="left", padx=2)
-        self.edit_template_btn = ttk.Button(template_btn_frame, text="Modifica Tpl", command=self.edit_selected_kpi_template, state="disabled", width=11)
+        ttk.Button(template_btn_frame, text="New Tpl", command=self.add_new_kpi_template, width=10, style="Accent.TButton").pack(side="left", padx=2)
+        self.edit_template_btn = ttk.Button(template_btn_frame, text="Edit Tpl", command=self.edit_selected_kpi_template, state="disabled", width=11)
         self.edit_template_btn.pack(side="left", padx=2)
-        self.delete_template_btn = ttk.Button(template_btn_frame, text="Elimina Tpl", command=self.delete_selected_kpi_template, state="disabled", width=11)
+        self.delete_template_btn = ttk.Button(template_btn_frame, text="Delete Tpl", command=self.delete_selected_kpi_template, state="disabled", width=11)
         self.delete_template_btn.pack(side="left", padx=2)
 
-        definitions_frame = ttk.LabelFrame(main_frame, text="Definizioni nel Template", padding=10)
+        definitions_frame = ttk.LabelFrame(main_frame, text="Definitions in Template", padding=10)
         definitions_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         self.template_definitions_tree = ttk.Treeview(
             definitions_frame,
-            columns=("ID", "Nome Indicatore", "Tipo Calcolo", "Unità", "Visibile", "Descrizione"),
+            columns=("ID", "Indicator Name", "Calc Type", "Unit", "Visible", "Description"),
             show="headings",
             height=14,
         )
         cols_defs = {
             "ID": 40,
-            "Nome Indicatore": 180,
-            "Tipo Calcolo": 100,
-            "Unità": 80,
-            "Visibile": 60,
-            "Descrizione": 220,
+            "Indicator Name": 180,
+            "Calc Type": 100,
+            "Unit": 80,
+            "Visible": 60,
+            "Description": 220,
         }
         for col, width in cols_defs.items():
             self.template_definitions_tree.heading(col, text=col)
-            self.template_definitions_tree.column(col, width=width, anchor="center" if col in ["ID", "Visibile"] else "w", stretch=(col in ["Descrizione", "Nome Indicatore"]))
+            self.template_definitions_tree.column(col, width=width, anchor="center" if col in ["ID", "Visible"] else "w", stretch=(col in ["Description", "Indicator Name"]))
         
         self.template_definitions_tree.pack(fill="both", expand=True, pady=(0, 5))
         self.template_definitions_tree.bind("<<TreeviewSelect>>", self.on_template_definition_select)
 
         definition_btn_frame = ttk.Frame(definitions_frame)
         definition_btn_frame.pack(fill="x")
-        self.add_definition_btn = ttk.Button(definition_btn_frame, text="Aggiungi Def.", command=self.add_new_template_definition, state="disabled", width=12, style="Accent.TButton")
+        self.add_definition_btn = ttk.Button(definition_btn_frame, text="Add Def.", command=self.add_new_template_definition, state="disabled", width=12, style="Accent.TButton")
         self.add_definition_btn.pack(side="left", padx=2)
-        self.edit_definition_btn = ttk.Button(definition_btn_frame, text="Modifica Def.", command=self.edit_selected_template_definition, state="disabled", width=12)
+        self.edit_definition_btn = ttk.Button(definition_btn_frame, text="Edit Def.", command=self.edit_selected_template_definition, state="disabled", width=12)
         self.edit_definition_btn.pack(side="left", padx=2)
-        self.remove_definition_btn = ttk.Button(definition_btn_frame, text="Rimuovi Def.", command=self.remove_selected_template_definition, state="disabled", width=12)
+        self.remove_definition_btn = ttk.Button(definition_btn_frame, text="Remove Def.", command=self.remove_selected_template_definition, state="disabled", width=12)
         self.remove_definition_btn.pack(side="left", padx=2)
 
     def refresh_display(self, pre_selected_template_name=None):
@@ -111,7 +111,7 @@ class KpiTemplatesTab(ttk.Frame):
             template_id = self.current_templates_map.get(template_name)
             if template_id:
                 for defi in db_retriever.get_template_defined_indicators(template_id):
-                    vis_str = "Sì" if defi["default_visible"] else "No"
+                    vis_str = "Yes" if defi["default_visible"] else "No"
                     iid = self.template_definitions_tree.insert(
                         "", "end",
                         values=(
@@ -137,14 +137,14 @@ class KpiTemplatesTab(ttk.Frame):
         self.remove_definition_btn.config(state=buttons_state)
 
     def add_new_kpi_template(self):
-        name = simpledialog.askstring("Nuovo Template", "Nome Template:", parent=self)
+        name = simpledialog.askstring("New Template", "Template Name:", parent=self)
         if name:
-            desc = simpledialog.askstring("Nuovo Template", "Descrizione (opzionale):", parent=self) or ""
+            desc = simpledialog.askstring("New Template", "Description (optional):", parent=self) or ""
             try:
                 kpi_templates_manager.add_kpi_indicator_template(name, desc)
                 self.refresh_display(pre_selected_template_name=name)
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile aggiungere template: {e}")
+                messagebox.showerror("Error", f"Could not add template: {e}")
 
     def edit_selected_kpi_template(self):
         if not self.templates_listbox.curselection(): return
@@ -153,9 +153,9 @@ class KpiTemplatesTab(ttk.Frame):
         template_data = db_retriever.get_kpi_indicator_template_by_id(template_id)
         if not template_data: return
 
-        new_name = simpledialog.askstring("Modifica Template", "Nuovo nome:", initialvalue=old_name, parent=self)
+        new_name = simpledialog.askstring("Edit Template", "New name:", initialvalue=old_name, parent=self)
         if new_name:
-            new_desc = simpledialog.askstring("Modifica Template", "Nuova descrizione:", initialvalue=template_data["description"], parent=self)
+            new_desc = simpledialog.askstring("Edit Template", "New description:", initialvalue=template_data["description"], parent=self)
             new_desc = new_desc if new_desc is not None else template_data["description"]
             if new_name != old_name or new_desc != template_data["description"]:
                 try:
@@ -163,24 +163,24 @@ class KpiTemplatesTab(ttk.Frame):
                     self.refresh_display(pre_selected_template_name=new_name)
                     self.app.refresh_all_data()
                 except Exception as e:
-                    messagebox.showerror("Errore", f"Impossibile modificare template: {e}")
+                    messagebox.showerror("Error", f"Could not edit template: {e}")
 
     def delete_selected_kpi_template(self):
         if not self.templates_listbox.curselection(): return
         name = self.templates_listbox.get(self.templates_listbox.curselection()[0])
         template_id = self.current_templates_map.get(name)
-        if messagebox.askyesno("Conferma", f"Eliminare template '{name}'?\nSottogruppi collegati verranno scollegati e i loro indicatori (da questo template) rimossi."):
+        if messagebox.askyesno("Confirm", f"Delete template '{name}'?\nLinked subgroups will be unlinked and their indicators (from this template) removed."):
             try:
                 kpi_templates_manager.delete_kpi_indicator_template(template_id)
                 self.refresh_display()
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile eliminare template: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not delete template: {e}\n{traceback.format_exc()}")
 
     def add_new_template_definition(self):
         if not self.templates_listbox.curselection(): return
         template_id = self.current_templates_map.get(self.templates_listbox.get(self.templates_listbox.curselection()[0]))
-        dialog = TemplateDefinitionEditorDialog(self, title="Nuova Definizione Indicatore", template_id_context=template_id)
+        dialog = TemplateDefinitionEditorDialog(self, title="New Indicator Definition", template_id_context=template_id)
         if dialog.result_data:
             data = dialog.result_data
             try:
@@ -188,7 +188,7 @@ class KpiTemplatesTab(ttk.Frame):
                 self.on_template_select()
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile aggiungere definizione: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not add definition: {e}\n{traceback.format_exc()}")
 
     def edit_selected_template_definition(self):
         if not self.template_definitions_tree.focus() or not self.templates_listbox.curselection(): return
@@ -197,7 +197,7 @@ class KpiTemplatesTab(ttk.Frame):
         current_def_data = db_retriever.get_template_indicator_definition_by_id(definition_id)
         if not current_def_data: return
 
-        dialog = TemplateDefinitionEditorDialog(self, title="Modifica Definizione Indicatore", template_id_context=template_id, initial_data=current_def_data)
+        dialog = TemplateDefinitionEditorDialog(self, title="Edit Indicator Definition", template_id_context=template_id, initial_data=current_def_data)
         if dialog.result_data:
             data = dialog.result_data
             try:
@@ -205,16 +205,16 @@ class KpiTemplatesTab(ttk.Frame):
                 self.on_template_select()
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile modificare definizione: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not edit definition: {e}\n{traceback.format_exc()}")
 
     def remove_selected_template_definition(self):
         if not self.template_definitions_tree.focus(): return
         definition_id = self.current_template_definitions_map.get(self.template_definitions_tree.focus())
         def_name = self.template_definitions_tree.item(self.template_definitions_tree.focus(), "values")[1]
-        if messagebox.askyesno("Conferma", f"Rimuovere definizione '{def_name}' dal template?\nQuesto rimuoverà l'indicatore e i dati dai sottogruppi collegati."):
+        if messagebox.askyesno("Confirm", f"Remove definition '{def_name}' from the template?\nThis will remove the indicator and its data from linked subgroups."):
             try:
                 kpi_templates_manager.remove_indicator_definition_from_template(definition_id)
                 self.on_template_select()
                 self.app.refresh_all_data()
             except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile rimuovere definizione: {e}\n{traceback.format_exc()}")
+                messagebox.showerror("Error", f"Could not remove definition: {e}\n{traceback.format_exc()}")
