@@ -7,17 +7,14 @@ from pathlib import Path
 # All imports should be absolute from the 'src' package.
 
 from src.db_core.setup import setup_databases
-from src.gui.app_tkinter.components.stabilimenti_tab import StabilimentiTab
-from src.gui.app_tkinter.components.kpi_hierarchy_tab import KpiHierarchyTab
-from src.gui.app_tkinter.components.kpi_templates_tab import KpiTemplatesTab
-from src.gui.app_tkinter.components.kpi_specs_tab import KpiSpecsTab
-from src.gui.app_tkinter.components.master_sub_link_tab import MasterSubLinkTab
+from src.gui.app_tkinter.components.plants_tab import PlantsTab
+from src.gui.app_tkinter.components.kpi_management_tab import KpiManagementTab
 from src.gui.app_tkinter.components.target_entry_tab import TargetEntryTab
 from src.gui.app_tkinter.components.data_management_tab import DataManagementTab
 from src.gui.app_tkinter.components.analysis_tab import AnalysisTab
 from src.gui.app_tkinter.components.settings_tab import SettingsTab
 from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
-from src.app_config import SETTINGS, load_settings
+from src.app_config import reload_app_settings, SETTINGS
 
 class KpiApp(tk.Tk):
     def __init__(self):
@@ -26,7 +23,8 @@ class KpiApp(tk.Tk):
         self.geometry("1600x950")
 
         # Load settings
-        self.settings = load_settings()
+        reload_app_settings()
+        self.settings = SETTINGS
 
         # Configure styles first
         self.style = ttk.Style(self)
@@ -49,7 +47,8 @@ class KpiApp(tk.Tk):
         self.refresh_all_data()
 
     def load_settings(self):
-        self.settings = load_settings()
+        reload_app_settings()
+        self.settings = SETTINGS
         # Here you could add logic to apply settings, e.g., update styles
         # For now, we just reload the data.
         self.refresh_all_data()
@@ -85,21 +84,15 @@ class KpiApp(tk.Tk):
         self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.target_entry_frame = TargetEntryTab(self.notebook, self)
-        self.kpi_hierarchy_frame = KpiHierarchyTab(self.notebook, self)
-        self.kpi_templates_frame = KpiTemplatesTab(self.notebook, self)
-        self.kpi_specs_frame = KpiSpecsTab(self.notebook, self)
-        self.master_sub_link_frame = MasterSubLinkTab(self.notebook, self)
-        self.stabilimenti_frame = StabilimentiTab(self.notebook, self)
+        self.kpi_management_frame = KpiManagementTab(self.notebook, self)
+        self.plants_frame = PlantsTab(self.notebook, self)
         self.data_management_frame = DataManagementTab(self.notebook, self)
         self.analysis_frame = AnalysisTab(self.notebook, self)
         self.settings_frame = SettingsTab(self.notebook, self)
 
         self.notebook.add(self.target_entry_frame, text="🎯 Target Entry")
-        self.notebook.add(self.kpi_hierarchy_frame, text="🗂️ KPI Hierarchy Management")
-        self.notebook.add(self.kpi_templates_frame, text="📋 Indicator Template Management")
-        self.notebook.add(self.kpi_specs_frame, text="⚙️ KPI Specification Management")
-        self.notebook.add(self.master_sub_link_frame, text="🔗 Master/Sub Link Management")
-        self.notebook.add(self.stabilimenti_frame, text="🏭 Plant Management")
+        self.notebook.add(self.kpi_management_frame, text="📊 KPI Management")
+        self.notebook.add(self.plants_frame, text="🏭 Plant Management")
         self.notebook.add(self.data_management_frame, text="📦 Data Management")
         self.notebook.add(self.analysis_frame, text="📈 Results Analysis")
         self.notebook.add(self.settings_frame, text="⚙️ Settings")
@@ -116,14 +109,8 @@ class KpiApp(tk.Tk):
         print("Refreshing all GUI data...")
         if hasattr(self.plants_frame, 'refresh_tree'):
             self.plants_frame.refresh_tree()
-        if hasattr(self.kpi_hierarchy_frame, 'refresh_displays'):
-            self.kpi_hierarchy_frame.refresh_displays()
-        if hasattr(self.kpi_templates_frame, 'refresh_display'):
-            self.kpi_templates_frame.refresh_display()
-        if hasattr(self.kpi_specs_frame, 'refresh_display'):
-            self.kpi_specs_frame.refresh_display()
-        if hasattr(self.master_sub_link_frame, 'refresh_display'):
-            self.master_sub_link_frame.refresh_display()
+        if hasattr(self.kpi_management_frame, 'refresh_display'):
+            self.kpi_management_frame.refresh_display()
         if hasattr(self.target_entry_frame, 'populate_target_comboboxes'):
             self.target_entry_frame.populate_target_comboboxes()
         print("GUI refresh complete.")

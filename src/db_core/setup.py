@@ -42,6 +42,17 @@ def setup_databases():
             )
             print(traceback.format_exc())
 
+    db_base_dir = Path(app_config.SETTINGS["database_base_dir"])
+    if db_base_dir:
+        try:
+            db_base_dir.mkdir(parents=True, exist_ok=True)
+            print(f"INFO: Ensured directory for databases: {db_base_dir}")
+        except Exception as e:
+            print(
+                f"WARN: Could not create/verify directory for databases {db_base_dir}: {e}"
+            )
+            print(traceback.format_exc())
+
     # --- DB_KPI_TEMPLATES Setup ---
     db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
     print(f"Setting up tables in {db_kpi_templates_path}...")
@@ -185,13 +196,13 @@ def setup_databases():
 
             # --- New table for KPI-Plant Visibility ---
             cursor.execute(
-                """CREATE TABLE IF NOT EXISTS kpi_stabilimento_visibility (
+                """CREATE TABLE IF NOT EXISTS kpi_plant_visibility (
                     kpi_id INTEGER NOT NULL,
-                    stabilimento_id INTEGER NOT NULL,
+                    plant_id INTEGER NOT NULL,
                     is_enabled BOOLEAN NOT NULL DEFAULT 1,
-                    PRIMARY KEY (kpi_id, stabilimento_id),
+                    PRIMARY KEY (kpi_id, plant_id),
                     FOREIGN KEY (kpi_id) REFERENCES kpis(id) ON DELETE CASCADE,
-                    FOREIGN KEY (stabilimento_id) REFERENCES stabilimenti(id) ON DELETE CASCADE
+                    FOREIGN KEY (plant_id) REFERENCES plants(id) ON DELETE CASCADE
                 )"""
             )
             conn.commit()
@@ -201,14 +212,14 @@ def setup_databases():
         print(f"ERROR during setup of {db_kpis_path}: {e}")
         print(traceback.format_exc())
 
-    # --- DB_STABILIMENTI Setup ---
-    db_stabilimenti_path = app_config.get_database_path("db_stabilimenti.db")
-    print(f"Setting up tables in {db_stabilimenti_path}...")
+    # --- DB_PLANTS Setup ---
+    db_plants_path = app_config.get_database_path("db_plants.db")
+    print(f"Setting up tables in {db_plants_path}...")
     try:
-        with sqlite3.connect(db_stabilimenti_path) as conn:
+        with sqlite3.connect(db_plants_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """CREATE TABLE IF NOT EXISTS stabilimenti (
+                """CREATE TABLE IF NOT EXISTS plants (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
@@ -216,34 +227,34 @@ def setup_databases():
                     color TEXT NOT NULL DEFAULT '#000000'
                 )"""
             )
-            # Check and add 'description' to 'stabilimenti' if missing
-            cursor.execute("PRAGMA table_info(stabilimenti)")
-            stabilimenti_cols = {col[1] for col in cursor.fetchall()}
-            if "description" not in stabilimenti_cols:
+            # Check and add 'description' to 'plants' if missing
+            cursor.execute("PRAGMA table_info(plants)")
+            plants_cols = {col[1] for col in cursor.fetchall()}
+            if "description" not in plants_cols:
                 try:
                     cursor.execute(
-                        "ALTER TABLE stabilimenti ADD COLUMN description TEXT"
+                        "ALTER TABLE plants ADD COLUMN description TEXT"
                     )
-                    print("Added column 'description' to 'stabilimenti'.")
+                    print("Added column 'description' to 'plants'.")
                 except sqlite3.OperationalError as e:
                     print(
-                        f"WARN: Could not add 'description' to 'stabilimenti', it might already exist or another issue occurred: {e}"
+                        f"WARN: Could not add 'description' to 'plants', it might already exist or another issue occurred: {e}"
                     )
             # Check and add 'color' column if missing
-            if "color" not in stabilimenti_cols:
+            if "color" not in plants_cols:
                 try:
                     cursor.execute(
-                        "ALTER TABLE stabilimenti ADD COLUMN color TEXT NOT NULL DEFAULT '#000000'"
+                        "ALTER TABLE plants ADD COLUMN color TEXT NOT NULL DEFAULT '#000000'"
                     )
-                    print("Added column 'color' to 'stabilimenti'.")
+                    print("Added column 'color' to 'plants'.")
                 except sqlite3.OperationalError as e:
                     print(
-                        f"WARN: Could not add 'color' to 'stabilimenti', it might already exist or another issue occurred: {e}"
+                        f"WARN: Could not add 'color' to 'plants', it might already exist or another issue occurred: {e}"
                     )
             conn.commit()
-        print(f"Table setup in {db_stabilimenti_path} completed.")
+        print(f"Table setup in {db_plants_path} completed.")
     except sqlite3.Error as e:
-        print(f"ERROR during setup of {db_stabilimenti_path}: {e}")
+        print(f"ERROR during setup of {db_plants_path}: {e}")
         print(traceback.format_exc())
 
     # --- DB_TARGETS Setup (Annual Targets) ---
@@ -253,7 +264,7 @@ def setup_databases():
         with sqlite3.connect(db_targets_path) as conn:
             cursor = conn.cursor()
             try:
-                from gui.shared.constants import (
+                from src.gui.shared.constants import (
                     PROFILE_ANNUAL_PROGRESSIVE,
                     REPARTITION_LOGIC_YEAR,
                 )
@@ -262,7 +273,7 @@ def setup_databases():
                     f"""CREATE TABLE IF NOT EXISTS annual_targets (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         year INTEGER NOT NULL,
-                        stabilimento_id INTEGER NOT NULL,
+                        plant_id INTEGER NOT NULL,
                         kpi_id INTEGER NOT NULL,
                         annual_target1 REAL NOT NULL DEFAULT 0,
                         annual_target2 REAL NOT NULL DEFAULT 0,
@@ -278,12 +289,23 @@ def setup_databases():
                         target2_is_formula_based BOOLEAN NOT NULL DEFAULT 0,
                         target2_formula TEXT,
                         target2_formula_inputs TEXT DEFAULT '[]',
-                        UNIQUE(year, stabilimento_id, kpi_id)
+                        UNIQUE(year, plant_id, kpi_id)
                     )"""
                 )
             except sqlite3.OperationalError as e_create:
                 if "table annual_targets already exists" not in str(e_create).lower():
                     raise  # Re-raise if it's not the 'already exists' error
+
+            # Check and rename 'stabilimento_id' to 'plant_id' if it exists
+            cursor.execute("PRAGMA table_info(annual_targets)")
+            annual_targets_cols = {col[1] for col in cursor.fetchall()}
+            if "stabilimento_id" in annual_targets_cols and "plant_id" not in annual_targets_cols:
+                try:
+                    cursor.execute("ALTER TABLE annual_targets RENAME COLUMN stabilimento_id TO plant_id")
+                    print("Renamed column 'stabilimento_id' to 'plant_id' in 'annual_targets'.")
+                except sqlite3.OperationalError as e:
+                    print(f"WARN: Could not rename 'stabilimento_id' to 'plant_id' in 'annual_targets': {e}")
+            conn.commit() # Commit rename before creating/checking table
 
             # Check and add columns to 'annual_targets'
             cursor.execute("PRAGMA table_info(annual_targets)")
@@ -369,17 +391,28 @@ def setup_databases():
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 period_col_name_for_unique = period_col_def.split()[0]  # e.g., "date_value"
+                # Check and rename 'stabilimento_id' to 'plant_id' if it exists
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                periodic_cols = {col[1] for col in cursor.fetchall()}
+                if "stabilimento_id" in periodic_cols and "plant_id" not in periodic_cols:
+                    try:
+                        cursor.execute(f"ALTER TABLE {table_name} RENAME COLUMN stabilimento_id TO plant_id")
+                        print(f"Renamed column 'stabilimento_id' to 'plant_id' in '{table_name}'.")
+                    except sqlite3.OperationalError as e:
+                        print(f"WARN: Could not rename 'stabilimento_id' to 'plant_id' in '{table_name}': {e}")
+                conn.commit() # Commit rename before creating/checking table
+
                 # Ensure the UNIQUE constraint includes target_number as one KPI can have Target 1 and Target 2 for the same period
                 cursor.execute(
                     f"""CREATE TABLE IF NOT EXISTS {table_name} (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         year INTEGER NOT NULL,
-                        stabilimento_id INTEGER NOT NULL,
+                        plant_id INTEGER NOT NULL,
                         kpi_id INTEGER NOT NULL,
                         target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
                         {period_col_name_for_unique.replace(' UNIQUE', '')},
                         target_value REAL NOT NULL,
-                        UNIQUE(year, stabilimento_id, kpi_id, target_number, {period_col_name_for_unique})
+                        UNIQUE(year, plant_id, kpi_id, target_number, {period_col_name_for_unique})
                     )"""
                 )
                 conn.commit()

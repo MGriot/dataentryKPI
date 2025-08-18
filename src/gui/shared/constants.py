@@ -2,6 +2,10 @@
 Constants shared between GUIs (Tkinter/Streamlit).
 """
 
+
+
+
+
 # --- Calculation Types ---
 CALC_TYPE_INCREMENTAL = "Incremental"
 CALC_TYPE_AVERAGE = "Average"
@@ -23,8 +27,8 @@ PROFILE_QUARTERLY_PROGRESSIVE = "quarterly_progressive"
 PROFILE_QUARTERLY_SINUSOIDAL = "quarterly_sinusoidal"
 
 # --- Repartition Parameters ---
-WEIGHT_INITIAL_FACTOR_INC = 0.5
-WEIGHT_FINAL_FACTOR_INC = 1.5
+WEIGHT_INITIAL_FACTOR_INC = 1.6
+WEIGHT_FINAL_FACTOR_INC = 0.4
 WEIGHT_INITIAL_FACTOR_AVG = 1.6
 WEIGHT_FINAL_FACTOR_AVG = 0.4
 SINE_AMPLITUDE_INCREMENTAL = 0.3
@@ -33,6 +37,8 @@ SINE_PHASE_OFFSET = 0
 WEEKDAY_BIAS_FACTOR_INCREMENTAL = 0.8
 WEEKDAY_BIAS_FACTOR_MEDIA = 1.1
 DEVIATION_SCALE_FACTOR_AVG = 0.2
+
+
 
 # --- Period Types ---
 PERIOD_TYPES = ["Day", "Week", "Month", "Quarter"]

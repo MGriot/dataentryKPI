@@ -20,7 +20,7 @@ try:
     from src.data_retriever import (
         get_all_annual_target_entries_for_export,
         get_all_periodic_targets_for_export,
-        get_all_stabilimenti,
+        get_all_plants,
         get_kpi_groups,
         get_all_kpi_subgroups,
         get_all_kpi_indicators,
@@ -34,7 +34,7 @@ except ImportError as e:
 
 # Define the names for the global CSV files, matching the database tables
 GLOBAL_CSV_FILES = {
-    "stabilimenti": "dict_stabilimenti.csv",
+    "plants": "dict_plants.csv",
     "kpi_groups": "dict_kpi_groups.csv",
     "kpi_subgroups": "dict_kpi_subgroups.csv",
     "kpi_indicators": "dict_kpi_indicators.csv",
@@ -80,12 +80,12 @@ def export_all_data_to_global_csvs(base_export_path_str: str = None):
     _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_indicators"], get_all_kpi_indicators(), ["id", "name", "subgroup_id"])
     _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpis"], get_all_kpis(), ["id", "indicator_id", "description", "calculation_type", "unit_of_measure", "visible"])
 
-    # Stabilimenti
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["stabilimenti"], get_all_stabilimenti(visible_only=False), ["id", "name", "description", "visible", "color"])
+    # Plants
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["plants"], get_all_plants(visible_only=False), ["id", "name", "description", "visible", "color"])
 
     # Annual Targets
     _export_to_csv(target_export_path / GLOBAL_CSV_FILES["annual"], get_all_annual_target_entries_for_export(), [
-        "id", "year", "stabilimento_id", "kpi_id", "annual_target1", "annual_target2", "repartition_logic",
+        "id", "year", "plant_id", "kpi_id", "annual_target1", "annual_target2", "repartition_logic",
         "repartition_values", "distribution_profile", "profile_params", "is_target1_manual", "is_target2_manual",
         "target1_is_formula_based", "target1_formula", "target1_formula_inputs", "target2_is_formula_based",
         "target2_formula", "target2_formula_inputs"
@@ -95,7 +95,7 @@ def export_all_data_to_global_csvs(base_export_path_str: str = None):
     periodic_map = {"days": "date_value", "weeks": "week_value", "months": "month_value", "quarters": "quarter_value"}
     for period_type, period_col in periodic_map.items():
         data = get_all_periodic_targets_for_export(period_type)
-        header = ["year", "stabilimento_id", "kpi_id", "target_number", period_col, "target_value"]
+        header = ["year", "plant_id", "kpi_id", "target_number", period_col, "target_value"]
         _export_to_csv(target_export_path / GLOBAL_CSV_FILES[period_type], data, header)
 
     print("INFO: Global CSV export finished.")

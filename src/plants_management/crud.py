@@ -6,7 +6,7 @@ from pathlib import Path
 from src.db_core.utils import get_database_path
 
 # --- Configuration Imports ---
-DB_PLANTS = get_database_path('db_stabilimenti.db')
+DB_PLANTS = get_database_path('db_plants.db')
 DB_TARGETS = get_database_path('db_kpi_targets.db')
 
 
@@ -27,7 +27,7 @@ def add_plant(name: str, description: str = "", visible: bool = True, color: str
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO stabilimenti (name, description, visible, color) VALUES (?,?,?,?)",
+                "INSERT INTO plants (name, description, visible, color) VALUES (?,?,?,?)",
                 (name, description, 1 if visible else 0, color),
             )
             conn.commit()
@@ -49,7 +49,7 @@ def update_plant(
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE stabilimenti SET name=?, description=?, visible=?, color=? WHERE id=?",
+                "UPDATE plants SET name=?, description=?, visible=?, color=? WHERE id=?",
                 (name, description, 1 if visible else 0, color, plant_id),
             )
             conn.commit()
@@ -74,7 +74,7 @@ def update_plant_color(plant_id: int, color: str):
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE stabilimenti SET color=? WHERE id=?",
+                "UPDATE plants SET color=? WHERE id=?",
                 (color, plant_id),
             )
             conn.commit()
@@ -95,7 +95,7 @@ def is_plant_referenced(plant_id: int) -> bool:
         with sqlite3.connect(DB_TARGETS) as conn_targets:
             cursor = conn_targets.cursor()
             cursor.execute(
-                "SELECT 1 FROM annual_targets WHERE stabilimento_id = ? LIMIT 1",
+                "SELECT 1 FROM annual_targets WHERE plant_id = ? LIMIT 1",
                 (plant_id,),
             )
             return cursor.fetchone() is not None
@@ -111,7 +111,7 @@ def get_plant_by_id(plant_id: int) -> dict | None:
     with sqlite3.connect(DB_PLANTS) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name, description, visible, color FROM stabilimenti WHERE id = ?", (plant_id,))
+        cursor.execute("SELECT id, name, description, visible, color FROM plants WHERE id = ?", (plant_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -129,7 +129,7 @@ def delete_plant(plant_id: int, force_delete_if_referenced: bool = False):
     with sqlite3.connect(DB_PLANTS) as conn:
         try:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM stabilimenti WHERE id = ?", (plant_id,))
+            cursor.execute("DELETE FROM plants WHERE id = ?", (plant_id,))
             conn.commit()
             if cursor.rowcount == 0:
                 print(
@@ -151,7 +151,7 @@ if __name__ == "__main__":
             cur_s = conn_s.cursor()
             cur_s.execute(
                 """
-                CREATE TABLE IF NOT EXISTS stabilimenti (
+                CREATE TABLE IF NOT EXISTS plants (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
@@ -167,7 +167,7 @@ if __name__ == "__main__":
                 CREATE TABLE IF NOT EXISTS annual_targets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     year INTEGER NOT NULL,
-                    stabilimento_id INTEGER NOT NULL,
+                    plant_id INTEGER NOT NULL,
                     kpi_id INTEGER NOT NULL,
                     annual_target1 REAL DEFAULT 0);
             """
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         )
         with sqlite3.connect(DB_PLANTS) as conn:
             row = conn.execute(
-                "SELECT name, description, visible, color FROM stabilimenti WHERE id = ?",
+                "SELECT name, description, visible, color FROM plants WHERE id = ?",
                 (plant_id_created,),
             ).fetchone()
             assert (
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         update_plant_color(plant_id_created, "#FFFF00")
         with sqlite3.connect(DB_PLANTS) as conn:
             row = conn.execute(
-                "SELECT color FROM stabilimenti WHERE id = ?",
+                "SELECT color FROM plants WHERE id = ?",
                 (plant_id_created,),
             ).fetchone()
             assert row and row[0] == "#FFFF00"
@@ -256,7 +256,7 @@ if __name__ == "__main__":
         delete_plant(plant_id_created)
         with sqlite3.connect(DB_PLANTS) as conn:
             row = conn.execute(
-                "SELECT id FROM stabilimenti WHERE id = ?", (plant_id_created,)
+                "SELECT id FROM plants WHERE id = ?", (plant_id_created,)
             ).fetchone()
             assert row is None, "Plant was not deleted."
         print(f"  SUCCESS: Plant ID {plant_id_created} deleted.")
@@ -268,7 +268,7 @@ if __name__ == "__main__":
         ref_plant_id = add_plant("Referenced Plant", "Test for delete constraint", True, "#CCCCCC")
         with sqlite3.connect(DB_TARGETS) as conn_t:
             conn_t.execute(
-                "INSERT INTO annual_targets (year, stabilimento_id, kpi_id) VALUES (?,?,?)",
+                "INSERT INTO annual_targets (year, plant_id, kpi_id) VALUES (?,?,?)",
                 (2023, ref_plant_id, 1),
             )
             conn_t.commit()
@@ -286,12 +286,12 @@ if __name__ == "__main__":
         delete_plant(ref_plant_id, force_delete_if_referenced=True)
         with sqlite3.connect(DB_PLANTS) as conn:
             row = conn.execute(
-                "SELECT id FROM stabilimenti WHERE id = ?", (ref_plant_id,)
+                "SELECT id FROM plants WHERE id = ?", (ref_plant_id,)
             ).fetchone()
             assert row is None, "Plant was not force deleted."
         with sqlite3.connect(DB_TARGETS) as conn_t:
             target_row = conn_t.execute(
-                "SELECT id FROM annual_targets WHERE stabilimento_id = ?",
+                "SELECT id FROM annual_targets WHERE plant_id = ?",
                 (ref_plant_id,),
             ).fetchone()
             assert (

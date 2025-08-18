@@ -63,7 +63,7 @@ def _placeholder_safe_evaluate_formula(formula_str: str, context_vars: dict):
 # --- Annual Target Management ---
 def save_annual_targets(
     year: int,
-    stabilimento_id: int,
+    plant_id: int,
     targets_data_map: dict,
     initiator_kpi_spec_id: int = None,
 ):
@@ -99,7 +99,7 @@ def save_annual_targets(
         return
 
     print(
-        f"INFO: Starting save_annual_targets for Year: {year}, Stab: {stabilimento_id}. Initiator: {initiator_kpi_spec_id}"
+        f"INFO: Starting save_annual_targets for Year: {year}, Plant: {plant_id}. Initiator: {initiator_kpi_spec_id}"
     )
 
     kpis_needing_repartition_update = set()
@@ -120,11 +120,11 @@ def save_annual_targets(
                 continue
 
             # Fetch existing record to get current DB state or defaults if no record
-            record = get_annual_target_entry(year, stabilimento_id, current_kpi_spec_id)
+            record = get_annual_target_entry(year, plant_id, current_kpi_spec_id)
 
             # Initialize with defaults, then override with DB record, then override with UI data
             db_annual_t1, db_annual_t2 = 0.0, 0.0
-            db_repart_logic = REPARTITION_LOGIC_ANNO
+            db_repart_logic = REPARTITION_LOGIC_YEAR
             db_repart_values_json = "{}"
             db_dist_profile = PROFILE_ANNUAL_PROGRESSIVE
             db_profile_params_json = "{}"
@@ -150,8 +150,8 @@ def save_annual_targets(
                 db_annual_t1 = float(record_dict.get("annual_target1", 0.0) or 0.0)
                 db_annual_t2 = float(record_dict.get("annual_target2", 0.0) or 0.0)
                 db_repart_logic = (
-                    record_dict.get("repartition_logic", REPARTITION_LOGIC_ANNO)
-                    or REPARTITION_LOGIC_ANNO
+                    record_dict.get("repartition_logic", REPARTITION_LOGIC_YEAR)
+                    or REPARTITION_LOGIC_YEAR
                 )
                 db_repart_values_json = (
                     record_dict.get("repartition_values", "{}") or "{}"
@@ -279,7 +279,7 @@ def save_annual_targets(
                 )
             else:
                 cursor.execute(
-                    """INSERT INTO annual_targets (year,stabilimento_id,kpi_id,annual_target1,annual_target2,
+                    """INSERT INTO annual_targets (year,plant_id,kpi_id,annual_target1,annual_target2,
                        repartition_logic,repartition_values,distribution_profile,profile_params,
                        is_target1_manual, is_target2_manual,
                        target1_is_formula_based, target1_formula, target1_formula_inputs,
@@ -287,7 +287,7 @@ def save_annual_targets(
                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         year,
-                        stabilimento_id,
+                        plant_id,
                         current_kpi_spec_id,
                         final_annual_t1,
                         final_annual_t2,
@@ -351,7 +351,7 @@ def save_annual_targets(
 
             for kpi_id_to_calc in kpis_pending_formula:
                 target_entry_row = get_annual_target_entry(
-                    year, stabilimento_id, kpi_id_to_calc
+                    year, plant_id, kpi_id_to_calc
                 )
                 if not target_entry_row:
                     print(
@@ -420,7 +420,7 @@ def save_annual_targets(
                     ):
                         # This is a bit tricky: we need to ensure the source value ISN'T ITSELF a formula that's still pending for the SAME target_num
                         input_kpi_target_entry_check_row = get_annual_target_entry(
-                            year, stabilimento_id, input_kpi_id
+                            year, plant_id, input_kpi_id
                         )
                         if input_kpi_target_entry_check_row:
                             input_kpi_target_entry_check = dict(
@@ -454,7 +454,7 @@ def save_annual_targets(
 
                     # Fetch the actual value for the input variable
                     input_kpi_target_entry_for_value_row = get_annual_target_entry(
-                        year, stabilimento_id, input_kpi_id
+                        year, plant_id, input_kpi_id
                     )
                     if (
                         not input_kpi_target_entry_for_value_row
@@ -575,7 +575,7 @@ def save_annual_targets(
     for master_kpi_id in masters_to_re_evaluate:
         print(f"    Evaluating Master KPI {master_kpi_id} for weighted distribution...")
         master_target_entry_row = get_annual_target_entry(
-            year, stabilimento_id, master_kpi_id
+            year, plant_id, master_kpi_id
         )
         if not master_target_entry_row:
             print(
@@ -658,7 +658,7 @@ def save_annual_targets(
                     sub_kpi_weight = 1.0  # Ensure positive weight
 
                 sub_target_entry_row = get_annual_target_entry(
-                    year, stabilimento_id, sub_kpi_id
+                    year, plant_id, sub_kpi_id
                 )
                 sub_target_value_this_target = (
                     0.0  # Default if no entry or target not set
@@ -735,7 +735,7 @@ def save_annual_targets(
 
                         # Update or Insert the derived value for the sub-KPI
                         sub_record_derive_row = get_annual_target_entry(
-                            year, stabilimento_id, sub_kpi_id_to_derive
+                            year, plant_id, sub_kpi_id_to_derive
                         )
                         target_col_to_update = (
                             f"annual_target{target_num_to_distribute}"
@@ -771,7 +771,7 @@ def save_annual_targets(
                             # Construct columns and placeholders carefully
                             cols_list = [
                                 "year",
-                                "stabilimento_id",
+                                "plant_id",
                                 "kpi_id",
                                 f"annual_target{target_num_to_distribute}",
                                 f"is_target{target_num_to_distribute}_manual",
@@ -786,7 +786,7 @@ def save_annual_targets(
                             ]
                             values_to_insert = [
                                 year,
-                                stabilimento_id,
+                                plant_id,
                                 sub_kpi_id_to_derive,
                                 value_for_this_sub,
                                 False,
@@ -821,7 +821,7 @@ def save_annual_targets(
     else:
         for kpi_id_recalc in kpis_needing_repartition_update:
             target_entry_check_row = get_annual_target_entry(
-                year, stabilimento_id, kpi_id_recalc
+                year, plant_id, kpi_id_recalc
             )
             if target_entry_check_row:
                 target_entry_check = dict(target_entry_check_row)
@@ -831,7 +831,7 @@ def save_annual_targets(
                         f"    Calculating repartitions for KPI {kpi_id_recalc}, Target 1..."
                     )
                     repartition_module.calculate_and_save_all_repartitions(
-                        year, stabilimento_id, kpi_id_recalc, 1
+                        year, plant_id, kpi_id_recalc, 1
                     )
                 else:
                     print(
@@ -844,7 +844,7 @@ def save_annual_targets(
                         f"    Calculating repartitions for KPI {kpi_id_recalc}, Target 2..."
                     )
                     repartition_module.calculate_and_save_all_repartitions(
-                        year, stabilimento_id, kpi_id_recalc, 2
+                        year, plant_id, kpi_id_recalc, 2
                     )
                 else:
                     print(
@@ -857,7 +857,7 @@ def save_annual_targets(
     print("  Phase 4: Repartition calculations finished.")
 
     print(
-        f"INFO: Finished save_annual_targets for Year: {year}, Stab: {stabilimento_id}"
+        f"INFO: Finished save_annual_targets for Year: {year}, Plant: {plant_id}"
     )
 
 
@@ -894,15 +894,15 @@ if __name__ == "__main__":
     app_config.SETTINGS["database_base_dir"] = str(Path(DB_TARGETS_TEST_FILE).parent)
 
     # Mocked data store for get_annual_target_entry and other retrievers
-    _mock_annual_targets_db = {}  # {(year, stab_id, kpi_id): {data}}
+    _mock_annual_targets_db = {}  # {(year, plant_id, kpi_id): {data}}
     _mock_kpis_links_db = {}  # {master_id: [sub_ids]}
     _mock_kpis_roles_db = (
         {}
     )  # {kpi_id: {"role": "master/sub/none", "master_id": id, "related_kpis": [ids]}}
     _mock_kpis_link_weights = {}  # {(master_id, sub_id): weight}
 
-    def _mock_get_annual_target_entry(year, stab_id, kpi_id):
-        return _mock_annual_targets_db.get((year, stab_id, kpi_id))
+    def _mock_get_annual_target_entry(year, plant_id, kpi_id):
+        return _mock_annual_targets_db.get((year, plant_id, kpi_id))
 
     def _mock_get_kpi_role_details(kpi_id):
         return _mock_kpis_roles_db.get(
@@ -925,8 +925,8 @@ if __name__ == "__main__":
     # but we can provide a more verbose mock for testing:
     _repartition_calls = []
 
-    def _verbose_mock_repartition(year, stab_id, kpi_id, target_num):
-        call_info = (year, stab_id, kpi_id, target_num)
+    def _verbose_mock_repartition(year, plant_id, kpi_id, target_num):
+        call_info = (year, plant_id, kpi_id, target_num)
         print(f"  MOCK REPARTITION CALLED: {call_info}")
         _repartition_calls.append(call_info)
 
@@ -938,13 +938,13 @@ if __name__ == "__main__":
         conn.execute(
             f"""
             CREATE TABLE annual_targets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, stabilimento_id INTEGER, kpi_id INTEGER,
+                id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER, plant_id INTEGER, kpi_id INTEGER,
                 annual_target1 REAL, annual_target2 REAL,
                 repartition_logic TEXT, repartition_values TEXT, distribution_profile TEXT, profile_params TEXT,
                 is_target1_manual BOOLEAN, is_target2_manual BOOLEAN,
                 target1_is_formula_based BOOLEAN, target1_formula TEXT, target1_formula_inputs TEXT,
                 target2_is_formula_based BOOLEAN, target2_formula TEXT, target2_formula_inputs TEXT,
-                UNIQUE(year, stabilimento_id, kpi_id));
+                UNIQUE(year, plant_id, kpi_id));
         """
         )
         conn.commit()
@@ -965,7 +965,7 @@ if __name__ == "__main__":
     try:
         print("\n--- Test Scenario 1: Basic Save & Formula ---")
         test_year = 2023
-        test_stab_id = 1
+        test_plant_id = 1
         kpi_a_id, kpi_b_id, kpi_c_id = 10, 11, 12  # Formula C = A + B
 
         targets_input_scenario1 = {
@@ -993,14 +993,14 @@ if __name__ == "__main__":
         # For the mock to work during formula eval, we can pre-populate the _mock_annual_targets_db
         # as if phase 1 already ran for A and B.
 
-        save_annual_targets(test_year, test_stab_id, targets_input_scenario1)
+        save_annual_targets(test_year,             test_plant_id, targets_input_scenario1)
 
         # Verification for Scenario 1 (check the SQLite DB_TARGETS_TEST_FILE)
         with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_verify:
             conn_verify.row_factory = sqlite3.Row
             c_target_row = conn_verify.execute(
-                "SELECT annual_target1, is_target1_manual FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
-                (test_year, test_stab_id, kpi_c_id),
+                "SELECT annual_target1, is_target1_manual FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?",
+                (test_year, test_plant_id, kpi_c_id),
             ).fetchone()
             assert c_target_row is not None, f"KPI C target not found for scenario 1"
             assert (
@@ -1012,9 +1012,9 @@ if __name__ == "__main__":
             print(
                 "  Scenario 1 (Basic Save & Formula): KPI C calculated correctly (150.0)."
             )
-        assert (test_year, test_stab_id, kpi_a_id, 1) in _repartition_calls
-        assert (test_year, test_stab_id, kpi_b_id, 1) in _repartition_calls
-        assert (test_year, test_stab_id, kpi_c_id, 1) in _repartition_calls
+        assert (test_year, test_plant_id, kpi_a_id, 1) in _repartition_calls
+        assert (test_year, test_plant_id, kpi_b_id, 1) in _repartition_calls
+        assert (test_year, test_plant_id, kpi_c_id, 1) in _repartition_calls
         print("  Scenario 1: Repartition calls verified.")
 
         print("\n--- Test Scenario 2: Master/Sub Distribution ---")
@@ -1048,7 +1048,7 @@ if __name__ == "__main__":
         }
         save_annual_targets(
             test_year,
-            test_stab_id,
+            test_plant_id,
             targets_input_scenario2,
             initiator_kpi_spec_id=master_id,
         )
@@ -1057,8 +1057,8 @@ if __name__ == "__main__":
         with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn_verify:
             conn_verify.row_factory = sqlite3.Row
             sub2_target_row = conn_verify.execute(
-                "SELECT annual_target1, is_target1_manual FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
-                (test_year, test_stab_id, sub2_id),
+                "SELECT annual_target1, is_target1_manual FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?",
+                (test_year, test_plant_id, sub2_id),
             ).fetchone()
             assert (
                 sub2_target_row is not None
@@ -1081,9 +1081,9 @@ if __name__ == "__main__":
             ], "KPI Sub2 should not be manual after derivation."
             print("  Scenario 2 (Master/Sub): KPI Sub2 derived correctly (900.0).")
 
-        assert (test_year, test_stab_id, master_id, 1) in _repartition_calls
-        assert (test_year, test_stab_id, sub1_id, 1) in _repartition_calls
-        assert (test_year, test_stab_id, sub2_id, 1) in _repartition_calls
+        assert (test_year, test_plant_id, master_id, 1) in _repartition_calls
+        assert (test_year, test_plant_id, sub1_id, 1) in _repartition_calls
+        assert (test_year, test_plant_id, sub2_id, 1) in _repartition_calls
         print("  Scenario 2: Repartition calls verified.")
 
         print("\n--- All target_management.annual basic tests passed ---")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 # CALC_TYPE constants might be needed by _apply_template_indicator_to_new_subgroup
 # if it directly constructs kpis records.
-from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+from src.app_config import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False
@@ -375,6 +375,65 @@ def delete_kpi_subgroup(subgroup_id: int):
             raise Exception(f"Database error when deleting kpi_subgroups entry for ID {subgroup_id}.") from e
 
 
+def get_kpi_subgroups_by_group_revised(group_id: int) -> list[dict]:
+    """
+    Retrieves all KPI subgroups for a given group ID, including their template name if linked.
+
+    Args:
+        group_id (int): The ID of the parent KPI group.
+
+    Returns:
+        list[dict]: A list of dictionaries, where each dictionary represents a KPI subgroup
+                    with 'id', 'name', 'group_id', and 'template_name' (or None if no template).
+                    Returns an empty list if no subgroups are found for the group.
+    Raises:
+        Exception: For database errors.
+    """
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    db_kpi_templates_path = app_config.get_database_path("db_kpi_templates.db")
+
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot retrieve subgroups."
+        )
+    if not isinstance(db_kpi_templates_path, Path) or not db_kpi_templates_path.parent.exists():
+        print(f"WARNING: DB_KPI_TEMPLATES is not properly configured ({db_kpi_templates_path}). Template names will not be retrieved.")
+        db_kpi_templates_path = None # Mark as unavailable
+
+    subgroups_data = []
+    with sqlite3.connect(db_kpis_path) as conn_kpis:
+        conn_kpis.row_factory = sqlite3.Row
+        try:
+            cursor_kpis = conn_kpis.cursor()
+            cursor_kpis.execute(
+                "SELECT id, name, group_id, indicator_template_id FROM kpi_subgroups WHERE group_id = ? ORDER BY name",
+                (group_id,),
+            )
+            rows = cursor_kpis.fetchall()
+
+            template_names_map = {}
+            if db_kpi_templates_path:
+                with sqlite3.connect(db_kpi_templates_path) as conn_templates:
+                    conn_templates.row_factory = sqlite3.Row
+                    cursor_templates = conn_templates.cursor()
+                    # Fetch all template names once for efficiency
+                    cursor_templates.execute("SELECT id, name FROM kpi_indicator_templates")
+                    for tpl_row in cursor_templates.fetchall():
+                        template_names_map[tpl_row["id"]] = tpl_row["name"]
+
+            for row in rows:
+                subgroup_dict = dict(row)
+                template_id = subgroup_dict.pop("indicator_template_id") # Remove the ID, we want the name
+                subgroup_dict["template_name"] = template_names_map.get(template_id) if template_id else None
+                subgroups_data.append(subgroup_dict)
+
+            return subgroups_data
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while retrieving KPI subgroups for group {group_id}. Details: {e}")
+            print(traceback.format_exc())
+            raise Exception(f"A database error occurred while retrieving KPI subgroups for group {group_id}.") from e
+
+
 if __name__ == "__main__":
     print("--- Running kpi_management/subgroups.py for testing ---")
     # This requires kpi_groups, kpi_indicator_templates, kpi_indicators, kpis tables to exist.
@@ -398,7 +457,7 @@ if __name__ == "__main__":
             cur.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
                            FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));""")
             cur.execute(f"""CREATE TABLE IF NOT EXISTS kpis (id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE, description TEXT,
-                           calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                           calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
                            unit_of_measure TEXT, visible BOOLEAN DEFAULT 1,
                            FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE);""")
             conn.commit()
@@ -410,7 +469,7 @@ if __name__ == "__main__":
             cur_tpl.execute("INSERT OR IGNORE INTO kpi_indicator_templates (id, name, description) VALUES (?, 'Test Template for Subgroups', 'Desc')", (template_id,))
             cur_tpl.execute(f"""CREATE TABLE IF NOT EXISTS template_defined_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, template_id INTEGER NOT NULL,
                                indicator_name_in_template TEXT NOT NULL, default_description TEXT,
-                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
                                default_unit_of_measure TEXT, default_visible BOOLEAN DEFAULT 1,
                                FOREIGN KEY (template_id) REFERENCES kpi_indicator_templates(id) ON DELETE CASCADE,
                                UNIQUE (template_id, indicator_name_in_template));""")

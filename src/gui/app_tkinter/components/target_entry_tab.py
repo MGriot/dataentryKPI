@@ -185,16 +185,16 @@ class TargetEntryTab(ttk.Frame):
         }
 
     def create_repartition_input(self, parent, kpi, target_data):
+        from src.gui.shared.constants import DISTRIBUTION_PROFILE_OPTIONS, PROFILE_EVEN
         kpi_id = kpi['id']
         frame = ttk.Frame(parent)
         frame.pack(fill='x', expand=True, padx=5, pady=5)
 
         # Profile combobox
         ttk.Label(frame, text="Distribution Profile:").pack(side='left', padx=(0,5))
-        profile_var = tk.StringVar(value=target_data.get('distribution_profile', 'uniform') if target_data else 'uniform')
+        profile_var = tk.StringVar(value=target_data.get('distribution_profile', PROFILE_EVEN) if target_data else PROFILE_EVEN)
         
-        # TODO: Populate profiles from a central source
-        profiles = ['uniform', 'progressive', 'sinusoidal', 'custom_monthly', 'custom_quarterly', 'custom_weekly', 'event_based']
+        profiles = DISTRIBUTION_PROFILE_OPTIONS
         profile_cb = ttk.Combobox(frame, textvariable=profile_var, values=profiles, state='readonly')
         profile_cb.pack(side='left', padx=5)
         profile_cb.bind('<<ComboboxSelected>>', lambda e, k=kpi_id: self._update_repartition_input_area_tk(k))

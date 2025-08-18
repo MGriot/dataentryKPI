@@ -32,7 +32,7 @@ class ResultsTab(ttk.Frame):
 
         row1_filters = ttk.Frame(filter_frame_res)
         row1_filters.pack(fill="x", pady=2)
-        ttk.Label(row1_filters, text="Anno:").pack(side="left")
+        ttk.Label(row1_filters, text="Year:").pack(side="left")
         self.res_year_var_vis = tk.StringVar(value=str(datetime.datetime.now().year))
         ttk.Spinbox(
             row1_filters,
@@ -42,24 +42,24 @@ class ResultsTab(ttk.Frame):
             width=6,
             command=self.show_results_data,
         ).pack(side="left", padx=(2, 10))
-        ttk.Label(row1_filters, text="Stabilimento:").pack(side="left")
-        self.res_stabilimento_var_vis = tk.StringVar()
-        self.res_stabilimento_cb_vis = ttk.Combobox(
+        ttk.Label(row1_filters, text="Plant:").pack(side="left")
+        self.res_plant_var_vis = tk.StringVar()
+        self.res_plant_cb_vis = ttk.Combobox(
             row1_filters,
-            textvariable=self.res_stabilimento_var_vis,
+            textvariable=self.res_plant_var_vis,
             state="readonly",
             width=20,
         )
-        self.res_stabilimento_cb_vis.pack(side="left", padx=(2, 10))
-        self.res_stabilimento_cb_vis.bind("<<ComboboxSelected>>", self.show_results_data)
+        self.res_plant_cb_vis.pack(side="left", padx=(2, 10))
+        self.res_plant_cb_vis.bind("<<ComboboxSelected>>", self.show_results_data)
         
-        ttk.Label(row1_filters, text="Periodo:").pack(side="left")
-        self.res_period_var_vis = tk.StringVar(value="Mese")
+        ttk.Label(row1_filters, text="Period:").pack(side="left")
+        self.res_period_var_vis = tk.StringVar(value="Month")
         self.res_period_cb_vis = ttk.Combobox(
             row1_filters,
             textvariable=self.res_period_var_vis,
             state="readonly",
-            values=["Giorno", "Settimana", "Mese", "Trimestre"],
+            values=["Day", "Week", "Month", "Quarter"],
             width=10,
         )
         self.res_period_cb_vis.current(2)
@@ -68,7 +68,7 @@ class ResultsTab(ttk.Frame):
 
         row2_filters = ttk.Frame(filter_frame_res)
         row2_filters.pack(fill="x", pady=2)
-        ttk.Label(row2_filters, text="Gruppo:").pack(side="left")
+        ttk.Label(row2_filters, text="Group:").pack(side="left")
         self.res_group_var = tk.StringVar()
         self.res_group_cb = ttk.Combobox(
             row2_filters, textvariable=self.res_group_var, state="readonly", width=20
@@ -77,7 +77,7 @@ class ResultsTab(ttk.Frame):
         self.res_group_cb.bind(
             "<<ComboboxSelected>>", self.on_res_group_selected_refresh_results
         )
-        ttk.Label(row2_filters, text="Sottogruppo:").pack(side="left")
+        ttk.Label(row2_filters, text="Subgroup:").pack(side="left")
         self.res_subgroup_var = tk.StringVar()
         self.res_subgroup_cb = ttk.Combobox(
             row2_filters,
@@ -89,7 +89,7 @@ class ResultsTab(ttk.Frame):
         self.res_subgroup_cb.bind(
             "<<ComboboxSelected>>", self.on_res_subgroup_selected_refresh_results
         )
-        ttk.Label(row2_filters, text="Indicatore:").pack(side="left")
+        ttk.Label(row2_filters, text="Indicator:").pack(side="left")
         self.res_indicator_var = tk.StringVar()
         self.res_indicator_cb = ttk.Combobox(
             row2_filters,
@@ -101,7 +101,7 @@ class ResultsTab(ttk.Frame):
         self.res_indicator_cb.bind("<<ComboboxSelected>>", self.show_results_data)
         ttk.Button(
             row2_filters,
-            text="Aggiorna Vista",
+            text="Update View",
             command=self.show_results_data,
             style="Accent.TButton",
         ).pack(side="left", padx=5)
@@ -117,12 +117,12 @@ class ResultsTab(ttk.Frame):
         self.results_paned_window.add(table_frame, weight=1)
 
         self.results_data_tree = ttk.Treeview(
-            table_frame, columns=("Periodo", "Target 1", "Target 2"), show="headings"
+            table_frame, columns=("Period", "Target 1", "Target 2"), show="headings"
         )
-        self.results_data_tree.heading("Periodo", text="Periodo")
+        self.results_data_tree.heading("Period", text="Period")
         self.results_data_tree.heading("Target 1", text=self.target1_display_name)
         self.results_data_tree.heading("Target 2", text=self.target2_display_name)
-        self.results_data_tree.column("Periodo", width=250, anchor="w", stretch=tk.YES)
+        self.results_data_tree.column("Period", width=250, anchor="w", stretch=tk.YES)
         self.results_data_tree.column("Target 1", width=150, anchor="e", stretch=tk.YES)
         self.results_data_tree.column("Target 2", width=150, anchor="e", stretch=tk.YES)
 
@@ -169,23 +169,23 @@ class ResultsTab(ttk.Frame):
         self._populate_res_indicators()
 
     def populate_results_comboboxes(self):
-        current_stab_name_res = self.res_stabilimento_var_vis.get()
-        stabilimenti_all = db_retriever.get_all_stabilimenti()
-        self.res_stabilimenti_map_vis = {s["name"]: s["id"] for s in stabilimenti_all}
-        self.res_stabilimento_cb_vis["values"] = list(
-            self.res_stabilimenti_map_vis.keys()
+        current_plant_name_res = self.res_plant_var_vis.get()
+        plants_all = db_retriever.get_all_plants()
+        self.res_plants_map_vis = {s["name"]: s["id"] for s in plants_all}
+        self.res_plant_cb_vis["values"] = list(
+            self.res_plants_map_vis.keys()
         )
         if (
-            current_stab_name_res
-            and current_stab_name_res in self.res_stabilimenti_map_vis
+            current_plant_name_res
+            and current_plant_name_res in self.res_plants_map_vis
         ):
-            self.res_stabilimento_var_vis.set(current_stab_name_res)
-        elif self.res_stabilimenti_map_vis:
-            self.res_stabilimento_var_vis.set(
-                list(self.res_stabilimenti_map_vis.keys())[0]
+            self.res_plant_var_vis.set(current_plant_name_res)
+        elif self.res_plants_map_vis:
+            self.res_plant_var_vis.set(
+                list(self.res_plants_map_vis.keys())[0]
             )
         else:
-            self.res_stabilimento_var_vis.set("")
+            self.res_plant_var_vis.set("")
             
         current_group_name_res = self.res_group_var.get()
         current_subgroup_display_name_res = self.res_subgroup_var.get()
@@ -221,7 +221,9 @@ class ResultsTab(ttk.Frame):
             self.show_results_data()
 
     def _populate_res_subgroups(
-        self, pre_selected_subgroup_raw_name=None, pre_selected_indicator_name=None
+        self,
+        pre_selected_subgroup_raw_name=None,
+        pre_selected_indicator_name=None,
     ):
         group_name = self.res_group_var.get()
         self.res_subgroup_cb["values"] = []
@@ -334,7 +336,7 @@ class ResultsTab(ttk.Frame):
         if hasattr(self, "ax_results"):
             self.ax_results.clear()
         else:
-            self.summary_label_var_vis.set("Errore: Grafico non inizializzato.")
+            self.summary_label_var_vis.set("Error: Chart not initialized.")
             if hasattr(self, "canvas_results_plot"):
                 self.canvas_results_plot.draw()
             return
@@ -345,29 +347,29 @@ class ResultsTab(ttk.Frame):
         try:
             year_val_res_str = self.res_year_var_vis.get()
             if not year_val_res_str:
-                self.summary_label_var_vis.set("Selezionare un anno.")
+                self.summary_label_var_vis.set("Select a year.")
                 if hasattr(self, "canvas_results_plot"):
                     self.canvas_results_plot.draw()
                 return
             year_val_res = int(year_val_res_str)
 
-            stabilimento_name_res = self.res_stabilimento_var_vis.get()
+            plant_name_res = self.res_plant_var_vis.get()
             indicator_name_res = self.res_indicator_var.get()
             period_type_res = self.res_period_var_vis.get()
 
-            if not all([stabilimento_name_res, indicator_name_res, period_type_res]):
+            if not all([plant_name_res, indicator_name_res, period_type_res]):
                 self.summary_label_var_vis.set(
-                    "Selezionare Anno, Stabilimento, Indicatore e Periodo."
+                    "Select Year, Plant, Indicator and Period."
                 )
                 if hasattr(self, "canvas_results_plot"):
                     self.canvas_results_plot.draw()
                 return
 
-            stabilimento_id_res = self.res_stabilimenti_map_vis.get(
-                stabilimento_name_res
+            plant_id_res = self.res_plants_map_vis.get(
+                plant_name_res
             )
-            if stabilimento_id_res is None:
-                self.summary_label_var_vis.set("Stabilimento selezionato non valido.")
+            if plant_id_res is None:
+                self.summary_label_var_vis.set("Selected plant not valid.")
                 if hasattr(self, "canvas_results_plot"):
                     self.canvas_results_plot.draw()
                 return
@@ -388,7 +390,7 @@ class ResultsTab(ttk.Frame):
 
             if not selected_indicator_details_obj:
                 self.summary_label_var_vis.set(
-                    f"Indicatore '{indicator_name_res}' non trovato o senza specifica KPI attiva."
+                    f"Indicator '{indicator_name_res}' not found or without active KPI spec."
                 )
                 if hasattr(self, "canvas_results_plot"):
                     self.canvas_results_plot.draw()
@@ -398,7 +400,7 @@ class ResultsTab(ttk.Frame):
             kpi_spec_obj = next(
                 (
                     spec
-                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False, stabilimento_id=stabilimento_id_res)
+                    for spec in db_retriever.get_all_kpis_detailed(only_visible=False, plant_id=plant_id_res)
                     if spec["actual_indicator_id"] == indicator_actual_id
                 ),
                 None,
@@ -406,7 +408,7 @@ class ResultsTab(ttk.Frame):
 
             if not kpi_spec_obj:
                 self.summary_label_var_vis.set(
-                    f"Specifica KPI non trovata per Indicatore ID {indicator_actual_id}."
+                    f"KPI Specification not found for Indicator ID {indicator_actual_id}."
                 )
                 if hasattr(self, "canvas_results_plot"):
                     self.canvas_results_plot.draw()
@@ -418,17 +420,17 @@ class ResultsTab(ttk.Frame):
             kpi_display_name_res_str = get_kpi_display_name(kpi_spec_obj)
 
             target_ann_info_res = db_retriever.get_annual_target_entry(
-                year_val_res, stabilimento_id_res, kpi_spec_id_res
+                year_val_res, plant_id_res, kpi_spec_id_res
             )
-            profile_disp_res = "N/D"
+            profile_disp_res = "N/A"
             if target_ann_info_res:
-                profile_disp_res = target_ann_info_res['distribution_profile'] if 'distribution_profile' in target_ann_info_res.keys() and target_ann_info_res['distribution_profile'] else 'N/D'
+                profile_disp_res = target_ann_info_res['distribution_profile'] if 'distribution_profile' in target_ann_info_res.keys() and target_ann_info_res['distribution_profile'] else 'N/A'
 
             data_t1 = db_retriever.get_periodic_targets_for_kpi(
-                year_val_res, stabilimento_id_res, kpi_spec_id_res, period_type_res, 1
+                year_val_res, plant_id_res, kpi_spec_id_res, period_type_res, 1
             )
             data_t2 = db_retriever.get_periodic_targets_for_kpi(
-                year_val_res, stabilimento_id_res, kpi_spec_id_res, period_type_res, 2
+                year_val_res, plant_id_res, kpi_spec_id_res, period_type_res, 2
             )
 
             map_t1 = {row["Periodo"]: row["Target"] for row in data_t1} if data_t1 else {}
@@ -443,9 +445,9 @@ class ResultsTab(ttk.Frame):
 
             if not ordered_periods:
                 self.summary_label_var_vis.set(
-                    f"Nessun dato ripartito per {kpi_display_name_res_str} (Profilo: {profile_disp_res})."
+                    f"No repartitioned data for {kpi_display_name_res_str} (Profile: {profile_disp_res})."
                 )
-                self.ax_results.set_title(f"Nessun dato per {kpi_display_name_res_str}")
+                self.ax_results.set_title(f"No data for {kpi_display_name_res_str}")
                 self.ax_results.set_xticks([])
                 self.ax_results.set_xticklabels([])
                 if hasattr(self, "canvas_results_plot"):
@@ -479,9 +481,9 @@ class ResultsTab(ttk.Frame):
             self.ax_results.plot(x_indices, plot_target1_values, marker="o", linestyle="-", label="Target 1")
             self.ax_results.plot(x_indices, plot_target2_values, marker="x", linestyle="--", label="Target 2")
 
-            self.ax_results.set_xlabel(f"Periodo ({period_type_res})")
-            self.ax_results.set_ylabel(f"Valore Target ({kpi_unit_res})")
-            self.ax_results.set_title(f"Andamento Target: {kpi_display_name_res_str}\n{year_val_res} - {stabilimento_name_res}")
+            self.ax_results.set_xlabel(f"Period ({period_type_res})")
+            self.ax_results.set_ylabel(f"Target Value ({kpi_unit_res})")
+            self.ax_results.set_title(f"Target Trend: {kpi_display_name_res_str}\n{year_val_res} - {plant_name_res}")
 
             if plot_periods_for_xaxis:
                 self.ax_results.set_xticks(range(len(plot_periods_for_xaxis)))
@@ -499,28 +501,28 @@ class ResultsTab(ttk.Frame):
             # --- Summary Label Update ---
             summary_parts = [
                 f"KPI: {kpi_display_name_res_str}",
-                f"Profilo Annuale: {profile_disp_res}",
+                f"Annual Profile: {profile_disp_res}",
             ]
             if count_t1_table > 0:
-                agg_t1 = (total_sum_t1_table if calc_type_res == 'Incrementale' else (total_sum_t1_table / count_t1_table))
-                summary_parts.append(f"{'Tot T1' if calc_type_res == 'Incrementale' else 'Media T1'} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}")
+                agg_t1 = (total_sum_t1_table if calc_type_res == 'Incremental' else (total_sum_t1_table / count_t1_table))
+                summary_parts.append(f"{('Tot T1' if calc_type_res == 'Incremental' else 'Avg T1')} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}")
             if count_t2_table > 0:
-                agg_t2 = (total_sum_t2_table if calc_type_res == 'Incrementale' else (total_sum_t2_table / count_t2_table))
-                summary_parts.append(f"{'Tot T2' if calc_type_res == 'Incrementale' else 'Media T2'} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}")
+                agg_t2 = (total_sum_t2_table if calc_type_res == 'Incremental' else (total_sum_t2_table / count_t2_table))
+                summary_parts.append(f"{('Tot T2' if calc_type_res == 'Incremental' else 'Avg T2')} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}")
             self.summary_label_var_vis.set(" | ".join(summary_parts))
 
         except ValueError as ve:
-            self.summary_label_var_vis.set(f"Errore Input: {ve}")
+            self.summary_label_var_vis.set(f"Input Error: {ve}")
             if hasattr(self, "ax_results"):
                 self.ax_results.clear()
-                self.ax_results.set_title("Errore nei dati di input")
+                self.ax_results.set_title("Error in input data")
             if hasattr(self, "canvas_results_plot"):
                 self.canvas_results_plot.draw()
         except Exception as e:
-            self.summary_label_var_vis.set(f"Errore visualizzazione: {e}")
+            self.summary_label_var_vis.set(f"Display error: {e}")
             if hasattr(self, "ax_results"):
                 self.ax_results.clear()
-                self.ax_results.set_title("Errore durante la visualizzazione")
+                self.ax_results.set_title("Error during display")
             if hasattr(self, "canvas_results_plot"):
                 self.canvas_results_plot.draw()
-            messagebox.showerror("Errore", f"Errore imprevisto: {e}")
+            messagebox.showerror("Error", f"Unexpected error: {e}")

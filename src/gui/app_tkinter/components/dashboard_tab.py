@@ -11,7 +11,7 @@ class DashboardTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.stabilimento_colors = self.app.settings.get('stabilimento_colors', {})
+        self.plant_colors = self.app.settings.get('plant_colors', {})
         self.color_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
         self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
         self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
@@ -24,17 +24,17 @@ class DashboardTab(ttk.Frame):
         top_frame = ttk.Frame(self)
         top_frame.pack(fill="x", pady=10, padx=5)
 
-        ttk.Label(top_frame, text="Anno:").pack(side="left", padx=(0, 5))
+        ttk.Label(top_frame, text="Year:").pack(side="left", padx=(0, 5))
         self.dashboard_year_var = tk.StringVar()
         self.dashboard_year_cb = ttk.Combobox(top_frame, textvariable=self.dashboard_year_var, state="readonly", width=10)
         self.dashboard_year_cb.pack(side="left", padx=5)
         self.dashboard_year_cb.bind("<<ComboboxSelected>>", self.load_dashboard_data)
 
-        ttk.Label(top_frame, text="Livello Dettaglio:").pack(side="left", padx=(20, 5))
+        ttk.Label(top_frame, text="Detail Level:").pack(side="left", padx=(20, 5))
         self.dashboard_period_var = tk.StringVar()
         self.dashboard_period_cb = ttk.Combobox(top_frame, textvariable=self.dashboard_period_var, state="readonly", width=15)
-        self.dashboard_period_cb["values"] = ["Anno", "Trimestre", "Mese", "Settimana", "Giorno"]
-        self.dashboard_period_cb.set("Mese")
+        self.dashboard_period_cb["values"] = ["Year", "Quarter", "Month", "Week", "Day"]
+        self.dashboard_period_cb.set("Month")
         self.dashboard_period_cb.pack(side="left", padx=5)
         self.dashboard_period_cb.bind("<<ComboboxSelected>>", self.load_dashboard_data)
 
@@ -57,15 +57,15 @@ class DashboardTab(ttk.Frame):
         self.dashboard_year_var.set("All")
         self.load_dashboard_data()
 
-    def get_stabilimento_color(self, stabilimento_name):
+    def get_plant_color(self, plant_name):
         # Use color from settings if available, otherwise fall back to default list
-        if stabilimento_name in self.app.settings.get('stabilimento_colors', {}):
-            return self.app.settings['stabilimento_colors'][stabilimento_name]
+        if plant_name in self.app.settings.get('plant_colors', {}):
+            return self.app.settings['plant_colors'][plant_name]
         else:
             # Fallback to internal color_list if not in settings
-            if stabilimento_name not in self.stabilimento_colors:
-                self.stabilimento_colors[stabilimento_name] = self.color_list[len(self.stabilimento_colors) % len(self.color_list)]
-            return self.stabilimento_colors[stabilimento_name]
+            if plant_name not in self.plant_colors:
+                self.plant_colors[plant_name] = self.color_list[len(self.plant_colors) % len(self.color_list)]
+            return self.plant_colors[plant_name]
 
     def load_dashboard_data(self, event=None):
         for widget in self.scrollable_frame.winfo_children():
@@ -78,14 +78,14 @@ class DashboardTab(ttk.Frame):
         try:
             all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
             if not all_kpis:
-                ttk.Label(self.scrollable_frame, text="Nessun KPI visibile definito.").pack(pady=20)
+                ttk.Label(self.scrollable_frame, text="No visible KPIs defined.").pack(pady=20)
                 return
 
             for kpi in all_kpis:
                 kpi_id = kpi["id"]
                 kpi_display_name = get_kpi_display_name(kpi)
                 
-                kpi_data = db_retriever.get_periodic_targets_for_kpi_all_stabilimenti(kpi_id, period_type, year)
+                kpi_data = db_retriever.get_periodic_targets_for_kpi_all_plants(kpi_id, period_type, year)
                 if not kpi_data:
                     continue
 
@@ -98,19 +98,19 @@ class DashboardTab(ttk.Frame):
                 fig = Figure(figsize=(12, 6), dpi=100)
                 ax = fig.add_subplot(111)
 
-                for stabilimento_name, stabilimento_data in df.groupby('stabilimento_name'):
-                    color = self.get_stabilimento_color(stabilimento_name)
-                    target1_data = stabilimento_data[stabilimento_data['target_number'] == 1]
-                    target2_data = stabilimento_data[stabilimento_data['target_number'] == 2]
+                for plant_name, plant_data in df.groupby('plant_name'):
+                    color = self.get_plant_color(plant_name)
+                    target1_data = plant_data[plant_data['target_number'] == 1]
+                    target2_data = plant_data[plant_data['target_number'] == 2]
 
                     if not target1_data.empty:
-                        ax.plot(target1_data['period'], target1_data['target_value'], marker='o', linestyle='-', label=f'{stabilimento_name} - {self.target1_display_name}', color=color)
+                        ax.plot(target1_data['period'], target1_data['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
                     if not target2_data.empty:
-                        ax.plot(target2_data['period'], target2_data['target_value'], marker='x', linestyle='--', label=f'{stabilimento_name} - {self.target2_display_name}', color=color)
+                        ax.plot(target2_data['period'], target2_data['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
 
-                ax.set_title(f"Andamento {period_type} - {kpi_display_name}")
+                ax.set_title(f"{period_type} Trend - {kpi_display_name}")
                 ax.set_xlabel(period_type)
-                ax.set_ylabel("Valore")
+                ax.set_ylabel("Value")
                 ax.legend()
                 ax.grid(True)
                 fig.tight_layout()
@@ -120,5 +120,4 @@ class DashboardTab(ttk.Frame):
                 canvas.draw()
 
         except Exception as e:
-            messagebox.showerror("Errore Caricamento Dati", f"Impossibile caricare i dati della dashboard: {e}")
-
+            messagebox.showerror("Data Loading Error", f"Could not load dashboard data: {e}")

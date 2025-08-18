@@ -252,6 +252,35 @@ def delete_kpi_group(group_id: int):
             ) from e
 
 
+def get_kpi_groups() -> list[dict]:
+    """
+    Retrieves all KPI groups from the database.
+
+    Returns:
+        list[dict]: A list of dictionaries, where each dictionary represents a KPI group
+                    with 'id' and 'name' keys. Returns an empty list if no groups are found.
+    Raises:
+        Exception: For database errors.
+    """
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot retrieve groups."
+        )
+
+    with sqlite3.connect(db_kpis_path) as conn:
+        conn.row_factory = sqlite3.Row  # This allows accessing columns by name
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name FROM kpi_groups ORDER BY name")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while retrieving KPI groups. Details: {e}")
+            print(traceback.format_exc())
+            raise Exception("A database error occurred while retrieving KPI groups.") from e
+
+
 if __name__ == "__main__":
     print("--- Running kpi_management/groups.py for testing ---")
 

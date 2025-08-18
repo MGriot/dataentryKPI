@@ -2,24 +2,42 @@ import tkinter as tk
 from tkinter import ttk, colorchooser, messagebox, filedialog
 import json
 from src import data_retriever as db_retriever
-from src.stabilimenti_management import crud as plants_manager
+from src.plants_management import crud as plants_manager
 from src.app_config import SETTINGS_FILE
+from src.gui.shared import constants as const
 
 class SettingsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
         self.settings = self.app.settings
+        self.calculation_constants = {}
+        self.constant_vars = {}
         self.create_widgets()
+        self.load_calculation_constants()
 
     def create_widgets(self):
-        # Main frame
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill='both', expand=True, padx=10, pady=10)
+        # Create a canvas and a scrollbar
+        self.canvas = tk.Canvas(self)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
 
         # --- Display Names ---
-        display_names_frame = ttk.LabelFrame(main_frame, text="Display Names")
-        display_names_frame.pack(fill='x', expand=True, pady=5)
+        display_names_frame = ttk.LabelFrame(self.scrollable_frame, text="Display Names")
+        display_names_frame.pack(fill='x', expand=True, pady=5, padx=10)
 
         ttk.Label(display_names_frame, text="Target 1:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.target1_name_var = tk.StringVar(value=self.settings.get('display_names', {}).get('target1', 'Target 1'))
@@ -30,68 +48,72 @@ class SettingsTab(ttk.Frame):
         ttk.Entry(display_names_frame, textvariable=self.target2_name_var).grid(row=1, column=1, padx=5, pady=5, sticky='ew')
 
         # --- Database Path ---
-        db_path_frame = ttk.LabelFrame(main_frame, text="Database Path")
-        db_path_frame.pack(fill='x', expand=True, pady=5)
+        db_path_frame = ttk.LabelFrame(self.scrollable_frame, text="Database Path")
+        db_path_frame.pack(fill='x', expand=True, pady=5, padx=10)
 
         ttk.Label(db_path_frame, text="Database Folder:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.db_path_var = tk.StringVar(value=self.settings.get('database_path', ''))
         ttk.Entry(db_path_frame, textvariable=self.db_path_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
         ttk.Button(db_path_frame, text="Browse...", command=self.browse_db_path).grid(row=0, column=2, padx=5, pady=5)
 
-        # --- Plant Colors ---
-        colors_frame = ttk.LabelFrame(main_frame, text="Plant Colors")
-        colors_frame.pack(fill='x', expand=True, pady=5)
+        
 
-        self.plant_colors_vars = {}
-        self.colors_inner_frame = ttk.Frame(colors_frame)
-        self.colors_inner_frame.pack(fill='both', expand=True)
-        self.refresh_plant_colors_display()
+        # --- Calculation Constants ---
+        constants_frame = ttk.LabelFrame(self.scrollable_frame, text="Calculation Constants")
+        constants_frame.pack(fill='x', expand=True, pady=5, padx=10)
+        
+        self.constants_inner_frame = ttk.Frame(constants_frame)
+        self.constants_inner_frame.pack(fill='both', expand=True)
+        self.populate_constants_frame()
 
         # --- Save Button ---
-        save_button = ttk.Button(main_frame, text="Save Settings", command=self.save_settings)
+        save_button = ttk.Button(self.scrollable_frame, text="Save Settings", command=self.save_settings)
         save_button.pack(pady=10)
 
-    def refresh_plant_colors_display(self):
-        # Clear existing widgets
-        for widget in self.colors_inner_frame.winfo_children():
+    def populate_constants_frame(self):
+        for widget in self.constants_inner_frame.winfo_children():
             widget.destroy()
-        self.plant_colors_vars = {} # Reset the dictionary
 
-        plants = db_retriever.get_all_plants()
-        for i, plant_row in enumerate(plants):
-            plant = dict(plant_row) # Convert sqlite3.Row to dict
-            plant_name = plant['name']
-            plant_id = plant['id']
-            color = plant['color'] if 'color' in plant else '#000000'
-            
-            ttk.Label(self.colors_inner_frame, text=f"{plant_name}:").grid(row=i, column=0, padx=5, pady=5, sticky='w')
-            color_var = tk.StringVar(value=color)
-            color_label = ttk.Label(self.colors_inner_frame, textvariable=color_var, background=color, width=10)
-            color_label.grid(row=i, column=1, padx=5, pady=5, sticky='ew')
-            ttk.Button(self.colors_inner_frame, text="Change...", command=lambda p_id=plant_id, p_name=plant_name, v=color_var, l=color_label: self.choose_color(p_id, p_name, v, l)).grid(row=i, column=2, padx=5, pady=5)
-            self.plant_colors_vars[plant_id] = color_var
+        self.constant_vars = {}
+        row = 0
+        for name, value in self.calculation_constants.items():
+            ttk.Label(self.constants_inner_frame, text=f"{name}:").grid(row=row, column=0, padx=5, pady=2, sticky='w')
+            var = tk.StringVar(value=str(value))
+            ttk.Entry(self.constants_inner_frame, textvariable=var).grid(row=row, column=1, padx=5, pady=2, sticky='ew')
+            self.constant_vars[name] = var
+            row += 1
+
+    def load_calculation_constants(self):
+        try:
+            with open('user_constants.json', 'r') as f:
+                self.calculation_constants = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.calculation_constants = {
+                'WEIGHT_INITIAL_FACTOR_INC': const.WEIGHT_INITIAL_FACTOR_INC,
+                'WEIGHT_FINAL_FACTOR_INC': const.WEIGHT_FINAL_FACTOR_INC,
+                'WEIGHT_INITIAL_FACTOR_AVG': const.WEIGHT_INITIAL_FACTOR_AVG,
+                'WEIGHT_FINAL_FACTOR_AVG': const.WEIGHT_FINAL_FACTOR_AVG,
+                'SINE_AMPLITUDE_INCREMENTAL': const.SINE_AMPLITUDE_INCREMENTAL,
+                'SINE_AMPLITUDE_MEDIA': const.SINE_AMPLITUDE_MEDIA,
+                'SINE_PHASE_OFFSET': const.SINE_PHASE_OFFSET,
+                'WEEKDAY_BIAS_FACTOR_INCREMENTAL': const.WEEKDAY_BIAS_FACTOR_INCREMENTAL,
+                'WEEKDAY_BIAS_FACTOR_MEDIA': const.WEEKDAY_BIAS_FACTOR_MEDIA,
+                'DEVIATION_SCALE_FACTOR_AVG': const.DEVIATION_SCALE_FACTOR_AVG,
+            }
+        self.populate_constants_frame()
+
+    
 
     def on_tab_selected(self):
         # This method is called when the tab is selected
-        self.refresh_plant_colors_display()
+        self.load_calculation_constants()
 
     def browse_db_path(self):
         path = tk.filedialog.askdirectory()
         if path:
             self.db_path_var.set(path)
 
-    def choose_color(self, plant_id, plant_name, color_var, color_label):
-        color_code = colorchooser.askcolor(title=f"Choose color for {plant_name}")
-        if color_code:
-            color_hex = color_code[1]
-            color_var.set(color_hex)
-            color_label.config(background=color_hex)
-            # Immediately save the color to the database
-            try:
-                plants_manager.update_plant_color(plant_id, color_hex)
-                # No messagebox here, as it's a direct update and refresh will happen on tab change
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not save color for {plant_name}: {e}")
+    
 
     def save_settings(self):
         self.settings['display_names'] = {
@@ -113,12 +135,25 @@ class SettingsTab(ttk.Frame):
             current_settings['display_names'] = self.settings['display_names']
             current_settings['database_path'] = self.settings['database_path']
             
-            # Remove plant_colors from settings.json if it exists
-            if 'stabilimento_colors' in current_settings:
-                del current_settings['stabilimento_colors']
+            
 
             with open(SETTINGS_FILE, 'w') as f:
                 json.dump(current_settings, f, indent=4)
+            
+            # Save calculation constants
+            new_constants = {}
+            for name, var in self.constant_vars.items():
+                try:
+                    new_constants[name] = float(var.get())
+                except ValueError:
+                    messagebox.showerror("Error", f"Invalid value for {name}. Please enter a number.")
+                    return
+            
+            with open('user_constants.json', 'w') as f:
+                json.dump(new_constants, f, indent=4)
+
+            self.calculation_constants = new_constants
+
             messagebox.showinfo("Success", "Settings saved successfully.")
             self.app.load_settings() # Reload settings in the main app
         except Exception as e:

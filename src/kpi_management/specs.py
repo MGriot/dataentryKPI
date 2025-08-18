@@ -4,7 +4,7 @@ import traceback
 from src import app_config
 from pathlib import Path # Ensure Path is imported
 
-from src.gui.shared.constants import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
+from src.app_config import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 # --- KPI Specification (kpis table) CRUD Operations ---
 
@@ -63,10 +63,11 @@ def add_kpi_spec(
                     1 if visible else 0,
                 ),
             )
+            print(f"DEBUG: Attempting to commit add_kpi_spec for indicator_id {indicator_id}...")
             conn.commit()
             kpi_spec_id = cursor.lastrowid
             print(
-                f"INFO: KPI Spec for indicator_id {indicator_id} added successfully with kpis.id: {kpi_spec_id}."
+                f"INFO: KPI Spec for indicator_id {indicator_id} added successfully with kpis.id: {kpi_spec_id}. Commit successful."
             )
             return kpi_spec_id
         except sqlite3.IntegrityError as e:
@@ -102,8 +103,9 @@ def add_kpi_spec(
                                 existing_kpi_spec_id,
                             ),
                         )
+                        print(f"DEBUG: Attempting to commit update (from add_kpi_spec) for kpis.id {existing_kpi_spec_id}...")
                         conn.commit()
-                        print(f"  SUCCESS: KPI Spec with kpis.id {existing_kpi_spec_id} updated.")
+                        print(f"  SUCCESS: KPI Spec with kpis.id {existing_kpi_spec_id} updated. Commit successful.")
                         return existing_kpi_spec_id
                     else:
                         # This state (UNIQUE error but no row found) should be rare.
@@ -191,7 +193,9 @@ def update_kpi_spec(
                     kpi_spec_id,
                 ),
             )
+            print(f"DEBUG: Attempting to commit update_kpi_spec for kpis.id {kpi_spec_id}...")
             conn.commit()
+            print(f"DEBUG: cursor.rowcount after commit: {cursor.rowcount}")
             if cursor.rowcount == 0:
                 print(
                     f"WARNING: No KPI Spec found with kpis.id {kpi_spec_id}. Update had no effect."
@@ -199,7 +203,7 @@ def update_kpi_spec(
                 # Consider raising ValueError if updating non-existent spec is critical
             else:
                 print(
-                    f"INFO: KPI Spec with kpis.id {kpi_spec_id} updated successfully."
+                    f"INFO: KPI Spec with kpis.id {kpi_spec_id} updated successfully. Commit successful."
                 )
         except sqlite3.IntegrityError as e:
             if "UNIQUE constraint failed: kpis.indicator_id" in str(e):
@@ -225,6 +229,50 @@ def update_kpi_spec(
             raise Exception(
                 f"A database error occurred while updating KPI Spec {kpi_spec_id}."
             ) from e_general
+
+
+def get_kpi_spec_by_indicator_id(indicator_id: int) -> dict | None:
+    """
+    Retrieves a KPI specification by its associated indicator ID.
+
+    Args:
+        indicator_id (int): The ID of the KPI indicator.
+
+    Returns:
+        dict | None: A dictionary containing the KPI specification details
+                     (id, indicator_id, description, calculation_type, unit_of_measure, visible)
+                     or None if no specification is found for the given indicator ID.
+    Raises:
+        Exception: For database errors.
+    """
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot retrieve KPI spec."
+        )
+
+    with sqlite3.connect(db_kpis_path) as conn:
+        conn.row_factory = sqlite3.Row # This allows accessing columns by name
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT id, indicator_id, description, calculation_type, unit_of_measure, visible
+                   FROM kpis WHERE indicator_id = ?""",
+                (indicator_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                # Convert sqlite3.Row to a dictionary
+                spec_data = dict(row)
+                # Convert visible from int (0 or 1) to boolean
+                spec_data["visible"] = bool(spec_data["visible"])
+                return spec_data
+            else:
+                return None
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while retrieving KPI Spec for indicator_id {indicator_id}. Details: {e}")
+            print(traceback.format_exc())
+            raise Exception(f"A database error occurred while retrieving KPI Spec for indicator_id {indicator_id}.") from e
 
 
 # Note: Deletion of a KPI Specification (kpis record) is typically handled

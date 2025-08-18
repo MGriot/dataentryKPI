@@ -3,16 +3,16 @@ import sys
 from pathlib import Path
 
 # Ensure the 'src' directory is in the Python path
-src_path = Path(__file__).resolve().parents[3] # Adjusted for pages subdirectory
+src_path = Path(__file__).resolve().parents[3]
 if str(src_path) not in sys.path:
     sys.path.append(str(src_path))
 
-from db_core.setup import setup_databases
-from app_config import load_settings
+from src.db_core.setup import setup_databases
+from src.app_config import load_settings
 
 # Import page modules
-from gui.app_streamlit.pages import target_entry
-# ... other page imports will go here
+from src.gui.app_streamlit.pages import target_entry
+from src.gui.app_streamlit.components import kpi_hierarchy, plants, kpi_templates, kpi_specs, master_sub_link, export, analysis, settings
 
 st.set_page_config(
     page_title="KPI Target Management",
@@ -39,14 +39,14 @@ st.sidebar.title("Navigation")
 # Define pages (mirroring Tkinter tabs)
 pages = {
     "🎯 Target Entry": target_entry,
-    "🗂️ KPI Hierarchy Management": None, # Placeholder
-    "📋 Indicator Template Management": None, # Placeholder
-    "⚙️ KPI Specification Management": None, # Placeholder
-    "🔗 Master/Sub Link Management": None, # Placeholder
-    "🏭 Plant Management": plants, # Placeholder
-    "📦 Data Export": None, # Placeholder
-    "📈 Results Analysis": None, # Placeholder
-    "⚙️ Settings": None, # Placeholder
+    # "🗂️ KPI Hierarchy Management": kpi_hierarchy,
+    # "📋 Indicator Template Management": kpi_templates,
+    # "⚙️ KPI Specification Management": kpi_specs,
+    # "🔗 Master/Sub Link Management": master_sub_link,
+    # "🏭 Plant Management": plants,
+    # "📦 Data Export": export,
+    # "📈 Results Analysis": analysis,
+    # "⚙️ Settings": settings,
 }
 
 selected_page_name = st.sidebar.radio("Go to:", list(pages.keys()))

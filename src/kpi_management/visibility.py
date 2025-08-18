@@ -21,7 +21,7 @@ def set_kpi_plant_visibility(kpi_id: int, plant_id: int, is_enabled: bool):
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT OR REPLACE INTO kpi_stabilimento_visibility (kpi_id, stabilimento_id, is_enabled) VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO kpi_plant_visibility (kpi_id, plant_id, is_enabled) VALUES (?, ?, ?)",
                 (kpi_id, plant_id, 1 if is_enabled else 0),
             )
             conn.commit()
@@ -37,7 +37,7 @@ def get_kpi_plant_visibility(kpi_id: int, plant_id: int) -> bool:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT is_enabled FROM kpi_stabilimento_visibility WHERE kpi_id = ? AND stabilimento_id = ?",
+            "SELECT is_enabled FROM kpi_plant_visibility WHERE kpi_id = ? AND plant_id = ?",
             (kpi_id, plant_id),
         )
         row = cursor.fetchone()
@@ -54,7 +54,7 @@ def get_plants_for_kpi(kpi_id: int) -> list:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT stabilimento_id, is_enabled FROM kpi_stabilimento_visibility WHERE kpi_id = ?",
+            "SELECT plant_id, is_enabled FROM kpi_plant_visibility WHERE kpi_id = ?",
             (kpi_id,),
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -68,7 +68,7 @@ def get_kpis_for_plant(plant_id: int) -> list:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT kpi_id, is_enabled FROM kpi_stabilimento_visibility WHERE stabilimento_id = ?",
+            "SELECT kpi_id, is_enabled FROM kpi_plant_visibility WHERE plant_id = ?",
             (plant_id,),
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -82,7 +82,7 @@ def delete_kpi_plant_visibility(kpi_id: int, plant_id: int):
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "DELETE FROM kpi_stabilimento_visibility WHERE kpi_id = ? AND stabilimento_id = ?",
+                "DELETE FROM kpi_plant_visibility WHERE kpi_id = ? AND plant_id = ?",
                 (kpi_id, plant_id),
             )
             conn.commit()

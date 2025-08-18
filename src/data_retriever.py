@@ -14,26 +14,12 @@ from src.kpi_management import visibility as kpi_visibility
 
 # --- Helper for DB Connection Errors ---
 def _handle_db_connection_error(db_name_str: str, func_name: str) -> bool:
-    # Get the actual Path object from app_config using the db_name_str
-    # This function now expects the string name of the database file (e.g., "db_kpis.db")
     try:
-        db_path_obj = get_database_path(db_name_str)
+        app_config.get_database_path(db_name_str)
+        return False
     except Exception as e:
-        print(f"ERROR ({func_name}): Could not get database path for {db_name_str}: {e}")
-        return True # Indicates an error state
-
-    db_path_str = str(db_path_obj)
-
-    if (
-        db_path_str == ":memory:"
-        or ":memory_" in db_path_str
-        or "error_db" in db_path_str
-    ):
-        msg = f"ERROR ({func_name}): Database path for {db_name_str} ('{db_path_str}') is a placeholder or indicates a configuration error. Cannot retrieve data."
-        print(msg)
-        return True  # Indicates an error state
-
-    return False  # No configuration error detected by this function
+        print(f"ERROR ({func_name}): Database path configuration error for {db_name_str}: {e}")
+        return True
 
 
 # --- Dimension Table Access Functions ---
@@ -295,7 +281,7 @@ def get_all_kpis_detailed(only_visible=False, plant_id: int = None, group_id: in
         conditions.append("k.visible = 1")
     
     if plant_id is not None:
-        query += " LEFT JOIN kpi_stabilimento_visibility ksv ON k.id = ksv.kpi_id AND ksv.stabilimento_id = ?"
+        query += " LEFT JOIN kpi_plant_visibility ksv ON k.id = ksv.kpi_id AND ksv.plant_id = ?"
         conditions.append("(ksv.is_enabled = 1 OR (ksv.is_enabled IS NULL AND k.visible = 1))") # If no entry, assume visible
         params.append(plant_id)
 
@@ -336,7 +322,7 @@ def get_kpi_detailed_by_id(kpi_spec_id: int, plant_id: int = None): # -> dict or
             params = [kpi_spec_id]
 
             if plant_id is not None:
-                query += " AND (SELECT is_enabled FROM kpi_stabilimento_visibility WHERE kpi_id = k.id AND stabilimento_id = ?) IS NOT 0"
+                query += " AND (SELECT is_enabled FROM kpi_plant_visibility WHERE kpi_id = k.id AND plant_id = ?) IS NOT 0"
                 params.append(plant_id)
 
             kpi_info_row = conn_kpis.execute(query, params).fetchone()
@@ -359,13 +345,13 @@ def get_kpi_detailed_by_id(kpi_spec_id: int, plant_id: int = None): # -> dict or
 # --- Plants ---
 def get_all_plants(visible_only=False) -> list:
     """Fetches all plants, optionally filtering by visibility, ordered by name."""
-    if _handle_db_connection_error("db_stabilimenti.db", "get_all_plants"): return []
-    query = "SELECT id, name, description, visible, color FROM stabilimenti"
+    if _handle_db_connection_error("db_plants.db", "get_all_plants"): return []
+    query = "SELECT id, name, description, visible, color FROM plants"
     if visible_only:
         query += " WHERE visible = 1"
     query += " ORDER BY name"
     try:
-        with sqlite3.connect(app_config.get_database_path("db_stabilimenti.db")) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_plants.db")) as conn:
             conn.row_factory = sqlite3.Row
             return conn.execute(query).fetchall()
     except sqlite3.Error as e:
@@ -374,13 +360,13 @@ def get_all_plants(visible_only=False) -> list:
 
 def get_plant_color_by_name(plant_name: str) -> str:
     """Fetches the color for a specific plant by its name."""
-    if _handle_db_connection_error("db_stabilimenti.db", "get_plant_color_by_name"):
+    if _handle_db_connection_error("db_plants.db", "get_plant_color_by_name"):
         return "#000000"  # Return a default color on error
     try:
-        with sqlite3.connect(app_config.get_database_path("db_stabilimenti.db")) as conn:
+        with sqlite3.connect(app_config.get_database_path("db_plants.db")) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                "SELECT color FROM stabilimenti WHERE name = ?", (plant_name,)
+                "SELECT color FROM plants WHERE name = ?", (plant_name,)
             ).fetchone()
             return row["color"] if row else "#000000"  # Return default if not found
     except sqlite3.Error as e:
@@ -426,7 +412,7 @@ def get_annual_target_entry(year: int, plant_id: int, kpi_spec_id: int): # -> sq
         with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
             conn.row_factory = sqlite3.Row
             return conn.execute(
-                "SELECT * FROM annual_targets WHERE year=? AND stabilimento_id=? AND kpi_id=?",
+                "SELECT * FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?",
                 (year, plant_id, kpi_spec_id),
             ).fetchone()
     except sqlite3.Error as e:
@@ -437,7 +423,7 @@ def get_annual_targets(plant_id, year):
     """Retrieves annual targets for a given plant and year."""
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM annual_targets WHERE stabilimento_id = ? AND year = ?", (plant_id, year)).fetchall()
+        return conn.execute("SELECT * FROM annual_targets WHERE plant_id = ? AND year = ?", (plant_id, year)).fetchall()
 
 def get_periodic_targets_for_kpi(
     year: int, plant_id: int, kpi_spec_id: int, period_type: str, target_number: int
@@ -472,7 +458,7 @@ def get_periodic_targets_for_kpi(
     else:
         order_clause = f"ORDER BY {period_col_name}"
 
-    query = f"SELECT {period_col_name} AS Period, target_value AS Target FROM {table_name} WHERE year=? AND stabilimento_id=? AND kpi_id=? AND target_number=? {order_clause}"
+    query = f"SELECT {period_col_name} AS Period, target_value AS Target FROM {table_name} WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=? {order_clause}"
     
     try:
         with sqlite3.connect(app_config.get_database_path(db_file_name)) as conn:
@@ -545,7 +531,7 @@ def get_all_annual_target_entries_for_export() -> list:
     """Fetches all records from annual_targets for CSV export. Selects all relevant columns."""
     if _handle_db_connection_error("db_kpi_targets.db", "get_all_annual_target_entries_for_export"): return []
     query = """
-        SELECT id, year, stabilimento_id, kpi_id,
+        SELECT id, year, plant_id, kpi_id,
                annual_target1, annual_target2,
                distribution_profile, repartition_logic,
                repartition_values, profile_params,
@@ -553,7 +539,7 @@ def get_all_annual_target_entries_for_export() -> list:
                target1_is_formula_based, target1_formula, target1_formula_inputs,
                target2_is_formula_based, target2_formula, target2_formula_inputs
         FROM annual_targets
-        ORDER BY year, stabilimento_id, kpi_id;
+        ORDER BY year, plant_id, kpi_id;
     """
     try:
         with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
@@ -584,16 +570,16 @@ def get_all_periodic_targets_for_export(period_type: str) -> list:
     order_clause = ""
     if period_col_name == "month_value":
         month_order_cases = " ".join([f"WHEN '{calendar.month_name[i]}' THEN {i}" for i in range(1, 13)])
-        order_clause = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {month_order_cases} END, target_number"
+        order_clause = f"ORDER BY year, plant_id, kpi_id, CASE {period_col_name} {month_order_cases} END, target_number"
     elif period_col_name == "quarter_value":
         quarter_order_cases = " ".join([f"WHEN 'Q{i}' THEN {i}" for i in range(1, 5)])
-        order_clause = f"ORDER BY year, stabilimento_id, kpi_id, CASE {period_col_name} {quarter_order_cases} END, target_number"
+        order_clause = f"ORDER BY year, plant_id, kpi_id, CASE {period_col_name} {quarter_order_cases} END, target_number"
     elif period_col_name == "week_value":
-         order_clause = f"ORDER BY year, stabilimento_id, kpi_id, SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER), target_number"
+         order_clause = f"ORDER BY year, plant_id, kpi_id, SUBSTR({period_col_name}, 1, 4), CAST(SUBSTR({period_col_name}, INSTR({period_col_name}, '-W') + 2) AS INTEGER), target_number"
     else:
-        order_clause = f"ORDER BY year, stabilimento_id, kpi_id, {period_col_name}, target_number"
+        order_clause = f"ORDER BY year, plant_id, kpi_id, {period_col_name}, target_number"
 
-    query = f"SELECT kpi_id, stabilimento_id, year, {period_col_name}, target_number, target_value FROM {table_name} {order_clause}"
+    query = f"SELECT kpi_id, plant_id, year, {period_col_name}, target_number, target_value FROM {table_name} {order_clause}"
     
     try:
         with sqlite3.connect(app_config.get_database_path(db_file_name)) as conn:
@@ -634,7 +620,7 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
     db_file_name, table_name, period_col = period_map[period_type]
 
     if _handle_db_connection_error(db_file_name, "get_periodic_targets_for_kpi_all_plants") or \
-       _handle_db_connection_error("db_stabilimenti.db", "get_periodic_targets_for_kpi_all_plants"):
+       _handle_db_connection_error("db_plants.db", "get_periodic_targets_for_kpi_all_plants"):
         return []
 
     # --- Order Clause ---
@@ -658,25 +644,25 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
             SELECT
                 t.year,
                 t.kpi_id,
-                t.stabilimento_id,
+                t.plant_id,
                 s.name as plant_name,
                 1 as target_number,
                 t.annual_target1 as target_value,
                 t.year as period
             FROM annual_targets t
-            JOIN stab_db.stabilimenti s ON t.stabilimento_id = s.id
+            JOIN stab_db.plants s ON t.plant_id = s.id
             WHERE t.kpi_id = ?
             UNION ALL
             SELECT
                 t.year,
                 t.kpi_id,
-                t.stabilimento_id,
+                t.plant_id,
                 s.name as plant_name,
                 2 as target_number,
                 t.annual_target2 as target_value,
                 t.year as period
             FROM annual_targets t
-            JOIN stab_db.stabilimenti s ON t.stabilimento_id = s.id
+            JOIN stab_db.plants s ON t.plant_id = s.id
             WHERE t.kpi_id = ?
         """
         params = [kpi_spec_id, kpi_spec_id] # kpi_spec_id for both parts of UNION ALL
@@ -691,13 +677,13 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
             SELECT
                 t.year,
                 t.kpi_id,
-                t.stabilimento_id,
+                t.plant_id,
                 s.name as plant_name,
                 t.target_number,
                 t.target_value,
                 t.{period_col} as period
             FROM {table_name} t
-            JOIN stab_db.stabilimenti s ON t.stabilimento_id = s.id
+            JOIN stab_db.plants s ON t.plant_id = s.id
             WHERE t.kpi_id = ?
         """
         params = [kpi_spec_id]
@@ -713,7 +699,7 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
         with sqlite3.connect(app_config.get_database_path(db_file_name)) as conn:
             conn.row_factory = sqlite3.Row
             # Attach the plants database
-            conn.execute(f"ATTACH DATABASE '{str(get_database_path('db_stabilimenti.db')).replace('\\', '/')}' AS stab_db")
+            conn.execute(f"ATTACH DATABASE '{str(get_database_path('db_plants.db')).replace('\\', '/')}' AS stab_db")
             result = conn.execute(query, params).fetchall()
             conn.execute("DETACH DATABASE stab_db")
             return result

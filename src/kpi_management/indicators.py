@@ -244,6 +244,41 @@ def delete_kpi_indicator(indicator_id: int):
     print(f"INFO: Deletion process for KPI Indicator ID {indicator_id} fully completed.")
 
 
+def get_kpi_indicators_by_subgroup(subgroup_id: int) -> list[dict]:
+    """
+    Retrieves all KPI indicators for a given subgroup ID.
+
+    Args:
+        subgroup_id (int): The ID of the parent KPI subgroup.
+
+    Returns:
+        list[dict]: A list of dictionaries, where each dictionary represents a KPI indicator
+                    with 'id', 'name', and 'subgroup_id'. Returns an empty list if no indicators are found for the subgroup.
+    Raises:
+        Exception: For database errors.
+    """
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
+        raise ConnectionError(
+            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot retrieve indicators."
+        )
+
+    with sqlite3.connect(db_kpis_path) as conn:
+        conn.row_factory = sqlite3.Row  # This allows accessing columns by name
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, subgroup_id FROM kpi_indicators WHERE subgroup_id = ? ORDER BY name",
+                (subgroup_id,),
+            )
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while retrieving KPI indicators for subgroup {subgroup_id}. Details: {e}")
+            print(traceback.format_exc())
+            raise Exception(f"A database error occurred while retrieving KPI indicators for subgroup {subgroup_id}.") from e
+
+
 if __name__ == "__main__":
     print("--- Running kpi_management/indicators.py for testing ---")
 

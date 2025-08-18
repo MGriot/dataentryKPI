@@ -13,7 +13,7 @@ databases/
 ├── db_kpi_weeks.db     # Weekly aggregations
 ├── db_kpi_months.db    # Monthly aggregations
 └── db_kpi_quarters.db  # Quarterly aggregations
-├── db_stabilimenti.db  # Stabilimenti (Plants/Locations) data
+├── db_plants.db  # Plants (Plants/Locations) data
 ```
 
 ## Schema Details
@@ -105,23 +105,23 @@ CREATE TABLE kpi_master_sub_links (
 );
 ```
 
-#### kpi_stabilimento_visibility
+#### kpi_plant_visibility
 ```sql
-CREATE TABLE kpi_stabilimento_visibility (
+CREATE TABLE kpi_plant_visibility (
     kpi_id INTEGER NOT NULL,
-    stabilimento_id INTEGER NOT NULL,
+    plant_id INTEGER NOT NULL,
     is_enabled BOOLEAN NOT NULL DEFAULT 1,
-    PRIMARY KEY (kpi_id, stabilimento_id),
+    PRIMARY KEY (kpi_id, plant_id),
     FOREIGN KEY (kpi_id) REFERENCES kpis(id) ON DELETE CASCADE,
-    FOREIGN KEY (stabilimento_id) REFERENCES stabilimenti(id) ON DELETE CASCADE
+    FOREIGN KEY (plant_id) REFERENCES plants(id) ON DELETE CASCADE
 );
 ```
 
-### 3. Stabilimenti (db_stabilimenti.db)
+### 3. Plants (db_plants.db)
 
-#### stabilimenti
+#### plants
 ```sql
-CREATE TABLE stabilimenti (
+CREATE TABLE plants (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     description TEXT,
@@ -137,7 +137,7 @@ CREATE TABLE stabilimenti (
 CREATE TABLE annual_targets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year INTEGER NOT NULL,
-    stabilimento_id INTEGER NOT NULL,
+    plant_id INTEGER NOT NULL,
     kpi_id INTEGER NOT NULL,
     annual_target1 REAL NOT NULL DEFAULT 0,
     annual_target2 REAL NOT NULL DEFAULT 0,
@@ -153,7 +153,7 @@ CREATE TABLE annual_targets (
     target2_is_formula_based BOOLEAN NOT NULL DEFAULT 0,
     target2_formula TEXT,
     target2_formula_inputs TEXT DEFAULT '[]',
-    UNIQUE(year, stabilimento_id, kpi_id)
+    UNIQUE(year, plant_id, kpi_id)
 );
 ```
 
@@ -166,12 +166,12 @@ All period databases share a similar structure, with `date_value`, `week_value`,
 CREATE TABLE daily_targets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year INTEGER NOT NULL,
-    stabilimento_id INTEGER NOT NULL,
+    plant_id INTEGER NOT NULL,
     kpi_id INTEGER NOT NULL,
     target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
     date_value TEXT NOT NULL,
     target_value REAL NOT NULL,
-    UNIQUE(year, stabilimento_id, kpi_id, target_number, date_value)
+    UNIQUE(year, plant_id, kpi_id, target_number, date_value)
 );
 ```
 
@@ -180,12 +180,12 @@ CREATE TABLE daily_targets (
 CREATE TABLE weekly_targets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year INTEGER NOT NULL,
-    stabilimento_id INTEGER NOT NULL,
+    plant_id INTEGER NOT NULL,
     kpi_id INTEGER NOT NULL,
     target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
     week_value TEXT NOT NULL,
     target_value REAL NOT NULL,
-    UNIQUE(year, stabilimento_id, kpi_id, target_number, week_value)
+    UNIQUE(year, plant_id, kpi_id, target_number, week_value)
 );
 ```
 
@@ -194,12 +194,12 @@ CREATE TABLE weekly_targets (
 CREATE TABLE monthly_targets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year INTEGER NOT NULL,
-    stabilimento_id INTEGER NOT NULL,
+    plant_id INTEGER NOT NULL,
     kpi_id INTEGER NOT NULL,
     target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
     month_value TEXT NOT NULL,
     target_value REAL NOT NULL,
-    UNIQUE(year, stabilimento_id, kpi_id, target_number, month_value)
+    UNIQUE(year, plant_id, kpi_id, target_number, month_value)
 );
 ```
 
@@ -208,12 +208,12 @@ CREATE TABLE monthly_targets (
 CREATE TABLE quarterly_targets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     year INTEGER NOT NULL,
-    stabilimento_id INTEGER NOT NULL,
+    plant_id INTEGER NOT NULL,
     kpi_id INTEGER NOT NULL,
     target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
     quarter_value TEXT NOT NULL,
     target_value REAL NOT NULL,
-    UNIQUE(year, stabilimento_id, kpi_id, target_number, quarter_value)
+    UNIQUE(year, plant_id, kpi_id, target_number, quarter_value)
 );
 ```
 
@@ -226,10 +226,10 @@ erDiagram
     kpi_subgroups ||--o{ kpi_indicators : "has"
     kpi_indicators ||--o{ kpis : "specifies"
     kpis ||--o{ kpi_master_sub_links : "links"
-    kpis ||--o{ kpi_stabilimento_visibility : "controls_visibility"
-    stabilimenti ||--o{ kpi_stabilimento_visibility : "controls_visibility"
+    kpis ||--o{ kpi_plant_visibility : "controls_visibility"
+    plants ||--o{ kpi_plant_visibility : "controls_visibility"
     kpis ||--o{ annual_targets : "sets_target_for"
-    stabilimenti ||--o{ annual_targets : "has_target_for"
+    plants ||--o{ annual_targets : "has_target_for"
     annual_targets ||--o{ daily_targets : "repartitions_to"
     annual_targets ||--o{ weekly_targets : "repartitions_to"
     annual_targets ||--o{ monthly_targets : "repartitions_to"
@@ -247,10 +247,10 @@ erDiagram
     *   Define concrete KPI indicators (`kpi_indicators`)
     *   Create KPI specifications (`kpis`) linking to indicators and defining properties
     *   Set up master/sub relationships (`kpi_master_sub_links`)
-    *   Control per-stabilimento visibility (`kpi_stabilimento_visibility`)
+    *   Control per-plant visibility (`kpi_plant_visibility`)
 
 3.  **Target Setting**
-    *   Set annual targets for KPIs per stabilimento (`annual_targets`)
+    *   Set annual targets for KPIs per plant (`annual_targets`)
     *   Define distribution profiles and formulas
 
 4.  **Period Distribution**
@@ -262,10 +262,10 @@ erDiagram
 1.  **Indexing**
     ```sql
     -- Example indexes, actual indexes depend on query patterns
-    CREATE INDEX idx_annual_targets_kpi_stab_year ON annual_targets(kpi_id, stabilimento_id, year);
-    CREATE INDEX idx_daily_targets_kpi_stab_year_date ON daily_targets(kpi_id, stabilimento_id, year, date_value);
+    CREATE INDEX idx_annual_targets_kpi_stab_year ON annual_targets(kpi_id, plant_id, year);
+    CREATE INDEX idx_daily_targets_kpi_stab_year_date ON daily_targets(kpi_id, plant_id, year, date_value);
     -- Add similar indexes for weekly, monthly, quarterly targets
-    CREATE INDEX idx_kpi_stabilimento_visibility ON kpi_stabilimento_visibility(kpi_id, stabilimento_id);
+    CREATE INDEX idx_kpi_plant_visibility ON kpi_plant_visibility(kpi_id, plant_id);
     ```
 
 2.  **Triggers**
@@ -306,7 +306,7 @@ erDiagram
     sqlite3 databases/db_kpi_weeks.db ".backup 'backup/db_kpi_weeks_$(date +%Y%m%d).db'"
     sqlite3 databases/db_kpi_months.db ".backup 'backup/db_kpi_months_$(date +%Y%m%d).db'"
     sqlite3 databases/db_kpi_quarters.db ".backup 'backup/db_kpi_quarters_$(date +%Y%m%d).db'"
-    sqlite3 databases/db_stabilimenti.db ".backup 'backup/db_stabilimenti_$(date +%Y%m%d).db'"
+    sqlite3 databases/db_plants.db ".backup 'backup/db_plants_$(date +%Y%m%d).db'"
     ```
 
 2.  **Optimization**

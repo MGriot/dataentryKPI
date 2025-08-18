@@ -4,7 +4,7 @@ import traceback
 from src import app_config
 from pathlib import Path # Ensure Path is imported
 
-from src.gui.shared.constants import CALC_TYPE_INCREMENTALE, CALC_TYPE_MEDIA
+from src.app_config import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False
@@ -550,7 +550,7 @@ if __name__ == "__main__":
             cur_tpl.execute("CREATE TABLE IF NOT EXISTS kpi_indicator_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT);")
             cur_tpl.execute(f"""CREATE TABLE IF NOT EXISTS template_defined_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, template_id INTEGER NOT NULL,
                                indicator_name_in_template TEXT NOT NULL, default_description TEXT,
-                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
                                default_unit_of_measure TEXT, default_visible BOOLEAN DEFAULT 1,
                                FOREIGN KEY (template_id) REFERENCES kpi_indicator_templates(id) ON DELETE CASCADE,
                                UNIQUE (template_id, indicator_name_in_template));""")
@@ -572,7 +572,7 @@ if __name__ == "__main__":
             cur_kpis.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
                                FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));""")
             cur_kpis.execute(f"""CREATE TABLE IF NOT EXISTS kpis (id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE, description TEXT,
-                               calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_MEDIA}')),
+                               calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
                                unit_of_measure TEXT, visible BOOLEAN DEFAULT 1,
                                FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE);""")
             conn_kpis.commit()
@@ -616,14 +616,14 @@ if __name__ == "__main__":
             with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
                 cursor = conn.cursor()
                 cursor.execute("""INSERT INTO template_defined_indicators (template_id, indicator_name_in_template, default_calculation_type, default_unit_of_measure)
-                                VALUES (?, 'Response Time', ?, 'Hours')""", (template_id_created, CALC_TYPE_MEDIA))
+                                VALUES (?, 'Response Time', ?, 'Hours')""", (template_id_created, CALC_TYPE_AVERAGE))
                 conn.commit()
                 definition_id_created = cursor.lastrowid
             print(f"  Definition 'Response Time' added to template (propagation skipped). Def ID: {definition_id_created}")
 
         else:
             add_indicator_definition_to_template(
-                template_id_created, "Response Time", CALC_TYPE_MEDIA, "Hours", True, "Avg time to respond."
+                template_id_created, "Response Time", CALC_TYPE_AVERAGE, "Hours", True, "Avg time to respond."
             )
             # Verification:
             with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn: # Check in template DB
@@ -643,7 +643,7 @@ if __name__ == "__main__":
             print("  SKIPPING Test 3 due to missing definition_id_created or dependencies.")
         else:
             update_indicator_definition_in_template(
-                definition_id_created, template_id_created, "Avg Response Time", CALC_TYPE_MEDIA, "Minutes", False, "Average response time in minutes."
+                definition_id_created, template_id_created, "Avg Response Time", CALC_TYPE_AVERAGE, "Minutes", False, "Average response time in minutes."
             )
             # Verification
             with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:

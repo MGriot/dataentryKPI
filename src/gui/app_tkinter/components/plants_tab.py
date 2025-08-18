@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 import traceback
 
-from src.stabilimenti_management import crud as plants_manager
+from src.plants_management import crud as plants_manager
 from src import data_retriever
 
 class PlantsTab(ttk.Frame):
@@ -44,7 +44,7 @@ class PlantsTab(ttk.Frame):
         for i in self.st_tree.get_children():
             self.st_tree.delete(i)
         try:
-            for row in data_retriever.get_all_stabilimenti():
+            for row in data_retriever.get_all_plants():
                 self.st_tree.insert(
                     "",
                     "end",

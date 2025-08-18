@@ -17,7 +17,7 @@ def import_from_zip(zip_path: str):
         with zipfile.ZipFile(zip_path, 'r') as zipf:
             # The order is critical to respect foreign key constraints
             import_order = {
-                'dict_stabilimenti.csv': ('stabilimenti', get_database_path('db_stabilimenti.db')),
+                'dict_plants.csv': ('plants', get_database_path('db_plants.db')),
                 'dict_kpi_groups.csv': ('kpi_groups', get_database_path('db_kpis.db')),
                 'dict_kpi_subgroups.csv': ('kpi_subgroups', get_database_path('db_kpis.db')),
                 'dict_kpi_indicators.csv': ('kpi_indicators', get_database_path('db_kpis.db')),

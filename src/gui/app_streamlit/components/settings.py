@@ -1,8 +1,8 @@
 import streamlit as st
 import json
-import data_retriever
-from stabilimenti_management import crud as plants_manager
-from app_config import SETTINGS_FILE
+from src import data_retriever
+from src.plants_management import crud as plants_manager
+from src.app_config import SETTINGS_FILE
 
 def app():
     st.title("⚙️ Settings")
@@ -63,8 +63,8 @@ def app():
             current_settings['database_path'] = settings['database_path']
             
             # Remove plant_colors from settings.json if it exists (now handled directly in DB)
-            if 'stabilimento_colors' in current_settings:
-                del current_settings['stabilimento_colors']
+            if 'plant_colors' in current_settings:
+                del current_settings['plant_colors']
 
             with open(SETTINGS_FILE, 'w') as f:
                 json.dump(current_settings, f, indent=4)
