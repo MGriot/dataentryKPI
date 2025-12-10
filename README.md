@@ -1,209 +1,134 @@
 # Data Entry KPI Target Manager
 
-An advanced platform for managing and analyzing Key Performance Indicators (KPIs) with sophisticated target distribution algorithms. The system supports both desktop (Tkinter) and web (Streamlit) interfaces, offering a comprehensive solution for KPI management across different organizational levels.
+An advanced Python-based platform for comprehensive management and analysis of Key Performance Indicators (KPIs). It offers sophisticated target distribution algorithms, flexible KPI definition through templates, and support for master/sub-KPI relationships. The system provides dual user interfaces: a native desktop application built with Tkinter for rich interactive features and offline capability, and a web-based interface using Streamlit for browser accessibility and easy deployment. All data is managed using a SQLite database backend, with robust CSV export/import functionalities.
 
-## Core Features
+## Features
 
-### 1. Advanced Target Distribution
-- Multiple mathematical distribution models:
-  - Even distribution
-  - Progressive/regressive
-  - Sinusoidal (seasonal)
-  - Quarterly patterns
-  - Weekly bias adjustments
-- Hierarchical period management:
-  - Annual → Quarterly → Monthly → Weekly → Daily
-- Formula-based calculations with dependencies
+### Advanced Target Distribution
+- **Multiple Mathematical Models:** Supports even, progressive/regressive, sinusoidal (seasonal), and quarterly patterns, including weekly bias adjustments.
+- **Hierarchical Period Management:** Distributes targets across annual, quarterly, monthly, weekly, and daily periods.
+- **Formula-Based Calculations:** Allows for complex calculations with dependencies.
 
-### 2. KPI Management
-- Template-based KPI definitions
-- Master/Sub KPI relationships
-- Weighted distributions
-- Custom calculation rules
-- Unit conversion handling
+### KPI Management
+- **Template-Based Definitions:** Define KPIs using customizable templates.
+- **Master/Sub KPI Relationships:** Establishes hierarchical links between KPIs.
+- **Weighted Distributions:** Apply weights for precise target allocation.
+- **Custom Calculation Rules & Unit Conversion:** Define specific rules and handle diverse unit conversions.
 
-### 3. Multi-Interface Support
-- **Desktop Application (Tkinter)**
-  - Native performance
-  - Rich interactive features
-  - Offline capability
-- **Web Interface (Streamlit)**
-  - Browser-based access
-  - Modern web interface
-  - Easy deployment
+### Multi-Interface Support
+- **Desktop Application (Tkinter):**
+    - Native performance and rich interactive features.
+    - Offline capability.
+- **Web Interface (Streamlit):</b>
+    - Browser-based access with a modern web interface.
+    - Easy deployment and accessibility.
 
-### 4. Data Management
-- SQLite database backend
-- CSV export/import
-- Historical data tracking
-- Target vs. Actual analysis
+### Robust Data Management
+- **SQLite Database Backend:** Stores all KPI structures, targets, and historical data.
+- **CSV Export/Import:** Facilitates data exchange with external systems.
+- **Historical Tracking & Analysis:** Enables target vs. actual analysis over time.
+
+## Project Structure
 
 ```
 dataentryKPI/
 │
 ├── src/                  # Application source code (Python modules)
-│   ├── app_config.py
-│   ├── database_manager.py
-│   ├── data_retriever.py
-│   ├── export_manager.py
-│   ├── import_manager.py
-│   ├── gui/
-│   │   ├── app_tkinter/
-│   │   │   └── main.py
-│   │   └── app_streamlit/
-│   │       └── main.py
-│   └── ...
-├── docs/                 # Documentation (Markdown)
-│   ├── usage_tkinter.md
-│   ├── usage_streamlit.md
-│   ├── architecture.md
-│   ├── target_generation.md
-│   └── ...
-├── requirements.txt
-├── config.ini
-├── README.md
-└── main.py
+│   ├── app_config.py     # Application-wide configuration
+│   ├── database_manager.py # (Assumed, based on description) Manages database interactions
+│   ├── data_retriever.py # Handles data fetching logic
+│   ├── export_manager.py # Manages data export functionalities (e.g., CSV)
+│   ├── import_manager.py # Manages data import functionalities (e.g., CSV)
+│   ├── gui/              # Contains UI implementations
+│   │   ├── app_tkinter/  # Tkinter desktop application
+│   │   │   └── main.py   # Entry point for Tkinter app
+│   │   └── app_streamlit/ # Streamlit web application
+│   │       └── main.py   # Entry point for Streamlit app
+│   └── ...               # Other core modules (kpi_management, target_management, etc.)
+├── docs/                 # Comprehensive documentation in Markdown format
+│   ├── index.md          # Documentation index
+│   ├── usage_tkinter.md  # User guide for Tkinter app
+│   ├── usage_streamlit.md # User guide for Streamlit app
+│   ├── architecture.md   # System architecture overview
+│   ├── target_generation.md # Details on target distribution algorithms
+│   ├── theoretical_framework.md # Underlying theoretical concepts
+│   ├── database_schema.md # Database structure
+│   └── configuration.md  # Configuration guide
+├── requirements.txt      # Python dependencies
+├── config.ini            # Centralized application configuration
+├── README.md             # This file
+└── main.py               # Main entry point for launching either GUI
 ```
 
-- **src/**: All core logic, interfaces, and configuration.
-- **docs/**: In-depth documentation (see below).
-- **main.py**: Entry point for launching interfaces.
-- **config.ini**: Centralized configuration.
+## Getting Started
 
----
+### Prerequisites
+Ensure you have Python 3.x installed.
+
+### 1. Clone the repository
+```bash
+git clone <repository_url>
+cd dataentryKPI
+```
+
+### 2. Install Dependencies
+Install all required Python packages:
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Run the Application
+You can run either the Tkinter desktop application or the Streamlit web application.
+
+#### Tkinter Desktop Application
+```bash
+python main.py tkinter
+```
+The application window will open, providing access to all features through a tabbed interface.
+
+#### Streamlit Web Application
+```bash
+python main.py streamlit
+```
+The application will launch in your web browser (usually at `http://localhost:8501`).
+
+For detailed usage instructions, refer to the [Documentation](#documentation) section.
 
 ## Documentation
 
-See our [Documentation Index](docs/index.md) for complete documentation, including:
+For complete documentation, please see our [Documentation Index](docs/index.md), which includes:
 
 ### User Guides
-
 - [Tkinter Desktop Guide](docs/usage_tkinter.md)
 - [Streamlit Web Guide](docs/usage_streamlit.md)
 
 ### Technical Documentation
-
 - [Architecture Overview](docs/architecture.md)
 - [Target Generation Logic](docs/target_generation.md)
 - [Theoretical Framework](docs/theoretical_framework.md)
 - [Database Schema](docs/database_schema.md)
 - [Configuration Guide](docs/configuration.md)
 
-### Getting Started
-
-For new users, we recommend following this order:
-
-1. Quick Start Guide (below)
-2. User Guide for your preferred interface
-3. Target Generation Logic for understanding the math
-4. Configuration Guide for customization
-
----
-
-## Quick Start
-
-1. **Clone the repository:**
-    ```bash
-    git clone <repository_url>
-    cd dataentryKPI
-    ```
-
-2. **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3. **Run the desired interface:**
-    - **Tkinter Desktop:**
-        ```bash
-        python main.py tkinter
-        ```
-    - **Streamlit Web:**
-        ```bash
-        python main.py streamlit
-        ```
-
-See [docs/usage_tkinter.md](docs/usage_tkinter.md) and [docs/usage_streamlit.md](docs/usage_streamlit.md) for detailed guides.
-
----
-
-## Technical Highlights
-
-- **Automatic Target Generation:**  
-  The system supports automatic distribution of annual KPI targets into quarters, months, weeks, and days using customizable mathematical profiles (progressive, sinusoidal, parabolic, etc.).  
-  See [docs/target_generation.md](docs/target_generation.md) for a deep technical dive.
-
-- **Database-Driven:**  
-  All KPI structures, targets, and results are stored in SQLite databases, with modular CRUD (Create, Read, Update, Delete) logic.
-
-- **Flexible Export:**  
-  Export all targets and dictionaries to CSV/ZIP for integration with external systems.
-
-- **Modular UI:**  
-  Both desktop and web UIs share the same backend logic for consistency.
-
----
-
 ## Customization
 
-You can customize the application by modifying the Python code in the `src` directory. See [docs/architecture.md](docs/architecture.md) for guidance on extending or adapting the system.
+The application can be customized by modifying the Python code within the `src` directory. This allows for:
+- Adding new KPIs and distribution logic.
+- Modifying data entry options and UI elements.
+- Extending application functionality with new features.
 
----
-2. Run the application:
-
-    ```bash
-    python app_tkinter.py
-    ```
-
-3. The application window will open, providing access to all features through a tabbed interface.
-
-### Streamlit Web Application
-
-For a detailed guide, see [streamlit_gui](docs/streamlit_gui.md).
-
-**Quick Start:**
-1. Navigate to the source directory (e.g., `src`):
-
-    ```bash
-    cd src
-    ```
-
-2. Run the application:
-
-    ```bash
-    streamlit run app_streamlit.py
-    ```
-
-3. The application will open in your web browser (usually at `http://localhost:8501`).
-
----
-
-## Customization
-
-You can customize the application by modifying the Python code in the `src` directory. Specifically, you can:
-
-- Add new KPIs and distribution logic.
-- Modify data entry options and UI elements.
-- Extend the functionality of the application with new features.
-
----
+Refer to the [Architecture Overview](docs/architecture.md) for guidance on extending or adapting the system.
 
 ## Contributing
 
-Contributions to this project are welcome! To contribute:
-
+Contributions are welcome! Please follow these steps:
 1.  Fork the repository.
 2.  Create a new branch for your feature or bug fix.
-3.  Implement your changes and write tests.
+3.  Implement your changes and ensure tests are added/updated.
 4.  Submit a pull request with a clear description of your changes.
-
----
 
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-
----
 
 ## Contact
 
