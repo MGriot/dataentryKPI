@@ -31,7 +31,7 @@ def main():
         print("Launching Tkinter GUI...")
         try:
             # Import the main Tkinter App class and run it
-            from src.gui.app_tkinter.main import KpiApp
+            from src.interfaces.tkinter_app.main import KpiApp
             app = KpiApp()
             app.mainloop()
         except ImportError as e:
@@ -43,7 +43,7 @@ def main():
 
     elif interface == "streamlit":
         print("Launching Streamlit GUI...")
-        streamlit_script_path = project_root / "src" / "gui" / "app_streamlit" / "main.py"
+        streamlit_script_path = project_root / "src" / "interfaces" / "streamlit_app" / "main.py"
 
         if not streamlit_script_path.exists():
             print(f"ERROR: Streamlit script not found at {streamlit_script_path}")

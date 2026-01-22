@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from src.kpi_management import templates as kpi_templates_manager
 from src import data_retriever as db_retriever
-from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
+from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
 
 def app():
     st.title("📋 Indicator Template Management")

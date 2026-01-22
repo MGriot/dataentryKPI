@@ -1,7 +1,7 @@
 import streamlit as st
 import traceback
 from src import export_manager
-from src.app_config import CSV_EXPORT_BASE_PATH
+from src.config.settings import CSV_EXPORT_BASE_PATH
 
 def app():
     st.title("📦 Data Export")

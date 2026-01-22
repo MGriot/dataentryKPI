@@ -1,10 +1,10 @@
 # src/kpi_management/templates.py
 import sqlite3
 import traceback
-from src import app_config
+from src.config import settings as app_config
 from pathlib import Path # Ensure Path is imported
 
-from src.app_config import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
+from src.config.settings import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False

@@ -2,10 +2,10 @@ import streamlit as st
 import datetime
 import json
 
-from target_management import annual as annual_targets_manager
-import data_retriever as db_retriever
-from gui.shared.helpers import get_kpi_display_name
-from gui.shared.constants import (
+from src.target_management import annual as annual_targets_manager
+import src.data_retriever as db_retriever
+from src.interfaces.common_ui.helpers import get_kpi_display_name
+from src.interfaces.common_ui.constants import (
     REPARTITION_LOGIC_YEAR,
     REPARTITION_LOGIC_MONTH,
     REPARTITION_LOGIC_QUARTER,

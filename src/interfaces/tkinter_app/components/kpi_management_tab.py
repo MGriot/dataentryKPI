@@ -10,13 +10,13 @@ from src.kpi_management import templates as kpi_templates_manager
 from src.kpi_management import specs as kpi_specs_manager
 from src.kpi_management import visibility as kpi_visibility
 from src import data_retriever as db_retriever
-from src.gui.app_tkinter.dialogs.subgroup_editor import SubgroupEditorDialog
-from src.gui.app_tkinter.dialogs.template_definition_editor import TemplateDefinitionEditorDialog
-from src.gui.app_tkinter.dialogs.indicator_spec_editor import IndicatorSpecEditorDialog
-from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
-from src.gui.shared.helpers import get_kpi_display_name
+from src.interfaces.tkinter_app.dialogs.subgroup_editor import SubgroupEditorDialog
+from src.interfaces.tkinter_app.dialogs.template_definition_editor import TemplateDefinitionEditorDialog
+from src.interfaces.tkinter_app.dialogs.indicator_spec_editor import IndicatorSpecEditorDialog
+from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 from src.kpi_management import links as kpi_links_manager
-from src.gui.app_tkinter.dialogs.link_sub_kpi_dialog import LinkSubKpiDialog
+from src.interfaces.tkinter_app.dialogs.link_sub_kpi_dialog import LinkSubKpiDialog
 
 
 class KpiManagementTab(ttk.Frame):
@@ -47,14 +47,18 @@ class KpiManagementTab(ttk.Frame):
         self.create_widgets()
 
     def create_widgets(self):
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill="both", expand=True, padx=5, pady=5)
+        # Main container
+        main_frame = ttk.Frame(self, style="Content.TFrame")
+        main_frame.pack(fill="both", expand=True)
 
-        # Create frames for each sub-tab
-        self.hierarchy_specs_frame = ttk.Frame(self.notebook)
-        self.templates_frame = ttk.Frame(self.notebook)
-        self.master_sub_frame = ttk.Frame(self.notebook)
-        self.all_kpis_frame = ttk.Frame(self.notebook)
+        self.notebook = ttk.Notebook(main_frame)
+        self.notebook.pack(fill="both", expand=True, padx=15, pady=15)
+
+        # Create frames for each sub-tab - styled as Cards for consistent white background inside tabs
+        self.hierarchy_specs_frame = ttk.Frame(self.notebook, style="Card.TFrame")
+        self.templates_frame = ttk.Frame(self.notebook, style="Card.TFrame")
+        self.master_sub_frame = ttk.Frame(self.notebook, style="Card.TFrame")
+        self.all_kpis_frame = ttk.Frame(self.notebook, style="Card.TFrame")
 
         self.notebook.add(self.hierarchy_specs_frame, text="Hierarchy & Specifications")
         self.notebook.add(self.templates_frame, text="Templates")
@@ -72,39 +76,38 @@ class KpiManagementTab(ttk.Frame):
 
     def _create_hierarchy_specs_ui(self, parent_frame):
         # Use a simple Frame to hold the hierarchy sections
-        hierarchy_container_frame = ttk.Frame(parent_frame)
+        hierarchy_container_frame = ttk.Frame(parent_frame, style="Card.TFrame", padding=15)
         hierarchy_container_frame.pack(fill="both", expand=True)
 
         # --- Hierarchy Section (Left Pane) ---
-        # The hierarchy_section_frame now directly packs into the hierarchy_container_frame
-        hierarchy_section_frame = ttk.Frame(hierarchy_container_frame)
-        hierarchy_section_frame.pack(fill="both", expand=True, side="left") # Use side="left" to arrange horizontally
+        hierarchy_section_frame = ttk.Frame(hierarchy_container_frame, style="Card.TFrame")
+        hierarchy_section_frame.pack(fill="both", expand=True, side="left") 
 
         # Group Frame
-        group_frame = ttk.LabelFrame(hierarchy_section_frame, text="KPI Groups", padding=10)
+        group_frame = ttk.LabelFrame(hierarchy_section_frame, text="KPI Groups", style="Card.TLabelframe", padding=10)
         group_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        self.groups_listbox = tk.Listbox(group_frame, exportselection=False, height=15, width=25)
+        self.groups_listbox = tk.Listbox(group_frame, exportselection=False, height=15, width=25, relief="flat", borderwidth=1, highlightthickness=1)
         self.groups_listbox.pack(fill="both", expand=True, pady=(0, 5))
         self.groups_listbox.bind("<<ListboxSelect>>", self.on_group_select)
 
-        group_btn_frame = ttk.Frame(group_frame)
+        group_btn_frame = ttk.Frame(group_frame, style="Card.TFrame")
         group_btn_frame.pack(fill="x")
-        ttk.Button(group_btn_frame, text="New", command=self.add_new_group, width=8, style="Accent.TButton").pack(side="left", padx=2)
+        ttk.Button(group_btn_frame, text="New", command=self.add_new_group, width=8, style="Action.TButton").pack(side="left", padx=2)
         self.edit_group_btn = ttk.Button(group_btn_frame, text="Edit", command=self.edit_selected_group, state="disabled", width=8)
         self.edit_group_btn.pack(side="left", padx=2)
         self.delete_group_btn = ttk.Button(group_btn_frame, text="Delete", command=self.delete_selected_group, state="disabled", width=8)
         self.delete_group_btn.pack(side="left", padx=2)
 
         # Subgroup Frame
-        subgroup_frame = ttk.LabelFrame(hierarchy_section_frame, text="Subgroups", padding=10)
+        subgroup_frame = ttk.LabelFrame(hierarchy_section_frame, text="Subgroups", style="Card.TLabelframe", padding=10)
         subgroup_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        self.subgroups_listbox = tk.Listbox(subgroup_frame, exportselection=False, height=15, width=35)
+        self.subgroups_listbox = tk.Listbox(subgroup_frame, exportselection=False, height=15, width=35, relief="flat", borderwidth=1, highlightthickness=1)
         self.subgroups_listbox.pack(fill="both", expand=True, pady=(0, 5))
         self.subgroups_listbox.bind("<<ListboxSelect>>", self.on_subgroup_select)
 
-        subgroup_btn_frame = ttk.Frame(subgroup_frame)
+        subgroup_btn_frame = ttk.Frame(subgroup_frame, style="Card.TFrame")
         subgroup_btn_frame.pack(fill="x")
-        self.add_subgroup_btn = ttk.Button(subgroup_btn_frame, text="New", command=self.add_new_subgroup, state="disabled", width=8, style="Accent.TButton")
+        self.add_subgroup_btn = ttk.Button(subgroup_btn_frame, text="New", command=self.add_new_subgroup, state="disabled", width=8, style="Action.TButton")
         self.add_subgroup_btn.pack(side="left", padx=2)
         self.edit_subgroup_btn = ttk.Button(subgroup_btn_frame, text="Edit", command=self.edit_selected_subgroup, state="disabled", width=8)
         self.edit_subgroup_btn.pack(side="left", padx=2)
@@ -112,15 +115,15 @@ class KpiManagementTab(ttk.Frame):
         self.delete_subgroup_btn.pack(side="left", padx=2)
 
         # Indicator Frame
-        indicator_frame = ttk.LabelFrame(hierarchy_section_frame, text="Indicators", padding=10)
+        indicator_frame = ttk.LabelFrame(hierarchy_section_frame, text="Indicators", style="Card.TLabelframe", padding=10)
         indicator_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        self.indicators_listbox = tk.Listbox(indicator_frame, exportselection=False, height=15, width=30)
+        self.indicators_listbox = tk.Listbox(indicator_frame, exportselection=False, height=15, width=30, relief="flat", borderwidth=1, highlightthickness=1)
         self.indicators_listbox.pack(fill="both", expand=True, pady=(0, 5))
         self.indicators_listbox.bind("<<ListboxSelect>>", self.on_indicator_select)
 
-        indicator_btn_frame = ttk.Frame(indicator_frame)
+        indicator_btn_frame = ttk.Frame(indicator_frame, style="Card.TFrame")
         indicator_btn_frame.pack(fill="x")
-        self.add_indicator_btn = ttk.Button(indicator_btn_frame, text="New", command=self.add_new_indicator, state="disabled", width=8, style="Accent.TButton")
+        self.add_indicator_btn = ttk.Button(indicator_btn_frame, text="New", command=self.add_new_indicator, state="disabled", width=8, style="Action.TButton")
         self.add_indicator_btn.pack(side="left", padx=2)
         self.edit_indicator_btn = ttk.Button(indicator_btn_frame, text="Edit", command=self.edit_selected_indicator, state="disabled", width=8)
         self.edit_indicator_btn.pack(side="left", padx=2)
@@ -128,24 +131,24 @@ class KpiManagementTab(ttk.Frame):
         self.delete_indicator_btn.pack(side="left", padx=2)
 
     def _create_templates_ui(self, parent_frame):
-        main_frame = parent_frame # Use the passed parent_frame as the main container for this sub-tab
+        main_frame = parent_frame # Main container for this sub-tab
 
-        template_list_frame = ttk.LabelFrame(main_frame, text="KPI Indicator Templates", padding=10)
-        template_list_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-        self.templates_listbox = tk.Listbox(template_list_frame, exportselection=False, height=15, width=30)
+        template_list_frame = ttk.LabelFrame(main_frame, text="KPI Indicator Templates", style="Card.TLabelframe", padding=10)
+        template_list_frame.pack(side="left", fill="both", expand=True, padx=15, pady=15)
+        self.templates_listbox = tk.Listbox(template_list_frame, exportselection=False, height=15, width=30, relief="flat", borderwidth=1, highlightthickness=1)
         self.templates_listbox.pack(fill="both", expand=True, pady=(0, 5))
         self.templates_listbox.bind("<<ListboxSelect>>", self.on_template_select)
 
-        template_btn_frame = ttk.Frame(template_list_frame)
+        template_btn_frame = ttk.Frame(template_list_frame, style="Card.TFrame")
         template_btn_frame.pack(fill="x")
-        ttk.Button(template_btn_frame, text="New Tpl", command=self.add_new_kpi_template, width=10, style="Accent.TButton").pack(side="left", padx=2)
+        ttk.Button(template_btn_frame, text="New Tpl", command=self.add_new_kpi_template, width=10, style="Action.TButton").pack(side="left", padx=2)
         self.edit_template_btn = ttk.Button(template_btn_frame, text="Edit Tpl", command=self.edit_selected_kpi_template, state="disabled", width=11)
         self.edit_template_btn.pack(side="left", padx=2)
         self.delete_template_btn = ttk.Button(template_btn_frame, text="Delete Tpl", command=self.delete_selected_kpi_template, state="disabled", width=11)
         self.delete_template_btn.pack(side="left", padx=2)
 
-        definitions_frame = ttk.LabelFrame(main_frame, text="Definitions in Template", padding=10)
-        definitions_frame.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        definitions_frame = ttk.LabelFrame(main_frame, text="Definitions in Template", style="Card.TLabelframe", padding=10)
+        definitions_frame.pack(side="left", fill="both", expand=True, padx=15, pady=15)
         self.template_definitions_tree = ttk.Treeview(
             definitions_frame,
             columns=("ID", "Indicator Name", "Calc Type", "Unit", "Visible", "Description"),
@@ -167,9 +170,9 @@ class KpiManagementTab(ttk.Frame):
         self.template_definitions_tree.pack(fill="both", expand=True, pady=(0, 5))
         self.template_definitions_tree.bind("<<TreeviewSelect>>", self.on_template_definition_select)
 
-        definition_btn_frame = ttk.Frame(definitions_frame)
+        definition_btn_frame = ttk.Frame(definitions_frame, style="Card.TFrame")
         definition_btn_frame.pack(fill="x")
-        self.add_definition_btn = ttk.Button(definition_btn_frame, text="Add Def.", command=self.add_new_template_definition, state="disabled", width=12, style="Accent.TButton")
+        self.add_definition_btn = ttk.Button(definition_btn_frame, text="Add Def.", command=self.add_new_template_definition, state="disabled", width=12, style="Action.TButton")
         self.add_definition_btn.pack(side="left", padx=2)
         self.edit_definition_btn = ttk.Button(definition_btn_frame, text="Edit Def.", command=self.edit_selected_template_definition, state="disabled", width=12)
         self.edit_definition_btn.pack(side="left", padx=2)
@@ -178,29 +181,29 @@ class KpiManagementTab(ttk.Frame):
 
     def _create_master_sub_ui(self, parent_frame):
         # Main container
-        main_frame = ttk.Frame(parent_frame, padding=10)
+        main_frame = ttk.Frame(parent_frame, padding=15, style="Card.TFrame")
         main_frame.pack(fill="both", expand=True)
 
         # Top frame for KPI selection
-        selection_frame = ttk.LabelFrame(main_frame, text="Select a KPI to Manage", padding=10)
+        selection_frame = ttk.LabelFrame(main_frame, text="Select a KPI to Manage", style="Card.TLabelframe", padding=10)
         selection_frame.pack(fill="x", pady=5)
 
-        ttk.Label(selection_frame, text="KPI:").pack(side="left", padx=(0, 5))
+        ttk.Label(selection_frame, text="KPI:", background="#FFFFFF").pack(side="left", padx=(0, 5))
         self.ms_kpi_var = tk.StringVar()
         self.ms_kpi_cb = ttk.Combobox(selection_frame, textvariable=self.ms_kpi_var, state="readonly", width=80)
         self.ms_kpi_cb.pack(side="left", fill="x", expand=True, padx=5)
         self.ms_kpi_cb.bind("<<ComboboxSelected>>", self.on_master_kpi_select)
 
         # Frame for details and actions
-        details_frame = ttk.Frame(main_frame)
+        details_frame = ttk.Frame(main_frame, style="Card.TFrame")
         details_frame.pack(fill="both", expand=True, pady=10)
 
         # Role and current links
-        role_frame = ttk.LabelFrame(details_frame, text="KPI Role & Links", padding=10)
+        role_frame = ttk.LabelFrame(details_frame, text="KPI Role & Links", style="Card.TLabelframe", padding=10)
         role_frame.pack(fill="both", expand=True, side="left", padx=(0, 5))
 
         self.ms_role_label_var = tk.StringVar(value="Role: (select a KPI)")
-        ttk.Label(role_frame, textvariable=self.ms_role_label_var, font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
+        ttk.Label(role_frame, textvariable=self.ms_role_label_var, font=("Helvetica", 10, "bold"), background="#FFFFFF").pack(anchor="w")
 
         self.ms_links_tree = ttk.Treeview(role_frame, columns=("ID", "Linked KPI", "Weight"), show="headings")
         self.ms_links_tree.heading("ID", text="ID")
@@ -212,26 +215,26 @@ class KpiManagementTab(ttk.Frame):
         self.ms_links_tree.pack(fill="both", expand=True, pady=5)
 
         # Form to add new links
-        linking_frame = ttk.LabelFrame(details_frame, text="Add New Link", padding=10)
+        linking_frame = ttk.LabelFrame(details_frame, text="Add New Link", style="Card.TLabelframe", padding=10)
         linking_frame.pack(fill="y", side="right", padx=(5, 0))
 
-        ttk.Label(linking_frame, text="Available Sub-KPIs:").pack(anchor="w")
+        ttk.Label(linking_frame, text="Available Sub-KPIs:", background="#FFFFFF").pack(anchor="w")
         self.ms_sub_kpi_var = tk.StringVar()
         self.ms_sub_kpi_cb = ttk.Combobox(linking_frame, textvariable=self.ms_sub_kpi_var, state="readonly", width=50)
         self.ms_sub_kpi_cb.pack(fill="x", expand=True, pady=(0, 5))
 
-        ttk.Label(linking_frame, text="Distribution Weight:").pack(anchor="w")
+        ttk.Label(linking_frame, text="Distribution Weight:", background="#FFFFFF").pack(anchor="w")
         self.ms_weight_var = tk.DoubleVar(value=1.0)
         ttk.Entry(linking_frame, textvariable=self.ms_weight_var, width=15).pack(anchor="w", pady=(0, 10))
 
-        self.ms_link_btn = ttk.Button(linking_frame, text="Link Sub-KPI", command=self.link_sub_kpi, state="disabled")
+        self.ms_link_btn = ttk.Button(linking_frame, text="Link Sub-KPI", command=self.link_sub_kpi, state="disabled", style="Action.TButton")
         self.ms_link_btn.pack(pady=5)
         self.ms_unlink_btn = ttk.Button(linking_frame, text="Unlink Selected", command=self.unlink_selected_sub_kpi, state="disabled")
         self.ms_unlink_btn.pack(pady=5)
 
     def _create_all_kpis_ui(self, parent_frame):
         main_frame = parent_frame
-        tree_frame = ttk.Frame(main_frame)
+        tree_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=15)
         tree_frame.pack(expand=True, fill="both", pady=(10, 0), padx=5)
         self.all_kpis_tree = ttk.Treeview(tree_frame, columns=("ID", "Group", "Subgroup", "Indicator", "Description", "Calc Type", "Unit", "Visible", "Template SG"), show="headings")
         cols_widths = {

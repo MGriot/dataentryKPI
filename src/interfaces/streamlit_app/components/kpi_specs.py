@@ -8,7 +8,7 @@ from src import data_retriever
 from src.kpi_management import specs as kpi_specs_manager
 from src.kpi_management import indicators as kpi_indicators_manager
 from src.kpi_management import visibility as kpi_visibility
-from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
+from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
 
 def app():
     st.title("⚙️ KPI Specification Management")

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 from src import data_retriever as db_retriever
-from src.gui.shared.helpers import get_kpi_display_name
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 
 def app():
     st.title("📈 Results Analysis")

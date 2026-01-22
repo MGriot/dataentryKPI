@@ -3,7 +3,7 @@ import sqlite3
 import traceback
 from pathlib import Path
 
-from src.db_core.utils import get_database_path
+from src.config.settings import get_database_path
 
 # --- Configuration Imports ---
 DB_PLANTS = get_database_path('db_plants.db')

@@ -4,9 +4,9 @@ import traceback  # For more detailed error reporting if needed
 from pathlib import Path  # To ensure CSV_EXPORT_BASE_PATH is handled as a Path object
 
 # Import configurations from app_config.py
-from src import app_config 
+from src.config import settings as app_config 
 
-from src.gui.shared.constants import (
+from src.interfaces.common_ui.constants import (
         CALC_TYPE_INCREMENTAL,
         CALC_TYPE_AVERAGE,
         REPARTITION_LOGIC_YEAR,
@@ -264,7 +264,7 @@ def setup_databases():
         with sqlite3.connect(db_targets_path) as conn:
             cursor = conn.cursor()
             try:
-                from src.gui.shared.constants import (
+                from src.interfaces.common_ui.constants import (
                     PROFILE_ANNUAL_PROGRESSIVE,
                     REPARTITION_LOGIC_YEAR,
                 )

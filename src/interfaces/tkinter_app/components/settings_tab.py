@@ -3,8 +3,8 @@ from tkinter import ttk, colorchooser, messagebox, filedialog
 import json
 from src import data_retriever as db_retriever
 from src.plants_management import crud as plants_manager
-from src.app_config import SETTINGS_FILE
-from src.gui.shared import constants as const
+from src.config.settings import SETTINGS_FILE
+from src.interfaces.common_ui import constants as const
 
 class SettingsTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -18,9 +18,11 @@ class SettingsTab(ttk.Frame):
 
     def create_widgets(self):
         # Create a canvas and a scrollbar
-        self.canvas = tk.Canvas(self)
+        self.canvas = tk.Canvas(self, background="#F5F5F5", highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = ttk.Frame(self.canvas)
+        
+        # Inner scrollable frame - styled to match background or card
+        self.scrollable_frame = ttk.Frame(self.canvas, style="Content.TFrame")
 
         self.scrollable_frame.bind(
             "<Configure>",
@@ -32,43 +34,41 @@ class SettingsTab(ttk.Frame):
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        self.canvas.pack(side="left", fill="both", expand=True)
+        self.canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         self.scrollbar.pack(side="right", fill="y")
 
         # --- Display Names ---
-        display_names_frame = ttk.LabelFrame(self.scrollable_frame, text="Display Names")
-        display_names_frame.pack(fill='x', expand=True, pady=5, padx=10)
+        display_names_frame = ttk.LabelFrame(self.scrollable_frame, text="Display Names", style="Card.TLabelframe", padding=15)
+        display_names_frame.pack(fill='x', expand=True, pady=10, padx=5)
 
-        ttk.Label(display_names_frame, text="Target 1:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        ttk.Label(display_names_frame, text="Target 1:", background="#FFFFFF").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.target1_name_var = tk.StringVar(value=self.settings.get('display_names', {}).get('target1', 'Target 1'))
         ttk.Entry(display_names_frame, textvariable=self.target1_name_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
 
-        ttk.Label(display_names_frame, text="Target 2:").grid(row=1, column=0, padx=5, pady=5, sticky='w')
+        ttk.Label(display_names_frame, text="Target 2:", background="#FFFFFF").grid(row=1, column=0, padx=5, pady=5, sticky='w')
         self.target2_name_var = tk.StringVar(value=self.settings.get('display_names', {}).get('target2', 'Target 2'))
         ttk.Entry(display_names_frame, textvariable=self.target2_name_var).grid(row=1, column=1, padx=5, pady=5, sticky='ew')
 
         # --- Database Path ---
-        db_path_frame = ttk.LabelFrame(self.scrollable_frame, text="Database Path")
-        db_path_frame.pack(fill='x', expand=True, pady=5, padx=10)
+        db_path_frame = ttk.LabelFrame(self.scrollable_frame, text="Database Path", style="Card.TLabelframe", padding=15)
+        db_path_frame.pack(fill='x', expand=True, pady=10, padx=5)
 
-        ttk.Label(db_path_frame, text="Database Folder:").grid(row=0, column=0, padx=5, pady=5, sticky='w')
+        ttk.Label(db_path_frame, text="Database Folder:", background="#FFFFFF").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.db_path_var = tk.StringVar(value=self.settings.get('database_path', ''))
         ttk.Entry(db_path_frame, textvariable=self.db_path_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
         ttk.Button(db_path_frame, text="Browse...", command=self.browse_db_path).grid(row=0, column=2, padx=5, pady=5)
 
-        
-
         # --- Calculation Constants ---
-        constants_frame = ttk.LabelFrame(self.scrollable_frame, text="Calculation Constants")
-        constants_frame.pack(fill='x', expand=True, pady=5, padx=10)
+        constants_frame = ttk.LabelFrame(self.scrollable_frame, text="Calculation Constants", style="Card.TLabelframe", padding=15)
+        constants_frame.pack(fill='x', expand=True, pady=10, padx=5)
         
-        self.constants_inner_frame = ttk.Frame(constants_frame)
+        self.constants_inner_frame = ttk.Frame(constants_frame, style="Card.TFrame") # Inner frame matches white card
         self.constants_inner_frame.pack(fill='both', expand=True)
         self.populate_constants_frame()
 
         # --- Save Button ---
-        save_button = ttk.Button(self.scrollable_frame, text="Save Settings", command=self.save_settings)
-        save_button.pack(pady=10)
+        save_button = ttk.Button(self.scrollable_frame, text="Save Settings", command=self.save_settings, style="Action.TButton")
+        save_button.pack(pady=20, padx=5, anchor='e')
 
     def populate_constants_frame(self):
         for widget in self.constants_inner_frame.winfo_children():
@@ -77,7 +77,7 @@ class SettingsTab(ttk.Frame):
         self.constant_vars = {}
         row = 0
         for name, value in self.calculation_constants.items():
-            ttk.Label(self.constants_inner_frame, text=f"{name}:").grid(row=row, column=0, padx=5, pady=2, sticky='w')
+            ttk.Label(self.constants_inner_frame, text=f"{name}:", background="#FFFFFF").grid(row=row, column=0, padx=5, pady=2, sticky='w')
             var = tk.StringVar(value=str(value))
             ttk.Entry(self.constants_inner_frame, textvariable=var).grid(row=row, column=1, padx=5, pady=2, sticky='ew')
             self.constant_vars[name] = var

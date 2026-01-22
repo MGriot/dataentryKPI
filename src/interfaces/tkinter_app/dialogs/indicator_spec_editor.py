@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
-from src.gui.shared.constants import KPI_CALC_TYPE_OPTIONS
+from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
 from src import data_retriever
 from src.kpi_management import visibility as kpi_visibility
 

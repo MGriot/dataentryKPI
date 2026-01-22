@@ -19,7 +19,7 @@ An advanced Python-based platform for comprehensive management and analysis of K
 - **Desktop Application (Tkinter):**
     - Native performance and rich interactive features.
     - Offline capability.
-- **Web Interface (Streamlit):</b>
+- **Web Interface (Streamlit):**
     - Browser-based access with a modern web interface.
     - Easy deployment and accessibility.
 
@@ -30,34 +30,35 @@ An advanced Python-based platform for comprehensive management and analysis of K
 
 ## Project Structure
 
+This project follows a modular, layered architecture within the `src` directory.
+
 ```
 dataentryKPI/
 │
-├── src/                  # Application source code (Python modules)
-│   ├── app_config.py     # Application-wide configuration
-│   ├── database_manager.py # (Assumed, based on description) Manages database interactions
-│   ├── data_retriever.py # Handles data fetching logic
-│   ├── export_manager.py # Manages data export functionalities (e.g., CSV)
-│   ├── import_manager.py # Manages data import functionalities (e.g., CSV)
-│   ├── gui/              # Contains UI implementations
-│   │   ├── app_tkinter/  # Tkinter desktop application
-│   │   │   └── main.py   # Entry point for Tkinter app
-│   │   └── app_streamlit/ # Streamlit web application
-│   │       └── main.py   # Entry point for Streamlit app
-│   └── ...               # Other core modules (kpi_management, target_management, etc.)
-├── docs/                 # Comprehensive documentation in Markdown format
-│   ├── index.md          # Documentation index
-│   ├── usage_tkinter.md  # User guide for Tkinter app
-│   ├── usage_streamlit.md # User guide for Streamlit app
-│   ├── architecture.md   # System architecture overview
-│   ├── target_generation.md # Details on target distribution algorithms
-│   ├── theoretical_framework.md # Underlying theoretical concepts
-│   ├── database_schema.md # Database structure
-│   └── configuration.md  # Configuration guide
+├── src/
+│   ├── config/           # Centralized configuration (settings.py)
+│   ├── core/             # Domain logic and models (Future home of business rules)
+│   ├── data_access/      # Database setup and access (Replaces db_core)
+│   ├── interfaces/       # User Interfaces
+│   │   ├── tkinter_app/  # Tkinter desktop application
+│   │   ├── streamlit_app/# Streamlit web application
+│   │   └── common_ui/    # Shared UI constants and helpers
+│   ├── services/         # Application orchestration services (Future expansion)
+│   ├── kpi_management/   # Feature module: KPI definitions (Groups, Indicators, Templates)
+│   ├── plants_management/# Feature module: Plants (Stabilimenti)
+│   ├── target_management/# Feature module: Annual Targets and Repartition
+│   ├── data_retriever.py # Read-only data access layer
+│   ├── export_manager.py # Data export logic
+│   ├── import_manager.py # Data import logic
+│   ├── main.py           # Internal entry point
+│   └── utils/            # General utilities
+│
+├── docs/                 # Comprehensive documentation
+├── scripts/              # Utility and maintenance scripts
 ├── requirements.txt      # Python dependencies
 ├── config.ini            # Centralized application configuration
-├── README.md             # This file
-└── main.py               # Main entry point for launching either GUI
+├── main.py               # Main Launcher
+└── README.md             # This file
 ```
 
 ## Getting Started
@@ -78,10 +79,12 @@ pip install -r requirements.txt
 ```
 
 ### 3. Run the Application
-You can run either the Tkinter desktop application or the Streamlit web application.
+You can run either the Tkinter desktop application or the Streamlit web application using the unified entry point at the project root.
 
-#### Tkinter Desktop Application
+#### Tkinter Desktop Application (Default)
 ```bash
+python main.py
+# OR explicitly:
 python main.py tkinter
 ```
 The application window will open, providing access to all features through a tabbed interface.
@@ -91,8 +94,6 @@ The application window will open, providing access to all features through a tab
 python main.py streamlit
 ```
 The application will launch in your web browser (usually at `http://localhost:8501`).
-
-For detailed usage instructions, refer to the [Documentation](#documentation) section.
 
 ## Documentation
 
@@ -108,15 +109,11 @@ For complete documentation, please see our [Documentation Index](docs/index.md),
 - [Theoretical Framework](docs/theoretical_framework.md)
 - [Database Schema](docs/database_schema.md)
 - [Configuration Guide](docs/configuration.md)
+- [Reorganization Guide](REORGANIZATION_GUIDE.md)
 
 ## Customization
 
-The application can be customized by modifying the Python code within the `src` directory. This allows for:
-- Adding new KPIs and distribution logic.
-- Modifying data entry options and UI elements.
-- Extending application functionality with new features.
-
-Refer to the [Architecture Overview](docs/architecture.md) for guidance on extending or adapting the system.
+The application can be customized by modifying the Python code within the `src` directory. Refer to the [Architecture Overview](docs/architecture.md) for guidance on extending or adapting the system.
 
 ## Contributing
 

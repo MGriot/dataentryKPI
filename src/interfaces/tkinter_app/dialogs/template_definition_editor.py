@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 
-from src.app_config import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
+from src.config.settings import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 class TemplateDefinitionEditorDialog(simpledialog.Dialog):
     def __init__(self, parent, title=None, template_id_context=None, initial_data=None):

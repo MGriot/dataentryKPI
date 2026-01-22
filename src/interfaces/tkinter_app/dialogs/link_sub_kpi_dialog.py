@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, simpledialog
 
-from ...shared.helpers import get_kpi_display_name
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 
 class LinkSubKpiDialog(simpledialog.Dialog):
     def __init__(self, parent, title, available_kpis):

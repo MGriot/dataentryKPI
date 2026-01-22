@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import datetime
 import data_retriever as db_retriever
-from ...shared.helpers import get_kpi_display_name
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import pandas as pd

@@ -2,7 +2,7 @@ import streamlit as st
 import json
 from src import data_retriever
 from src.plants_management import crud as plants_manager
-from src.app_config import SETTINGS_FILE
+from src.config.settings import SETTINGS_FILE
 
 def app():
     st.title("⚙️ Settings")

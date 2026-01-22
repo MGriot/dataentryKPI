@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from src.kpi_management import links as kpi_links_manager
 from src import data_retriever as db_retriever
-from src.gui.shared.helpers import get_kpi_display_name
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 
 def app():
     st.title("🔗 Master/Sub Link Management")

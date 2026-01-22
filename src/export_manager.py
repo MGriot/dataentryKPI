@@ -10,7 +10,7 @@ import traceback
 
 # Configuration import
 try:
-    from src.app_config import CSV_EXPORT_BASE_PATH
+    from src.config.settings import CSV_EXPORT_BASE_PATH
 except ImportError:
     print("CRITICAL WARNING: app_config.py not found. Using fallback for CSV_EXPORT_BASE_PATH.")
     CSV_EXPORT_BASE_PATH = "./fallback_csv_exports"

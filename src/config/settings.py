@@ -4,8 +4,8 @@ CALC_TYPE_INCREMENTAL = "Incremental"
 CALC_TYPE_AVERAGE = "Average"
 
 # --- Settings File Path ---
-SETTINGS_FILE = Path(__file__).resolve().parents[1] / "settings.json"
-USER_CONSTANTS_FILE = Path(__file__).resolve().parent / "user_constants.json"
+SETTINGS_FILE = Path(__file__).resolve().parents[2] / "settings.json"
+USER_CONSTANTS_FILE = Path(__file__).resolve().parents[2] / "user_constants.json"
 
 # --- Default Settings ---
 DEFAULT_SETTINGS = {
@@ -13,8 +13,8 @@ DEFAULT_SETTINGS = {
         "target1": "Target 1",
         "target2": "Target 2"
     },
-    "database_base_dir": str(Path(__file__).resolve().parent / "databases"),
-    "csv_export_base_dir": str(Path(__file__).resolve().parent / "csv_exports"),
+    "database_base_dir": str(Path(__file__).resolve().parents[2] / "databases"),
+    "csv_export_base_dir": str(Path(__file__).resolve().parents[2] / "csv_exports"),
 }
 
 # --- Load Settings ---

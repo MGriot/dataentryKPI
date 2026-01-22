@@ -5,10 +5,10 @@ import datetime
 import calendar
 import numpy as np
 import traceback
-from src import app_config
+from src.config import settings as app_config
 
 # Configuration imports
-from src import app_config
+from src.config import settings as app_config
 
 from src.data_retriever import get_annual_target_entry, get_kpi_detailed_by_id
 from src.utils.repartition_utils import (

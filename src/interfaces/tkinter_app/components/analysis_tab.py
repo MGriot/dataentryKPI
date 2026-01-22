@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox
 import datetime
 import calendar
 from src import data_retriever as db_retriever
-from src.gui.shared.helpers import get_kpi_display_name
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import pandas as pd
@@ -75,44 +75,36 @@ class AnalysisTab(ttk.Frame):
 
     def create_widgets(self):
         # --- View Mode Selection ---
-        view_mode_frame = ttk.Frame(self)
-        view_mode_frame.pack(fill="x", pady=5)
+        view_mode_frame = ttk.Frame(self, style="Content.TFrame")
+        view_mode_frame.pack(fill="x", pady=10)
         
-        ttk.Radiobutton(view_mode_frame, text="Single KPI Analysis", variable=self.view_mode, value="single", command=self.switch_view).pack(side="left", padx=10)
-        ttk.Radiobutton(view_mode_frame, text="Global Dashboard", variable=self.view_mode, value="global", command=self.switch_view).pack(side="left", padx=10)
+        # Using standard Radiobuttons but placed on the content background
+        # ttk.Radiobutton usually picks up style, but let's ensure it looks clean
+        # If needed, we could define a custom style for these, but defaults usually work on light grey
+        rb1 = ttk.Radiobutton(view_mode_frame, text="Single KPI Analysis", variable=self.view_mode, value="single", command=self.switch_view)
+        rb1.pack(side="left", padx=15)
+        rb2 = ttk.Radiobutton(view_mode_frame, text="Global Dashboard", variable=self.view_mode, value="global", command=self.switch_view)
+        rb2.pack(side="left", padx=15)
 
         # --- Main container for content ---
-        self.content_frame = ttk.Frame(self)
+        self.content_frame = ttk.Frame(self, style="Content.TFrame")
         self.content_frame.pack(fill="both", expand=True)
 
         self.switch_view()
 
-    def switch_view(self):
-        for widget in self.content_frame.winfo_children():
-            widget.destroy()
-            
-        if self.view_mode.get() == "single":
-            self.create_single_kpi_view()
-            self.populate_results_comboboxes()
-        else:
-            self.create_global_dashboard_view()
-            self.populate_dashboard_comboboxes()
-
     # --- Single KPI Analysis (ResultsTab) ---
     def create_single_kpi_view(self):
         # Main container for filters, table, and chart
-        results_main_container = ttk.Frame(self.content_frame)
+        results_main_container = ttk.Frame(self.content_frame, style="Content.TFrame")
         results_main_container.pack(fill="both", expand=True)
 
-        # --- Filters Frame ---
-        filter_frame_outer_res = ttk.Frame(results_main_container)
-        filter_frame_outer_res.pack(fill="x", pady=5)
-        filter_frame_res = ttk.Frame(filter_frame_outer_res)
-        filter_frame_res.pack()  # Center the filter content
+        # --- Filters Frame (Card) ---
+        filter_card = ttk.Frame(results_main_container, style="Card.TFrame", padding=15)
+        filter_card.pack(fill="x", padx=0, pady=(0, 15))
 
-        row1_filters = ttk.Frame(filter_frame_res)
-        row1_filters.pack(fill="x", pady=2)
-        ttk.Label(row1_filters, text="Year:").pack(side="left")
+        row1_filters = ttk.Frame(filter_card, style="Card.TFrame")
+        row1_filters.pack(fill="x", pady=5)
+        ttk.Label(row1_filters, text="Year:", background="#FFFFFF").pack(side="left")
         self.res_year_var_vis = tk.StringVar(value=str(datetime.datetime.now().year))
         ttk.Spinbox(
             row1_filters,
@@ -121,8 +113,9 @@ class AnalysisTab(ttk.Frame):
             textvariable=self.res_year_var_vis,
             width=6,
             command=self.show_results_data,
-        ).pack(side="left", padx=(2, 10))
-        ttk.Label(row1_filters, text="Plant:").pack(side="left")
+        ).pack(side="left", padx=(5, 15))
+        
+        ttk.Label(row1_filters, text="Plant:", background="#FFFFFF").pack(side="left")
         self.res_plant_var_vis = tk.StringVar()
         self.res_plant_cb_vis = ttk.Combobox(
             row1_filters,
@@ -130,10 +123,10 @@ class AnalysisTab(ttk.Frame):
             state="readonly",
             width=20,
         )
-        self.res_plant_cb_vis.pack(side="left", padx=(2, 10))
+        self.res_plant_cb_vis.pack(side="left", padx=(5, 15))
         self.res_plant_cb_vis.bind("<<ComboboxSelected>>", self.show_results_data)
         
-        ttk.Label(row1_filters, text="Period:").pack(side="left")
+        ttk.Label(row1_filters, text="Period:", background="#FFFFFF").pack(side="left")
         self.res_period_var_vis = tk.StringVar(value="Month")
         self.res_period_cb_vis = ttk.Combobox(
             row1_filters,
@@ -143,21 +136,22 @@ class AnalysisTab(ttk.Frame):
             width=10,
         )
         self.res_period_cb_vis.current(2)
-        self.res_period_cb_vis.pack(side="left", padx=(2, 10))
+        self.res_period_cb_vis.pack(side="left", padx=(5, 15))
         self.res_period_cb_vis.bind("<<ComboboxSelected>>", self.show_results_data)
 
-        row2_filters = ttk.Frame(filter_frame_res)
-        row2_filters.pack(fill="x", pady=2)
-        ttk.Label(row2_filters, text="Group:").pack(side="left")
+        row2_filters = ttk.Frame(filter_card, style="Card.TFrame")
+        row2_filters.pack(fill="x", pady=5)
+        ttk.Label(row2_filters, text="Group:", background="#FFFFFF").pack(side="left")
         self.res_group_var = tk.StringVar()
         self.res_group_cb = ttk.Combobox(
             row2_filters, textvariable=self.res_group_var, state="readonly", width=20
         )
-        self.res_group_cb.pack(side="left", padx=(2, 5))
+        self.res_group_cb.pack(side="left", padx=(5, 15))
         self.res_group_cb.bind(
             "<<ComboboxSelected>>", self.on_res_group_selected_refresh_results
         )
-        ttk.Label(row2_filters, text="Subgroup:").pack(side="left")
+        
+        ttk.Label(row2_filters, text="Subgroup:", background="#FFFFFF").pack(side="left")
         self.res_subgroup_var = tk.StringVar()
         self.res_subgroup_cb = ttk.Combobox(
             row2_filters,
@@ -165,38 +159,41 @@ class AnalysisTab(ttk.Frame):
             state="readonly",
             width=25,
         )
-        self.res_subgroup_cb.pack(side="left", padx=(2, 5))
+        self.res_subgroup_cb.pack(side="left", padx=(5, 15))
         self.res_subgroup_cb.bind(
             "<<ComboboxSelected>>", self.on_res_subgroup_selected_refresh_results
         )
-        ttk.Label(row2_filters, text="Indicator:").pack(side="left")
+        
+        ttk.Label(row2_filters, text="Indicator:", background="#FFFFFF").pack(side="left")
         self.res_indicator_cb = ttk.Combobox(
             row2_filters,
             textvariable=self.res_indicator_var,
             state="readonly",
             width=30,
         )
-        self.res_indicator_cb.pack(side="left", padx=(2, 10))
+        self.res_indicator_cb.pack(side="left", padx=(5, 15))
         self.res_indicator_cb.bind("<<ComboboxSelected>>", self.show_results_data)
+        
         ttk.Button(
             row2_filters,
             text="Update View",
             command=self.show_results_data,
-            style="Accent.TButton",
-        ).pack(side="left", padx=5)
+            style="Action.TButton",
+        ).pack(side="left", padx=15)
 
-        # --- PanedWindow for Table and Chart ---
+        # --- PanedWindow for Table and Chart (Wrapped in Card style if possible, or just frames) ---
+        # Note: PanedWindow background customization can be tricky. We'll use frames inside panes.
         self.results_paned_window = ttk.PanedWindow(
             results_main_container, orient=tk.VERTICAL
         )
-        self.results_paned_window.pack(fill="both", expand=True, pady=(10, 0))
+        self.results_paned_window.pack(fill="both", expand=True)
 
         # --- Table Frame (Top Pane) ---
-        table_frame = ttk.Frame(self.results_paned_window, height=200)
-        self.results_paned_window.add(table_frame, weight=1)
+        table_card = ttk.Frame(self.results_paned_window, style="Card.TFrame", padding=0) # Padding inside card
+        self.results_paned_window.add(table_card, weight=1)
 
         self.results_data_tree = ttk.Treeview(
-            table_frame, columns=("Period", "Target 1", "Target 2"), show="headings"
+            table_card, columns=("Period", "Target 1", "Target 2"), show="headings"
         )
         self.results_data_tree.heading("Period", text="Period")
         self.results_data_tree.heading("Target 1", text=self.target1_display_name)
@@ -206,27 +203,27 @@ class AnalysisTab(ttk.Frame):
         self.results_data_tree.column("Target 2", width=150, anchor="e", stretch=tk.YES)
 
         tree_scrollbar_y = ttk.Scrollbar(
-            table_frame, orient="vertical", command=self.results_data_tree.yview
+            table_card, orient="vertical", command=self.results_data_tree.yview
         )
         self.results_data_tree.configure(yscrollcommand=tree_scrollbar_y.set)
         tree_scrollbar_y.pack(side="right", fill="y")
         self.results_data_tree.pack(side="left", fill="both", expand=True)
 
         # --- Chart Frame (Bottom Pane) ---
-        chart_outer_frame = ttk.Frame(self.results_paned_window, height=300)
-        self.results_paned_window.add(chart_outer_frame, weight=2)
+        chart_card = ttk.Frame(self.results_paned_window, style="Card.TFrame", padding=10)
+        self.results_paned_window.add(chart_card, weight=2)
 
         self.fig_results = Figure(figsize=(8, 4), dpi=100)
         self.ax_results = self.fig_results.add_subplot(111)
 
         self.canvas_results_plot = FigureCanvasTkAgg(
-            self.fig_results, master=chart_outer_frame
+            self.fig_results, master=chart_card
         )
         self.canvas_results_plot.get_tk_widget().pack(
             side=tk.TOP, fill=tk.BOTH, expand=True
         )
 
-        toolbar_frame = ttk.Frame(chart_outer_frame)
+        toolbar_frame = ttk.Frame(chart_card, style="Card.TFrame")
         toolbar_frame.pack(side=tk.TOP, fill=tk.X)
         self.toolbar_results = NavigationToolbar2Tk(
             self.canvas_results_plot, toolbar_frame
@@ -238,7 +235,8 @@ class AnalysisTab(ttk.Frame):
         ttk.Label(
             results_main_container,
             textvariable=self.summary_label_var_vis,
-            font=("Calibri", 10, "italic"),
+            font=("Helvetica", 10, "italic"),
+            background="#F5F5F5" # Match content bg
         ).pack(pady=5, anchor="e", padx=10)
 
     def on_res_group_selected_refresh_results(self, event=None):
@@ -303,7 +301,9 @@ class AnalysisTab(ttk.Frame):
             self.show_results_data()
 
     def _populate_res_subgroups(
-        self, pre_selected_subgroup_raw_name=None, pre_selected_indicator_name=None
+        self,
+        pre_selected_subgroup_raw_name=None,
+        pre_selected_indicator_name=None,
     ):
         group_name = self.res_group_var.get()
         self.res_subgroup_cb["values"] = []
@@ -625,31 +625,36 @@ class AnalysisTab(ttk.Frame):
 
     # --- Global Dashboard (DashboardTab) ---
     def create_global_dashboard_view(self):
-        top_frame = ttk.Frame(self.content_frame)
-        top_frame.pack(fill="x", pady=10, padx=5)
+        # Filter Card
+        filter_card = ttk.Frame(self.content_frame, style="Card.TFrame", padding=15)
+        filter_card.pack(fill="x", padx=0, pady=(0, 15))
 
-        ttk.Label(top_frame, text="Year:").pack(side="left", padx=(0, 5))
+        ttk.Label(filter_card, text="Year:", background="#FFFFFF").pack(side="left", padx=(0, 5))
         self.dashboard_year_var = tk.StringVar()
-        self.dashboard_year_cb = ttk.Combobox(top_frame, textvariable=self.dashboard_year_var, state="readonly", width=10)
+        self.dashboard_year_cb = ttk.Combobox(filter_card, textvariable=self.dashboard_year_var, state="readonly", width=10)
         self.dashboard_year_cb.pack(side="left", padx=5)
         self.dashboard_year_cb.bind("<<ComboboxSelected>>", self.load_dashboard_data)
 
-        ttk.Label(top_frame, text="Detail Level:").pack(side="left", padx=(20, 5))
+        ttk.Label(filter_card, text="Detail Level:", background="#FFFFFF").pack(side="left", padx=(20, 5))
         self.dashboard_period_var = tk.StringVar()
-        self.dashboard_period_cb = ttk.Combobox(top_frame, textvariable=self.dashboard_period_var, state="readonly", width=15)
+        self.dashboard_period_cb = ttk.Combobox(filter_card, textvariable=self.dashboard_period_var, state="readonly", width=15)
         self.dashboard_period_cb["values"] = ["Year", "Quarter", "Month", "Week", "Day"]
         self.dashboard_period_cb.set("Month")
         self.dashboard_period_cb.pack(side="left", padx=5)
         self.dashboard_period_cb.bind("<<ComboboxSelected>>", self.load_dashboard_data)
 
-        self.main_canvas = tk.Canvas(self.content_frame)
-        self.main_canvas.pack(side="left", fill="both", expand=True)
+        # Content Card for Charts
+        content_card = ttk.Frame(self.content_frame, style="Card.TFrame")
+        content_card.pack(fill="both", expand=True)
 
-        self.scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=self.main_canvas.yview)
+        self.main_canvas = tk.Canvas(content_card, background="#FFFFFF", highlightthickness=0)
+        self.main_canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
+
+        self.scrollbar = ttk.Scrollbar(content_card, orient="vertical", command=self.main_canvas.yview)
         self.scrollbar.pack(side="right", fill="y")
 
         self.main_canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.scrollable_frame = ttk.Frame(self.main_canvas)
+        self.scrollable_frame = ttk.Frame(self.main_canvas, style="Card.TFrame") # Inner frame matches white canvas
 
         self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
 
@@ -657,103 +662,3 @@ class AnalysisTab(ttk.Frame):
 
         self.main_canvas.bind('<Enter>', self._bind_dashboard_mousewheel)
         self.main_canvas.bind('<Leave>', self._unbind_dashboard_mousewheel)
-
-    def populate_dashboard_comboboxes(self):
-        years = [str(y["year"]) for y in db_retriever.get_distinct_years()]
-        self.dashboard_year_cb["values"] = ["All"] + years
-        self.dashboard_year_var.set("All")
-        self.load_dashboard_data()
-
-    def get_plant_color(self, plant_name):
-        return db_retriever.get_plant_color_by_name(plant_name)
-
-    def load_dashboard_data(self, event=None):
-        for widget in self.scrollable_frame.winfo_children():
-            widget.destroy()
-
-        year_str = self.dashboard_year_var.get()
-        year = int(year_str) if year_str != "All" else None
-        period_type = self.dashboard_period_var.get()
-
-        try:
-            all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
-            if not all_kpis:
-                ttk.Label(self.scrollable_frame, text="No visible KPIs defined.").pack(pady=20)
-                return
-
-            for kpi in all_kpis:
-                kpi_id = kpi["id"]
-                kpi_display_name = get_kpi_display_name(kpi)
-                
-                chart_frame = ttk.LabelFrame(self.scrollable_frame, text=kpi_display_name, padding=10)
-                chart_frame.pack(fill="x", expand=True, padx=10, pady=10)
-
-                fig = Figure(figsize=(12, 6), dpi=100)
-                ax = fig.add_subplot(111)
-
-                kpi_data = db_retriever.get_periodic_targets_for_kpi_all_plants(kpi_id, period_type, year)
-                
-                if not kpi_data:
-                    ax.set_title(f"No data available for {kpi_display_name}")
-                    ax.text(0.5, 0.5, "No data", horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)
-                else:
-                    df = pd.DataFrame([dict(row) for row in kpi_data])
-
-                    # The 'period' column for 'Day' is already a sortable string 'YYYY-MM-DD'
-
-                    unique_periods = self._sort_periods(df['period'].unique(), period_type)
-
-                    period_to_idx = {period: i for i, period in enumerate(unique_periods)}
-
-                    for plant_name, plant_data in df.groupby('plant_name'):
-                        color = self.get_plant_color(plant_name)
-                        
-                        plant_data_sorted = plant_data.copy()
-                        
-                        # The 'period' column is already a string, no conversion needed.
-
-                        plant_data_sorted['period_idx'] = plant_data_sorted['period'].map(period_to_idx)
-                        
-                        # Drop rows where mapping failed (if any)
-                        plant_data_sorted.dropna(subset=['period_idx'], inplace=True)
-                        plant_data_sorted['period_idx'] = plant_data_sorted['period_idx'].astype(int)
-
-                        target1_data = plant_data_sorted[plant_data_sorted['target_number'] == 1]
-                        target2_data = plant_data_sorted[plant_data_sorted['target_number'] == 2]
-
-                        if not target1_data.empty:
-                            ax.plot(target1_data['period_idx'].values, target1_data['target_value'].values, marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
-                        if not target2_data.empty:
-                            ax.plot(target2_data['period_idx'].values, target2_data['target_value'].values, marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
-
-                    ax.set_title(f"{period_type} Trend - {kpi_display_name}")
-                    ax.set_xlabel(period_type)
-                    ax.set_ylabel("Value")
-                    
-                    if unique_periods:
-                        ax.set_xticks(range(len(unique_periods)))
-                        ax.set_xticklabels([self._format_period(p, period_type) for p in unique_periods], rotation=45, ha='right')
-                        if len(unique_periods) > 15:
-                            ax.xaxis.set_major_locator(mticker.MaxNLocator(15))
-                    
-                    ax.legend()
-
-                ax.grid(True)
-                fig.tight_layout()
-
-                canvas = FigureCanvasTkAgg(fig, master=chart_frame)
-                canvas.get_tk_widget().pack(fill="both", expand=True)
-                canvas.draw()
-
-        except Exception as e:
-            messagebox.showerror("Error Loading Data", f"Could not load dashboard data: {e}")
-            traceback.print_exc()
-
-    def _on_dashboard_mousewheel(self, event):
-        self.main_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-    def _bind_dashboard_mousewheel(self, event):
-        self.main_canvas.bind_all("<MouseWheel>", self._on_dashboard_mousewheel)
-
-    def _unbind_dashboard_mousewheel(self, event):
-        self.main_canvas.unbind_all("<MouseWheel>")

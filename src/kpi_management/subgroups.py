@@ -1,12 +1,12 @@
 # your_project_root/kpi_management/subgroups.py
 import sqlite3
 import traceback
-from src import app_config
+from src.config import settings as app_config
 from pathlib import Path
 
 # CALC_TYPE constants might be needed by _apply_template_indicator_to_new_subgroup
 # if it directly constructs kpis records.
-from src.app_config import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
+from src.config.settings import CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE
 
 # --- Module Availability Flags & Mock Definitions ---
 _data_retriever_available = False
@@ -163,7 +163,7 @@ def add_kpi_subgroup(name: str, group_id: int, indicator_template_id: int = None
     if subgroup_id and indicator_template_id and _data_retriever_available:
         print(f"  Applying template ID {indicator_template_id} to new subgroup ID {subgroup_id}...")
         try:
-            template_indicators = get_template_defined_indicators(indicator_template_id)
+            template_indicators = data_retriever.get_template_defined_indicators(indicator_template_id)
             if not template_indicators:
                 print(f"  Template ID {indicator_template_id} has no defined indicators to apply.")
             for ind_def in template_indicators:
@@ -212,7 +212,7 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
 
     current_subgroup_info_dict = None
     if _data_retriever_available:
-        current_subgroup_info = get_kpi_subgroup_by_id_with_template_name(subgroup_id)
+        current_subgroup_info = data_retriever.get_kpi_subgroup_by_id_with_template_name(subgroup_id)
         if current_subgroup_info:
             current_subgroup_info_dict = dict(current_subgroup_info)
         else:
@@ -267,7 +267,7 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
         # This is a complex interaction. The original _propagate handled this.
         if old_template_id is not None:
             print(f"    Processing removal of indicators from old template {old_template_id} (if not in new)...")
-            template_definitions = get_template_defined_indicators(old_template_id)
+            template_definitions = data_retriever.get_template_defined_indicators(old_template_id)
             for old_def_row in template_definitions:
                 old_def = dict(old_def_row)
                 # We need to check if this definition is ALSO in the new template.
@@ -275,7 +275,7 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
                 # If it's NOT in the new template, then it should be removed.
                 is_in_new_template = False
                 if new_template_id is not None:
-                    new_template_definitions_check = get_template_defined_indicators(new_template_id)
+                    new_template_definitions_check = data_retriever.get_template_defined_indicators(new_template_id)
                     for new_def_check_row in new_template_definitions_check:
                         if dict(new_def_check_row)['indicator_name_in_template'] == old_def['indicator_name_in_template']:
                             is_in_new_template = True
@@ -299,7 +299,7 @@ def update_kpi_subgroup(subgroup_id: int, new_name: str, group_id: int, new_temp
         # Using _apply_template_indicator_to_new_subgroup for direct application here.
         if new_template_id is not None:
             print(f"    Applying/Updating indicators from new template {new_template_id}...")
-            new_template_definitions = get_template_defined_indicators(new_template_id)
+            new_template_definitions = data_retriever.get_template_defined_indicators(new_template_id)
             if not new_template_definitions:
                  print(f"    New template ID {new_template_id} has no defined indicators.")
             for new_def_row in new_template_definitions:

@@ -4,7 +4,7 @@ import zipfile
 import io
 import traceback
 from pathlib import Path
-from app_config import get_database_path
+from src.config.settings import get_database_path
 
 def get_table_columns(cursor: sqlite3.Cursor, table_name: str) -> list[str]:
     """Fetches the column names for a given table."""

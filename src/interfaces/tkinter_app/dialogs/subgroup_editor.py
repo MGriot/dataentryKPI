@@ -1,11 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 
-import data_retriever as db_retriever
+from src import data_retriever as db_retriever
 
 class SubgroupEditorDialog(simpledialog.Dialog):
-    def __init__(self, parent, title=None, group_id_context=None, initial_name="", initial_template_id=None):
-        self.group_id = group_id_context
+    def __init__(self, parent, title=None, group_id=None, initial_name="", initial_template_id=None):
+        self.group_id = group_id
         self.initial_name = initial_name
         self.initial_template_id = initial_template_id
         self.result_name = None
@@ -38,6 +38,12 @@ class SubgroupEditorDialog(simpledialog.Dialog):
         self.result_name = self.name_var.get().strip()
         if not self.result_name:
             messagebox.showwarning("Missing Input", "The subgroup name is required.", parent=self)
-            self.result_name = None
+            self.result_data = None
             return
-        self.result_template_id = self.templates_map.get(self.template_var.get())
+        
+        # Populate result_data for the caller
+        self.result_data = {
+            "name": self.result_name,
+            "template_name": self.template_var.get(),
+            "template_id": self.templates_map.get(self.template_var.get())
+        }

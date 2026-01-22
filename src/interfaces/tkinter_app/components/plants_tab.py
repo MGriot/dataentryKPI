@@ -13,8 +13,16 @@ class PlantsTab(ttk.Frame):
         self.refresh_tree()
 
     def create_widgets(self):
+        # Main container with padding
+        main_frame = ttk.Frame(self, style="Content.TFrame")
+        main_frame.pack(fill="both", expand=True)
+
+        # --- Content Card ---
+        card_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=15)
+        card_frame.pack(fill="both", expand=True, padx=0, pady=0)
+
         self.st_tree = ttk.Treeview(
-            self,
+            card_frame,
             columns=("ID", "Name", "Description", "Visible", "Color"),
             show="headings",
         )
@@ -29,14 +37,19 @@ class PlantsTab(ttk.Frame):
         self.st_tree.heading("Color", text="Color")
         self.st_tree.column("Color", width=100, anchor="center", stretch=tk.NO)
 
+        # Add scrollbar
+        tree_scrollbar = ttk.Scrollbar(card_frame, orient="vertical", command=self.st_tree.yview)
+        self.st_tree.configure(yscrollcommand=tree_scrollbar.set)
+        tree_scrollbar.pack(side="right", fill="y")
         self.st_tree.pack(expand=True, fill="both", padx=5, pady=5)
 
-        bf_container = ttk.Frame(self)
+        # Button Frame
+        bf_container = ttk.Frame(card_frame, style="Card.TFrame")
         bf_container.pack(fill="x", pady=10)
-        bf = ttk.Frame(bf_container)
+        bf = ttk.Frame(bf_container, style="Card.TFrame")
         bf.pack()
 
-        ttk.Button(bf, text="Add", command=self.add_plant_window, style="Accent.TButton").pack(side="left", padx=5)
+        ttk.Button(bf, text="Add", command=self.add_plant_window, style="Action.TButton").pack(side="left", padx=5)
         ttk.Button(bf, text="Edit", command=self.edit_plant_window).pack(side="left", padx=5)
         ttk.Button(bf, text="Delete", command=self.delete_plant).pack(side="left", padx=5)
 

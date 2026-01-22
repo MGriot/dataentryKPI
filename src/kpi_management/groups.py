@@ -1,7 +1,7 @@
 # your_project_root/kpi_management/groups.py
 import sqlite3
 import traceback
-from src import app_config
+from src.config import settings as app_config
 from pathlib import Path
 
 # Function imports from other modules

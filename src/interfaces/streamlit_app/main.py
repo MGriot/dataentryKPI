@@ -7,12 +7,12 @@ src_path = Path(__file__).resolve().parents[3]
 if str(src_path) not in sys.path:
     sys.path.append(str(src_path))
 
-from src.db_core.setup import setup_databases
-from src.app_config import load_settings
+from src.data_access.setup import setup_databases
+from src.config.settings import load_settings
 
 # Import page modules
-from src.gui.app_streamlit.pages import target_entry
-from src.gui.app_streamlit.components import kpi_hierarchy, plants, kpi_templates, kpi_specs, master_sub_link, export, analysis, settings
+from src.interfaces.streamlit_app.pages import target_entry
+from src.interfaces.streamlit_app.components import kpi_hierarchy, plants, kpi_templates, kpi_specs, master_sub_link, export, analysis, settings
 
 st.set_page_config(
     page_title="KPI Target Management",

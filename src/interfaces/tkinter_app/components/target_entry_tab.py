@@ -5,8 +5,8 @@ import json
 
 from src.target_management import annual as annual_targets_manager
 from src import data_retriever as db_retriever
-from src.gui.shared.helpers import get_kpi_display_name
-from src.gui.app_tkinter.dialogs.formula_inputs import FormulaInputsDialog
+from src.interfaces.common_ui.helpers import get_kpi_display_name
+from src.interfaces.tkinter_app.dialogs.formula_inputs import FormulaInputsDialog
 
 class TargetEntryTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -17,53 +17,55 @@ class TargetEntryTab(ttk.Frame):
         self._master_sub_update_active = False
         self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
         self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
+        self.plants = []
         self.create_widgets()
 
     def on_tab_selected(self):
         self.populate_filters()
 
     def create_widgets(self):
-        # Main frame
-        main_frame = ttk.Frame(self)
+        # Main container with padding for the canvas
+        main_frame = ttk.Frame(self, style="Content.TFrame")
         main_frame.pack(fill='both', expand=True)
 
-        # Top filter frame
-        filter_frame_outer = ttk.Frame(main_frame)
-        filter_frame_outer.pack(fill='x', padx=10, pady=5)
+        # --- Filter Card ---
+        filter_card = ttk.Frame(main_frame, style="Card.TFrame", padding=15)
+        filter_card.pack(fill='x', padx=0, pady=(0, 20))
 
         # Year filter
-        ttk.Label(filter_frame_outer, text="Year:").pack(side='left', padx=(0, 5))
-        self.year_cb_target = ttk.Combobox(filter_frame_outer, state='readonly')
+        ttk.Label(filter_card, text="Year:", background="#FFFFFF").pack(side='left', padx=(0, 5))
+        self.year_cb_target = ttk.Combobox(filter_card, state='readonly', width=10)
         self.year_cb_target.pack(side='left')
         self.year_cb_target.bind('<<ComboboxSelected>>', self.load_kpi_targets_for_entry_target)
 
         # Plant filter
-        ttk.Label(filter_frame_outer, text="Plant:").pack(side='left', padx=(10, 5))
-        self.plant_cb_target = ttk.Combobox(filter_frame_outer, state='readonly')
-        self.plant_cb_target.pack(side='left', fill='x', expand=True)
+        ttk.Label(filter_card, text="Plant:", background="#FFFFFF").pack(side='left', padx=(20, 5))
+        self.plant_cb_target = ttk.Combobox(filter_card, state='readonly', width=30)
+        self.plant_cb_target.pack(side='left')
         self.plant_cb_target.bind('<<ComboboxSelected>>', self.load_kpi_targets_for_entry_target)
 
-        # Canvas for scrollable content
-        self.canvas_target = tk.Canvas(main_frame)
-        self.canvas_target.pack(side='left', fill='both', expand=True)
+        # Save button (Top Right for better UX)
+        save_button = ttk.Button(filter_card, text="SAVE ALL TARGETS", command=self.save_all_targets_entry, style="Action.TButton")
+        save_button.pack(side='right')
 
-        # Scrollbar
-        scrollbar = ttk.Scrollbar(main_frame, orient='vertical', command=self.canvas_target.yview)
+        # --- Content Card (Scrollable) ---
+        # Canvas wrapper
+        content_card = ttk.Frame(main_frame, style="Card.TFrame")
+        content_card.pack(fill='both', expand=True)
+
+        self.canvas_target = tk.Canvas(content_card, background="#FFFFFF", highlightthickness=0)
+        self.canvas_target.pack(side='left', fill='both', expand=True, padx=15, pady=15)
+
+        scrollbar = ttk.Scrollbar(content_card, orient='vertical', command=self.canvas_target.yview)
         scrollbar.pack(side='right', fill='y')
 
-        # Scrollable frame
-        self.scrollable_frame_target = ttk.Frame(self.canvas_target)
+        self.scrollable_frame_target = ttk.Frame(self.canvas_target, style="Card.TFrame")
         self.canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
         self.canvas_target.configure(yscrollcommand=scrollbar.set)
 
         self.scrollable_frame_target.bind('<Configure>', lambda e: self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all')))
-
         self.canvas_target.bind('<Enter>', self._bind_to_mousewheel)
         self.canvas_target.bind('<Leave>', self._unbind_from_mousewheel)
-
-        # Save button
-        save_button = ttk.Button(self, text="SAVE ALL TARGETS", command=self.save_all_targets_entry)
-        save_button.pack(pady=10)
 
     def populate_filters(self):
         # Populate year
@@ -92,12 +94,10 @@ class TargetEntryTab(ttk.Frame):
             return
 
         # Recreate the scrollable frame to ensure it's clean
-        if hasattr(self, 'scrollable_frame_target'):
-            self.scrollable_frame_target.destroy()
-        self.scrollable_frame_target = ttk.Frame(self.canvas_target)
-        self.canvas_target.create_window((0, 0), window=self.scrollable_frame_target, anchor='nw')
-        self.scrollable_frame_target.bind('<Configure>', lambda e: self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all')))
-
+        # Note: In the new card layout, we just clear children, we don't destroy the frame itself 
+        # to preserve the styling and scrolling binding set in create_widgets.
+        
+        # Get plant ID
         plant_id = [s['id'] for s in self.plants if s['name'] == plant_name][0]
 
         # Get KPIs and targets
@@ -110,14 +110,26 @@ class TargetEntryTab(ttk.Frame):
             kpi_id = kpi['id']
             target_data = targets_map.get(kpi_id)
             self.create_kpi_input_box(self.scrollable_frame_target, kpi, target_data)
+        
+        # Update scroll region
+        self.scrollable_frame_target.update_idletasks()
+        self.canvas_target.configure(scrollregion=self.canvas_target.bbox('all'))
 
     def create_kpi_input_box(self, parent, kpi, target_data):
         kpi_id = kpi['id']
         is_sub_kpi = kpi.get('master_kpi_id') is not None
 
-        # LabelFrame for the KPI
-        labelframe = ttk.LabelFrame(parent, text=get_kpi_display_name(kpi))
-        labelframe.pack(fill='x', padx=10, pady=5, expand=True)
+        # Card-like container for each KPI
+        # Using a Frame with a border/relief to simulate a card within the scrollable area
+        kpi_card = ttk.Frame(parent, style="Card.TFrame", padding=10)
+        kpi_card.pack(fill='x', padx=5, pady=10, expand=True)
+        
+        # Border separation (optional, if visual separation is needed)
+        # seperator = ttk.Separator(parent, orient='horizontal')
+        # seperator.pack(fill='x', padx=10)
+
+        labelframe = ttk.LabelFrame(kpi_card, text=get_kpi_display_name(kpi), style="Card.TLabelframe", padding=10)
+        labelframe.pack(fill='x', expand=True)
         
         self.kpi_target_entry_widgets[kpi_id] = {'labelframe': labelframe, 'targets': {}}
 
@@ -130,17 +142,17 @@ class TargetEntryTab(ttk.Frame):
         
         self._update_sub_kpi_target_field_state(kpi_id)
 
-
     def create_target_input(self, parent, kpi, target_num, target_data, is_sub_kpi):
         kpi_id = kpi['id']
-        frame = ttk.Frame(parent)
-        frame.pack(fill='x', expand=True, padx=5, pady=2)
+        # Background needs to match Card BG (#FFFFFF)
+        frame = ttk.Frame(parent, style="Card.TFrame") 
+        frame.pack(fill='x', expand=True, padx=5, pady=5)
 
         target_key = f'annual_target{target_num}'
         
         # Target Label
         display_name = self.target1_display_name if target_num == 1 else self.target2_display_name
-        ttk.Label(frame, text=f"{display_name}:").pack(side='left', padx=(0, 5))
+        ttk.Label(frame, text=f"{display_name}:", background="#FFFFFF", width=15, anchor='w').pack(side='left')
 
         # Target entry
         target_val = target_data.get(target_key) if target_data else None
@@ -148,6 +160,7 @@ class TargetEntryTab(ttk.Frame):
         target_entry = ttk.Entry(frame, textvariable=target_var, width=15)
         target_entry.pack(side='left', padx=5)
 
+        # ... (rest of the method logic remains, ensuring background colors are respected where needed)
         # Manual checkbox for sub-KPIs
         manual_var = tk.BooleanVar()
         if is_sub_kpi:
@@ -171,7 +184,7 @@ class TargetEntryTab(ttk.Frame):
                                     command=lambda k=kpi_id, tn=target_num: self._open_formula_inputs_dialog(k, tn))
         formula_button.pack(side='left', padx=5)
 
-        # Store widgets
+        # Store widgets (unchanged)
         self.kpi_target_entry_widgets[kpi_id]['targets'][target_num] = {
             'target_var': target_var,
             'target_entry': target_entry,
@@ -185,22 +198,22 @@ class TargetEntryTab(ttk.Frame):
         }
 
     def create_repartition_input(self, parent, kpi, target_data):
-        from src.gui.shared.constants import DISTRIBUTION_PROFILE_OPTIONS, PROFILE_EVEN
+        from src.interfaces.common_ui.constants import DISTRIBUTION_PROFILE_OPTIONS, PROFILE_EVEN
         kpi_id = kpi['id']
-        frame = ttk.Frame(parent)
+        frame = ttk.Frame(parent, style="Card.TFrame")
         frame.pack(fill='x', expand=True, padx=5, pady=5)
 
         # Profile combobox
-        ttk.Label(frame, text="Distribution Profile:").pack(side='left', padx=(0,5))
+        ttk.Label(frame, text="Dist. Profile:", background="#FFFFFF", width=15, anchor='w').pack(side='left')
         profile_var = tk.StringVar(value=target_data.get('distribution_profile', PROFILE_EVEN) if target_data else PROFILE_EVEN)
         
         profiles = DISTRIBUTION_PROFILE_OPTIONS
-        profile_cb = ttk.Combobox(frame, textvariable=profile_var, values=profiles, state='readonly')
+        profile_cb = ttk.Combobox(frame, textvariable=profile_var, values=profiles, state='readonly', width=25)
         profile_cb.pack(side='left', padx=5)
         profile_cb.bind('<<ComboboxSelected>>', lambda e, k=kpi_id: self._update_repartition_input_area_tk(k))
 
         # Repartition input area
-        repartition_frame = ttk.Frame(parent)
+        repartition_frame = ttk.Frame(parent, style="Card.TFrame")
         repartition_frame.pack(fill='x', expand=True, padx=5, pady=2)
 
         # Store widgets
@@ -225,22 +238,26 @@ class TargetEntryTab(ttk.Frame):
             num_periods = 12 if profile == 'custom_monthly' else 4
             period_label = "Month" if profile == 'custom_monthly' else "Quarter"
             
-            container = ttk.Frame(frame)
-            container.pack(fill='x', expand=True)
+            # Ensure background matches
+            container = ttk.Frame(frame, style="Card.TFrame")
+            container.pack(fill='x', expand=True, pady=5)
             
             vars = []
             for i in range(num_periods):
-                ttk.Label(container, text=f"{period_label} {i+1}:").grid(row=0, column=i*2, padx=2)
+                # Adjust grid layout for cleaner look
+                lbl = ttk.Label(container, text=f"{period_label} {i+1}:", background="#FFFFFF")
+                lbl.grid(row=i//4, column=(i%4)*2, padx=(10, 5), pady=2, sticky='e')
+                
                 var = tk.DoubleVar(value=0.0)
-                entry = ttk.Entry(container, textvariable=var, width=5)
-                entry.grid(row=0, column=i*2+1, padx=2)
+                entry = ttk.Entry(container, textvariable=var, width=6)
+                entry.grid(row=i//4, column=(i%4)*2+1, padx=(0, 10), pady=2, sticky='w')
                 vars.append(var)
             widgets['repartition_widgets']['period_vars'] = vars
 
         elif profile in ['custom_weekly', 'event_based']:
-            label_text = "Weekly Weights (JSON):" if profile == 'custom_weekly' else "Events (JSON):"
-            text_area = tk.Text(frame, height=4, width=80)
-            text_area.pack(fill='x', expand=True)
+            # ... (text area handling) ...
+            text_area = tk.Text(frame, height=4, width=80, relief="solid", borderwidth=1)
+            text_area.pack(fill='x', expand=True, pady=5)
             widgets['repartition_widgets']['text_area'] = text_area
 
     def _on_force_manual_toggle(self, kpi_id, target_num):

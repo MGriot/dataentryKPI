@@ -1,8 +1,8 @@
 import sqlite3
 import traceback
 
-from src import app_config
-from src.db_core.utils import get_database_path
+from src.config import settings as app_config
+from src.config.settings import get_database_path
 
 def _get_db_kpis_path():
     return get_database_path('db_kpis.db')

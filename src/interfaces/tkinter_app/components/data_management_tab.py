@@ -4,7 +4,7 @@ import traceback
 
 from src import export_manager
 from src import import_manager
-from src.app_config import CSV_EXPORT_BASE_PATH
+from src.config.settings import CSV_EXPORT_BASE_PATH
 
 class DataManagementTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -13,22 +13,22 @@ class DataManagementTab(ttk.Frame):
         self.create_widgets()
 
     def create_widgets(self):
-        main_frame = ttk.Frame(self, padding=20)
+        main_frame = ttk.Frame(self, padding=20, style="Content.TFrame")
         main_frame.pack(expand=True, fill="both")
 
-        ttk.Label(main_frame, text="Data Management", font=("TkDefaultFont", 16, "bold")).pack(pady=(0, 20))
+        ttk.Label(main_frame, text="Data Management", font=("Helvetica", 16, "bold"), background="#F5F5F5").pack(pady=(0, 20))
 
-        backup_frame = ttk.LabelFrame(main_frame, text="Backup", padding=15)
+        backup_frame = ttk.LabelFrame(main_frame, text="Backup", padding=15, style="Card.TLabelframe")
         backup_frame.pack(fill="x", expand=True, pady=10)
 
-        ttk.Button(backup_frame, text="Create Backup (ZIP)", command=self.create_backup).pack(pady=10, ipadx=10, ipady=5)
-        ttk.Label(backup_frame, text="Export all data (KPIs, plants, targets) into a single ZIP file.", wraplength=400).pack(pady=(0,10))
+        ttk.Button(backup_frame, text="Create Backup (ZIP)", command=self.create_backup, style="Action.TButton").pack(pady=10, ipadx=10, ipady=5)
+        ttk.Label(backup_frame, text="Export all data (KPIs, plants, targets) into a single ZIP file.", wraplength=400, background="#FFFFFF").pack(pady=(0,10))
 
-        restore_frame = ttk.LabelFrame(main_frame, text="Restore", padding=15)
+        restore_frame = ttk.LabelFrame(main_frame, text="Restore", padding=15, style="Card.TLabelframe")
         restore_frame.pack(fill="x", expand=True, pady=10)
 
-        ttk.Button(restore_frame, text="Restore from Backup (ZIP)", command=self.restore_backup).pack(pady=10, ipadx=10, ipady=5)
-        ttk.Label(restore_frame, text="Restore data from a ZIP file. WARNING: This operation will overwrite existing data.", wraplength=400).pack(pady=(0,10))
+        ttk.Button(restore_frame, text="Restore from Backup (ZIP)", command=self.restore_backup, style="Action.TButton").pack(pady=10, ipadx=10, ipady=5)
+        ttk.Label(restore_frame, text="Restore data from a ZIP file. WARNING: This operation will overwrite existing data.", wraplength=400, background="#FFFFFF").pack(pady=(0,10))
 
     def create_backup(self):
         try:

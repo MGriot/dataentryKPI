@@ -7,8 +7,8 @@ import traceback
 from pathlib import Path
 
 # Import app_config for dynamic database paths
-from src import app_config
-from src.db_core.utils import get_database_path
+from src.config import settings as app_config
+from src.config.settings import get_database_path
 from src.kpi_management import visibility as kpi_visibility
 
 
