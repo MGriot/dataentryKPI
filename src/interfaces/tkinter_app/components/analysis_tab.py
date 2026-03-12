@@ -718,6 +718,20 @@ class AnalysisTab(ttk.Frame):
             messagebox.showerror("Error", f"Unexpected error: {e}")
 
     # --- Global Dashboard (DashboardTab) ---
+    def _format_period(self, period_str, period_type):
+        if not period_str: return ""
+        if period_type == 'Day':
+            try:
+                dt = datetime.datetime.strptime(period_str, '%Y-%m-%d')
+                return dt.strftime('%d/%m/%y')
+            except:
+                return period_str
+        return period_str
+
+    def _on_canvas_configure(self, event):
+        # Update width of scrollable frame to match canvas
+        self.main_canvas.itemconfig(self.canvas_window, width=event.width)
+
     def create_global_dashboard_view(self):
         # Filter Card
         filter_card = ttk.Frame(self.content_frame, style="Card.TFrame", padding=15)
