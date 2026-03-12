@@ -269,6 +269,7 @@ def get_all_kpis_detailed(only_visible=False, plant_id: int = None, group_id: in
     query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
                       k.indicator_id, i.id as actual_indicator_id,
                       k.description, k.calculation_type, k.unit_of_measure, k.visible,
+                      k.formula_json, k.formula_string, k.is_calculated, k.default_distribution_profile,
                       sg.id as subgroup_id, sg.indicator_template_id
                FROM kpis k
                JOIN kpi_indicators i ON k.indicator_id = i.id
@@ -315,7 +316,9 @@ def get_kpi_detailed_by_id(kpi_spec_id: int, plant_id: int = None): # -> dict or
             conn_kpis.row_factory = sqlite3.Row
             query = """SELECT k.id, g.name as group_name, sg.name as subgroup_name, i.name as indicator_name,
                               i.id as actual_indicator_id, k.indicator_id, k.description, k.calculation_type,
-                              k.unit_of_measure, k.visible, sg.id as subgroup_id, sg.indicator_template_id
+                              k.unit_of_measure, k.visible, k.formula_json, k.formula_string,
+                              k.is_calculated, k.default_distribution_profile,
+                              sg.id as subgroup_id, sg.indicator_template_id
                        FROM kpis k JOIN kpi_indicators i ON k.indicator_id = i.id
                        JOIN kpi_subgroups sg ON i.subgroup_id = sg.id JOIN kpi_groups g ON sg.group_id = g.id
                        WHERE k.id = ?"""

@@ -100,6 +100,17 @@ class KpiApp(tk.Tk):
         style.configure("Card.TLabelframe", background=bg_white, relief="flat", borderwidth=1)
         style.configure("Card.TLabelframe.Label", background=bg_white, foreground=text_dark, font=heading_font)
 
+        # Specialty Labelframes for KPI States
+        style.configure("Formula.TLabelframe", background="#E3F2FD", borderwidth=1) # Light Blue
+        style.configure("Formula.TLabelframe.Label", background="#E3F2FD", foreground=text_dark, font=heading_font)
+        
+        style.configure("Formula.TFrame", background="#E3F2FD")
+        
+        style.configure("Manual.TLabelframe", background=bg_white, borderwidth=1)
+        style.configure("Manual.TLabelframe.Label", background=bg_white, foreground=text_dark, font=heading_font)
+        
+        style.configure("Manual.TFrame", background=bg_white)
+
         # Input Fields
         style.configure("TEntry", fieldbackground=bg_white, borderwidth=1, relief="solid")
         style.configure("TCombobox", fieldbackground=bg_white, background=bg_white)

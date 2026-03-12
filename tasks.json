@@ -1,0 +1,107 @@
+[
+  {
+    "id": "TASK-001",
+    "title": "Architectural Analysis & Dependency Check",
+    "description": "Perform a dependency check on the current Repository to ensure the new 'Calculated' fields don't conflict with existing reporting queries and ensure the Tkinter mainloop remains responsive.",
+    "status": "done",
+    "verification_method": "Report summarizing dependencies and responsiveness strategy."
+  },
+  {
+    "id": "TASK-002",
+    "title": "Database Evolution: Global KPI Splits Table",
+    "description": "Create 'global_kpi_splits' table in 'db_kpi_templates.db' to store standardized distribution templates.",
+    "status": "done",
+    "verification_method": "Verify table existence and schema in db_kpi_templates.db."
+  },
+  {
+    "id": "TASK-003",
+    "title": "Database Evolution: Add Global Split Reference to Annual Targets",
+    "description": "Add 'global_split_id' column to 'annual_targets' in 'db_kpi_targets.db' as a non-destructive update.",
+    "status": "done",
+    "verification_method": "Verify column existence in annual_targets table."
+  },
+  {
+    "id": "TASK-004",
+    "title": "Standardized Splits: Implement Global Split CRUD",
+    "description": "Create service/logic to manage Global Annual Splits templates.",
+    "status": "done",
+    "verification_method": "Unit tests for CRUD operations."
+  },
+  {
+    "id": "TASK-005",
+    "title": "Standardized Splits: Refactor Repartition Logic",
+    "description": "Refactor repartition.py to prioritize Global Annual Splits templates.",
+    "status": "done",
+    "verification_method": "Automated tests verifying distribution totals match previous logic."
+  },
+  {
+    "id": "TASK-006",
+    "title": "Node Engine: Define Serialization Schema",
+    "description": "Define the JSON schema for serializing KPI calculation nodes and edges.",
+    "status": "done",
+    "verification_method": "Schema documentation and sample JSON validation."
+  },
+  {
+    "id": "TASK-007",
+    "title": "Node Engine: Visual Editor Implementation (Tkinter)",
+    "description": "Implement a custom Tkinter canvas for visual node editing of KPI formulas.",
+    "status": "done",
+    "verification_method": "Manual verification of node creation, linking, and serialization in UI."
+  },
+  {
+    "id": "TASK-008",
+    "title": "Node Engine: Integration with Annual Target Evaluation",
+    "description": "Integrate the node-based formula results into the annual.py evaluation logic.",
+    "status": "done",
+    "verification_method": "Verify calculated targets match expected node results."
+  },
+  {
+    "id": "TASK-009",
+    "title": "Smart Data Entry: Hierarchical UI Refactor",
+    "description": "Reorganize TargetEntryTab to group KPIs by Group/Subgroup using collapsible Frames/Treeview.",
+    "status": "done",
+    "verification_method": "Manual UI check for hierarchical organization."
+  },
+  {
+    "id": "TASK-010",
+    "title": "Smart Data Entry: Auto-population & Visual Feedback",
+    "description": "Implement auto-population of calculated KPIs and color-coding (light blue for calculated, white for manual).",
+    "status": "done",
+    "verification_method": "Manual UI check for colors and auto-updates."
+  },
+  {
+    "id": "TASK-011",
+    "title": "Smart Data Entry: Manual Override & Priority Logic",
+    "description": "Ensure manual entries take priority over calculated values and persist correctly.",
+    "status": "done",
+    "verification_method": "Verify manual values are saved and prioritized in calculations."
+  },
+  {
+    "id": "TASK-012",
+    "title": "Validation Layer: Circular Dependency & Integrity Checks",
+    "description": "Implement checks for circular dependencies in node-based formulas and data integrity validation.",
+    "status": "done",
+    "verification_method": "Unit tests for circular dependency detection."
+  },
+  {
+    "id": "TASK-013",
+    "title": "Node Editor: Role-Based Sockets & Dynamic Connections",
+    "description": "Refactor node editor to support dynamic input sockets and role-based handles (e.g. Numerator/Denominator).",
+    "status": "done",
+    "verification_method": "Manual verification of connections and labels in UI."
+  },
+  {
+    "id": "TASK-014",
+    "title": "Architecture: Standardized KPI Formulas & Centralized Distribution",
+    "description": "Move formulas and distribution profiles from annual_targets to centralized KPI definitions.",
+    "status": "done",
+    "verification_method": "Verify formula persistence in kpis table and usage in repartition logic."
+  },
+  {
+    "id": "TASK-015",
+    "title": "UI: Modernized Target Entry with Manual Override",
+    "description": "Refactor Target Entry UI for side-by-side layout and implement forced manual overrides for calculated KPIs.",
+    "status": "done",
+    "verification_method": "Manual UI check for layout and live refresh behavior."
+  }
+]

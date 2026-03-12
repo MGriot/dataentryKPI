@@ -15,27 +15,14 @@ def add_kpi_spec(
     calculation_type: str,
     unit_of_measure: str,
     visible: bool,
+    formula_json: str = None,
+    formula_string: str = None,
+    is_calculated: bool = False,
+    default_distribution_profile: str = None,
 ) -> int:
     """
     Adds a new KPI specification (a record in the 'kpis' table).
     If a spec for the given indicator_id already exists, it attempts to update it.
-
-    Args:
-        indicator_id (int): The ID from the 'kpi_indicators' table this spec is for. Must be unique in 'kpis'.
-        description (str): Description of the KPI.
-        calculation_type (str): How the KPI is calculated (e.g., 'Incremental', 'Average').
-                                Must match one of the allowed types.
-        unit_of_measure (str): The unit of measure for this KPI.
-        visible (bool): Whether this KPI spec is visible by default.
-
-    Returns:
-        int: The ID of the newly created or updated KPI specification (kpis.id).
-
-    Raises:
-        ValueError: If calculation_type is not one of the allowed types.
-        sqlite3.IntegrityError: If indicator_id does not exist in 'kpi_indicators' (FOREIGN KEY constraint),
-                                or for other integrity issues not related to indicator_id uniqueness.
-        Exception: For other database errors.
     """
     db_kpis_path = app_config.get_database_path("db_kpis.db")
     if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
@@ -53,226 +40,120 @@ def add_kpi_spec(
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO kpis (indicator_id, description, calculation_type, unit_of_measure, visible)
-                   VALUES (?, ?, ?, ?, ?)""",
+                """INSERT INTO kpis (indicator_id, description, calculation_type, unit_of_measure, visible, formula_json, formula_string, is_calculated, default_distribution_profile)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     indicator_id,
                     description,
                     calculation_type,
                     unit_of_measure,
                     1 if visible else 0,
+                    formula_json,
+                    formula_string,
+                    1 if is_calculated else 0,
+                    default_distribution_profile,
                 ),
             )
-            print(f"DEBUG: Attempting to commit add_kpi_spec for indicator_id {indicator_id}...")
             conn.commit()
             kpi_spec_id = cursor.lastrowid
-            print(
-                f"INFO: KPI Spec for indicator_id {indicator_id} added successfully with kpis.id: {kpi_spec_id}. Commit successful."
-            )
             return kpi_spec_id
         except sqlite3.IntegrityError as e:
             if "UNIQUE constraint failed: kpis.indicator_id" in str(e):
                 # Spec for this indicator_id already exists, attempt to update it.
-                print(
-                    f"INFO: KPI Spec for indicator_id {indicator_id} already exists. Attempting to update."
-                )
-                try:
-                    # The transaction is implicitly rolled back on error, so we can issue new commands.
-                    cursor = conn.cursor()
-                    
-                    # Get the existing kpis.id
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM kpis WHERE indicator_id=?", (indicator_id,))
+                existing_kpi_row = cursor.fetchone()
+                if existing_kpi_row:
+                    existing_kpi_spec_id = existing_kpi_row[0]
                     cursor.execute(
-                        "SELECT id FROM kpis WHERE indicator_id=?", (indicator_id,)
+                        """UPDATE kpis SET description=?, calculation_type=?,
+                           unit_of_measure=?, visible=?, formula_json=?, formula_string=?, is_calculated=?, default_distribution_profile=? WHERE id=?""",
+                        (
+                            description,
+                            calculation_type,
+                            unit_of_measure,
+                            1 if visible else 0,
+                            formula_json,
+                            formula_string,
+                            1 if is_calculated else 0,
+                            default_distribution_profile,
+                            existing_kpi_spec_id,
+                        ),
                     )
-                    existing_kpi_row = cursor.fetchone()
-                    
-                    if existing_kpi_row:
-                        existing_kpi_spec_id = existing_kpi_row[0]
-                        print(
-                            f"  Found existing kpis.id: {existing_kpi_spec_id}. Updating within the same connection..."
-                        )
-                        # Perform the update directly using the existing connection 'conn'
-                        cursor.execute(
-                            """UPDATE kpis SET description=?, calculation_type=?,
-                               unit_of_measure=?, visible=? WHERE id=?""",
-                            (
-                                description,
-                                calculation_type,
-                                unit_of_measure,
-                                1 if visible else 0,
-                                existing_kpi_spec_id,
-                            ),
-                        )
-                        print(f"DEBUG: Attempting to commit update (from add_kpi_spec) for kpis.id {existing_kpi_spec_id}...")
-                        conn.commit()
-                        print(f"  SUCCESS: KPI Spec with kpis.id {existing_kpi_spec_id} updated. Commit successful.")
-                        return existing_kpi_spec_id
-                    else:
-                        # This state (UNIQUE error but no row found) should be rare.
-                        print(
-                            f"ERROR: UNIQUE constraint for indicator_id {indicator_id} failed, "
-                            "but could not find the existing kpi_spec to update. This is unexpected."
-                        )
-                        raise # Re-raise the original integrity error
-                except sqlite3.Error as e_update:
-                    print(f"ERROR: Database error while attempting to update existing KPI Spec for indicator_id {indicator_id}. Details: {e_update}")
-                    raise Exception(f"Failed to update existing KPI Spec for indicator_id {indicator_id}.") from e_update
-            elif "FOREIGN KEY constraint failed" in str(e):
-                print(
-                    f"ERROR: Could not add KPI Spec. Indicator ID {indicator_id} "
-                    f"does not exist in 'kpi_indicators' table. Details: {e}"
-                )
+                    conn.commit()
+                    return existing_kpi_spec_id
                 raise
-            else:
-                print(
-                    f"ERROR: IntegrityError while adding KPI Spec for indicator_id {indicator_id}. Details: {e}"
-                )
-                raise
-        except sqlite3.Error as e_general:
-            print(
-                f"ERROR: Database error while adding KPI Spec for indicator_id {indicator_id}. Details: {e_general}"
-            )
-            print(traceback.format_exc())
-            raise Exception(
-                f"A database error occurred while adding KPI Spec for indicator_id {indicator_id}."
-            ) from e_general
-
+            raise
 
 def update_kpi_spec(
-    kpi_spec_id: int,  # This is kpis.id
-    indicator_id: int,  # This is kpi_indicators.id
+    kpi_spec_id: int,
+    indicator_id: int,
     description: str,
     calculation_type: str,
     unit_of_measure: str,
     visible: bool,
+    formula_json: str = None,
+    formula_string: str = None,
+    is_calculated: bool = False,
+    default_distribution_profile: str = None,
 ):
-    """
-    Updates an existing KPI specification.
-
-    Args:
-        kpi_spec_id (int): The ID of the KPI specification (from kpis.id) to update.
-        indicator_id (int): The ID from 'kpi_indicators' this spec refers to.
-                            This is usually not changed but included for completeness and uniqueness.
-        description (str): New description.
-        calculation_type (str): New calculation type.
-        unit_of_measure (str): New unit of measure.
-        visible (bool): New visibility state.
-
-    Raises:
-        ValueError: If calculation_type is not one of the allowed types.
-        sqlite3.IntegrityError: If indicator_id constraint violations occur (e.g., trying to change
-                                indicator_id to one that already has a spec, or FK violation).
-        Exception: If kpi_spec_id does not exist or for other database errors.
-    """
+    """Updates an existing KPI specification."""
     db_kpis_path = app_config.get_database_path("db_kpis.db")
-    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
-        raise ConnectionError(
-            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot update KPI spec."
-        )
-
-    allowed_calc_types = [CALC_TYPE_INCREMENTAL, CALC_TYPE_AVERAGE]
-    if calculation_type not in allowed_calc_types:
-        msg = f"Invalid calculation_type: '{calculation_type}'. Must be one of {allowed_calc_types}."
-        print(f"ERROR: {msg}")
-        raise ValueError(msg)
-
     with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
-            # The indicator_id in the kpis table is UNIQUE.
-            # If you are trying to change it, it must not conflict with an existing one.
             cursor.execute(
                 """UPDATE kpis SET indicator_id=?, description=?, calculation_type=?,
-                   unit_of_measure=?, visible=? WHERE id=?""",
+                   unit_of_measure=?, visible=?, formula_json=?, formula_string=?, is_calculated=?, default_distribution_profile=? WHERE id=?""",
                 (
                     indicator_id,
                     description,
                     calculation_type,
                     unit_of_measure,
                     1 if visible else 0,
+                    formula_json,
+                    formula_string,
+                    1 if is_calculated else 0,
+                    default_distribution_profile,
                     kpi_spec_id,
                 ),
             )
-            print(f"DEBUG: Attempting to commit update_kpi_spec for kpis.id {kpi_spec_id}...")
             conn.commit()
-            print(f"DEBUG: cursor.rowcount after commit: {cursor.rowcount}")
-            if cursor.rowcount == 0:
-                print(
-                    f"WARNING: No KPI Spec found with kpis.id {kpi_spec_id}. Update had no effect."
-                )
-                # Consider raising ValueError if updating non-existent spec is critical
-            else:
-                print(
-                    f"INFO: KPI Spec with kpis.id {kpi_spec_id} updated successfully. Commit successful."
-                )
-        except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed: kpis.indicator_id" in str(e):
-                print(
-                    f"ERROR: Could not update KPI Spec {kpi_spec_id}. "
-                    f"The indicator_id {indicator_id} is already linked to another KPI Spec. Details: {e}"
-                )
-            elif "FOREIGN KEY constraint failed" in str(e):
-                print(
-                    f"ERROR: Could not update KPI Spec {kpi_spec_id}. "
-                    f"The indicator_id {indicator_id} does not exist in 'kpi_indicators'. Details: {e}"
-                )
-            else:
-                print(
-                    f"ERROR: IntegrityError while updating KPI Spec {kpi_spec_id}. Details: {e}"
-                )
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while updating KPI Spec {kpi_spec_id}: {e}")
             raise
-        except sqlite3.Error as e_general:
-            print(
-                f"ERROR: Database error while updating KPI Spec {kpi_spec_id}. Details: {e_general}"
-            )
-            print(traceback.format_exc())
-            raise Exception(
-                f"A database error occurred while updating KPI Spec {kpi_spec_id}."
-            ) from e_general
-
 
 def get_kpi_spec_by_indicator_id(indicator_id: int) -> dict | None:
-    """
-    Retrieves a KPI specification by its associated indicator ID.
-
-    Args:
-        indicator_id (int): The ID of the KPI indicator.
-
-    Returns:
-        dict | None: A dictionary containing the KPI specification details
-                     (id, indicator_id, description, calculation_type, unit_of_measure, visible)
-                     or None if no specification is found for the given indicator ID.
-    Raises:
-        Exception: For database errors.
-    """
+    """Retrieves a KPI specification by its associated indicator ID."""
     db_kpis_path = app_config.get_database_path("db_kpis.db")
-    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
-        raise ConnectionError(
-            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot retrieve KPI spec."
-        )
-
     with sqlite3.connect(db_kpis_path) as conn:
-        conn.row_factory = sqlite3.Row # This allows accessing columns by name
+        conn.row_factory = sqlite3.Row
         try:
             cursor = conn.cursor()
             cursor.execute(
-                """SELECT id, indicator_id, description, calculation_type, unit_of_measure, visible
+                """SELECT id, indicator_id, description, calculation_type, unit_of_measure, visible, formula_json, formula_string, is_calculated, default_distribution_profile
                    FROM kpis WHERE indicator_id = ?""",
                 (indicator_id,),
             )
             row = cursor.fetchone()
             if row:
-                # Convert sqlite3.Row to a dictionary
                 spec_data = dict(row)
-                # Convert visible from int (0 or 1) to boolean
+                spec_data["visible"] = bool(spec_data["visible"])
+                spec_data["is_calculated"] = bool(spec_data["is_calculated"])
+                return spec_data
+            return None
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while retrieving KPI Spec: {e}")
+            raise
+            row = cursor.fetchone()
+            if row:
+                spec_data = dict(row)
                 spec_data["visible"] = bool(spec_data["visible"])
                 return spec_data
-            else:
-                return None
+            return None
         except sqlite3.Error as e:
-            print(f"ERROR: Database error while retrieving KPI Spec for indicator_id {indicator_id}. Details: {e}")
-            print(traceback.format_exc())
-            raise Exception(f"A database error occurred while retrieving KPI Spec for indicator_id {indicator_id}.") from e
+            print(f"ERROR: Database error while retrieving KPI Spec: {e}")
+            raise
 
 
 # Note: Deletion of a KPI Specification (kpis record) is typically handled

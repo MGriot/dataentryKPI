@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox, simpledialog
 from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
 from src import data_retriever
 from src.kpi_management import visibility as kpi_visibility
+from src.gui.node_editor import NodeEditorDialog
 
 class IndicatorSpecEditorDialog(simpledialog.Dialog):
     def __init__(self, parent, title=None, initial_indicator_name="", initial_spec_data=None):
@@ -50,9 +51,35 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         self.visible_chk = ttk.Checkbutton(master, variable=self.visible_var)
         self.visible_chk.grid(row=4, column=1, sticky="w", padx=5, pady=3)
 
+        # Calculation Mode
+        ttk.Label(master, text="Calculation Mode:").grid(row=5, column=0, sticky="w", padx=5, pady=3)
+        self.is_calculated_var = tk.BooleanVar(value=bool(self.initial_spec_data.get("is_calculated", False)))
+        mode_frame = ttk.Frame(master)
+        mode_frame.grid(row=5, column=1, sticky="w", padx=5, pady=3)
+        ttk.Radiobutton(mode_frame, text="Manual Entry", variable=self.is_calculated_var, value=False, command=self._toggle_formula_ui).pack(side="left")
+        ttk.Radiobutton(mode_frame, text="Calculated (Formula)", variable=self.is_calculated_var, value=True, command=self._toggle_formula_ui).pack(side="left", padx=10)
+
+        # Formula Section
+        ttk.Label(master, text="Visual Formula:").grid(row=6, column=0, sticky="w", padx=5, pady=3)
+        self.formula_json_var = tk.StringVar(value=self.initial_spec_data.get("formula_json", ""))
+        self.formula_display_var = tk.StringVar(value="Defined" if self.formula_json_var.get() else "None")
+        
+        self.formula_ui_frame = ttk.Frame(master)
+        self.formula_ui_frame.grid(row=6, column=1, sticky="ew", padx=5, pady=3)
+        ttk.Label(self.formula_ui_frame, textvariable=self.formula_display_var).pack(side="left")
+        self.edit_nodes_btn = ttk.Button(self.formula_ui_frame, text="Edit Nodes...", command=self._open_node_editor)
+        self.edit_nodes_btn.pack(side="right")
+
+        # Standard Distribution Profile
+        from src.interfaces.common_ui.constants import DISTRIBUTION_PROFILE_OPTIONS
+        ttk.Label(master, text="Default Split Profile:").grid(row=7, column=0, sticky="w", padx=5, pady=3)
+        self.dist_profile_var = tk.StringVar(value=self.initial_spec_data.get("default_distribution_profile", DISTRIBUTION_PROFILE_OPTIONS[0]))
+        self.dist_profile_cb = ttk.Combobox(master, textvariable=self.dist_profile_var, values=DISTRIBUTION_PROFILE_OPTIONS, state="readonly", width=38)
+        self.dist_profile_cb.grid(row=7, column=1, padx=5, pady=3)
+
         # Per-Plant Visibility Section
         plant_visibility_frame = ttk.LabelFrame(master, text="Per-Plant Visibility")
-        plant_visibility_frame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        plant_visibility_frame.grid(row=8, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
         # Populate plant visibility checkboxes
         row_idx = 0
@@ -73,7 +100,25 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
             ttk.Checkbutton(plant_visibility_frame, variable=var).grid(row=row_idx, column=1, sticky="w", padx=2, pady=1)
             row_idx += 1
 
+        self._toggle_formula_ui()
         return self.indicator_name_entry
+
+    def _toggle_formula_ui(self):
+        state = "normal" if self.is_calculated_var.get() else "disabled"
+        self.edit_nodes_btn.config(state=state)
+
+    def _open_node_editor(self):
+        # Fetch all KPIs for selection in the node editor
+        kpis = [dict(row) for row in data_retriever.get_all_kpis_detailed(only_visible=True)]
+        kpi_list = [{"id": k['id'], "name": f"{k.get('group_name')} > {k.get('subgroup_name')} > {k.get('indicator_name')}"} for k in kpis]
+        
+        dialog = NodeEditorDialog(self, self.formula_json_var.get(), kpi_list)
+        self.wait_window(dialog)
+        
+        result_json = dialog.get_result()
+        if result_json:
+            self.formula_json_var.set(result_json)
+            self.formula_display_var.set("Defined")
 
     def apply(self):
         indicator_name = self.indicator_name_var.get().strip()
@@ -92,5 +137,9 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
             "calculation_type": self.calc_type_var.get(),
             "unit_of_measure": self.unit_var.get().strip(),
             "visible": self.visible_var.get(), # Default visibility
+            "is_calculated": self.is_calculated_var.get(),
+            "formula_json": self.formula_json_var.get(),
+            "formula_string": None,
+            "default_distribution_profile": self.dist_profile_var.get(),
             "per_plant_visibility": per_plant_visibility_data
         }

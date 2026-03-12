@@ -689,7 +689,11 @@ class KpiManagementTab(ttk.Frame):
                     description=dialog.result_data.get("description", ""),
                     calculation_type=dialog.result_data.get("calculation_type", KPI_CALC_TYPE_OPTIONS[0]),
                     unit_of_measure=dialog.result_data.get("unit_of_measure", ""),
-                    visible=dialog.result_data.get("visible", True)
+                    visible=dialog.result_data.get("visible", True),
+                    formula_json=dialog.result_data.get("formula_json"),
+                    formula_string=dialog.result_data.get("formula_string"),
+                    is_calculated=dialog.result_data.get("is_calculated", False),
+                    default_distribution_profile=dialog.result_data.get("default_distribution_profile")
                 )
                 # Save per-plant visibility
                 for pv_data in dialog.result_data.get("per_plant_visibility", []):
@@ -751,8 +755,13 @@ class KpiManagementTab(ttk.Frame):
                     description=dialog.result_data.get("description", ""),
                     calculation_type=dialog.result_data.get("calculation_type", KPI_CALC_TYPE_OPTIONS[0]),
                     unit_of_measure=dialog.result_data.get("unit_of_measure", ""),
-                    visible=dialog.result_data.get("visible", True)
+                    visible=dialog.result_data.get("visible", True),
+                    formula_json=dialog.result_data.get("formula_json"),
+                    formula_string=dialog.result_data.get("formula_string"),
+                    is_calculated=dialog.result_data.get("is_calculated", False),
+                    default_distribution_profile=dialog.result_data.get("default_distribution_profile")
                 )
+
                 # Update per-plant visibility
                 # First, delete all existing entries for this KPI to ensure clean update
                 # This is a simplified approach; a more robust solution might compare and update only changed entries.

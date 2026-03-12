@@ -5,6 +5,7 @@ import traceback
 import numpy # For _placeholder_safe_evaluate_formula if it uses numpy functions directly
 from src.config import settings as app_config
 from pathlib import Path
+from src import data_retriever as db_retriever
 from src.data_retriever import get_annual_target_entry, get_kpi_role_details, get_sub_kpis_for_master
 
 
@@ -15,6 +16,7 @@ from src.interfaces.common_ui.constants import (
 )
 
 from src.target_management import repartition as repartition_module
+from src.core.node_engine import KpiDAG
 
 
 # --- Formula Evaluation (Placeholder - Needs Secure Implementation) ---
@@ -179,16 +181,11 @@ def save_annual_targets(
                 )
 
             # Get values from UI data_dict, falling back to DB values (or initial defaults)
-            final_annual_t1 = (
-                float(data_dict_from_ui.get("annual_target1", db_annual_t1))
-                if data_dict_from_ui.get("annual_target1") is not None
-                else None
-            )
-            final_annual_t2 = (
-                float(data_dict_from_ui.get("annual_target2", db_annual_t2))
-                if data_dict_from_ui.get("annual_target2") is not None
-                else None
-            )
+            ui_t1 = data_dict_from_ui.get("annual_target1")
+            final_annual_t1 = float(ui_t1 if ui_t1 is not None else db_annual_t1)
+
+            ui_t2 = data_dict_from_ui.get("annual_target2")
+            final_annual_t2 = float(ui_t2 if ui_t2 is not None else db_annual_t2)
             final_repart_logic = data_dict_from_ui.get(
                 "repartition_logic", db_repart_logic
             )
@@ -354,20 +351,23 @@ def save_annual_targets(
                     year, plant_id, kpi_id_to_calc
                 )
                 if not target_entry_row:
-                    print(
-                        f"      WARN: Target entry not found for KPI {kpi_id_to_calc} during formula calc T{target_num_to_calculate}. Skipping."
-                    )
                     continue
                 target_entry = dict(target_entry_row)
+
+                # Fetch standardized formula from KPI definition
+                kpi_details = db_retriever.get_kpi_detailed_by_id(kpi_id_to_calc)
+                std_formula_json = kpi_details.get("formula_json") if kpi_details else None
+                std_formula_str = kpi_details.get("formula_string") if kpi_details else None
 
                 is_formula_flag_db = bool(
                     target_entry.get(
                         f"target{target_num_to_calculate}_is_formula_based", False
                     )
                 )
-                formula_str_db = target_entry.get(
-                    f"target{target_num_to_calculate}_formula"
-                )
+                
+                # Priority: 1. Standardized JSON, 2. Standardized String, 3. Per-target Formula
+                formula_to_use = std_formula_json or std_formula_str or target_entry.get(f"target{target_num_to_calculate}_formula")
+                
                 formula_inputs_json_db = (
                     target_entry.get(
                         f"target{target_num_to_calculate}_formula_inputs", "[]"
@@ -375,22 +375,38 @@ def save_annual_targets(
                     or "[]"
                 )
 
-                if not (
-                    is_formula_flag_db and formula_str_db
-                ):  # JSON inputs can be empty if no vars
-                    # This KPI was marked for formula calc but definition is missing/corrupt
-                    print(
-                        f"      WARN: KPI {kpi_id_to_calc} T{target_num_to_calculate} marked as formula but definition incomplete. Skipping."
-                    )
+                if not (is_formula_flag_db and formula_to_use):
                     continue
 
+                # Detect if formula is a Node-based DAG (JSON)
+                is_node_dag = False
                 try:
-                    formula_inputs_def_py = json.loads(formula_inputs_json_db)
-                    if not isinstance(formula_inputs_def_py, list):
-                        formula_inputs_def_py = []
+                    dag_data = json.loads(formula_to_use)
+                    if isinstance(dag_data, dict) and "nodes" in dag_data:
+                        is_node_dag = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                try:
+                    if is_node_dag:
+                        dag = KpiDAG.from_json(formula_to_use)
+                        # Extract inputs from DAG nodes
+                        deps = dag.find_all_kpi_dependencies()
+                        # Map to expected format for iteration logic
+                        formula_inputs_def_py = [
+                            {
+                                "kpi_id": d["kpi_id"], 
+                                "target_source": f"annual_target{d['target_num']}", 
+                                "variable_name": f"kpi_{d['kpi_id']}_t{d['target_num']}"
+                            } for d in deps
+                        ]
+                    else:
+                        formula_inputs_def_py = json.loads(formula_inputs_json_db)
+                        if not isinstance(formula_inputs_def_py, list):
+                            formula_inputs_def_py = []
                 except (json.JSONDecodeError, TypeError):
                     print(
-                        f"      WARN: KPI {kpi_id_to_calc} T{target_num_to_calculate} has invalid JSON for formula_inputs ('{formula_inputs_json_db}'). Skipping."
+                        f"      WARN: KPI {kpi_id_to_calc} T{target_num_to_calculate} has invalid input definition. Skipping."
                     )
                     continue
 
@@ -489,9 +505,21 @@ def save_annual_targets(
 
                 # All inputs are ready, attempt to calculate
                 try:
-                    calculated_value = _placeholder_safe_evaluate_formula(
-                        formula_str_db, context_vars
-                    )
+                    if is_node_dag:
+                        # dag is already defined above
+                        def kpi_resolver(kpi_id, target_num):
+                            res_row = get_annual_target_entry(year, plant_id, kpi_id)
+                            if res_row:
+                                return float(dict(res_row).get(f"annual_target{target_num}", 0.0) or 0.0)
+                            return 0.0
+                            
+                        calculated_value = dag.evaluate(kpi_resolver)
+                    else:
+                        # Legacy string-based formula
+                        calculated_value = _placeholder_safe_evaluate_formula(
+                            formula_to_use, context_vars
+                        )
+
                     with sqlite3.connect(db_targets_path) as conn_update_formula:
                         update_cursor = conn_update_formula.cursor()
                         # Update the specific target field (annual_target1 or annual_target2)
@@ -902,7 +930,17 @@ if __name__ == "__main__":
     _mock_kpis_link_weights = {}  # {(master_id, sub_id): weight}
 
     def _mock_get_annual_target_entry(year, plant_id, kpi_id):
-        return _mock_annual_targets_db.get((year, plant_id, kpi_id))
+        # Instead of just a dict, let's read from the test DB we just wrote to in Phase 1
+        db_path = app_config.get_database_path("db_kpi_targets.db")
+        try:
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                return conn.execute(
+                    "SELECT * FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?",
+                    (year, plant_id, kpi_id),
+                ).fetchone()
+        except Exception:
+            return None
 
     def _mock_get_kpi_role_details(kpi_id):
         return _mock_kpis_roles_db.get(
@@ -916,7 +954,7 @@ if __name__ == "__main__":
     get_annual_target_entry_orig = get_annual_target_entry
     get_kpi_role_details_orig = get_kpi_role_details
     get_sub_kpis_for_master_orig = get_sub_kpis_for_master
-    calculate_and_save_all_repartitions_orig = calculate_and_save_all_repartitions
+    calculate_and_save_all_repartitions_orig = repartition_module.calculate_and_save_all_repartitions
 
     get_annual_target_entry = _mock_get_annual_target_entry
     get_kpi_role_details = _mock_get_kpi_role_details

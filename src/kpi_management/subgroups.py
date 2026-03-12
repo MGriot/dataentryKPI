@@ -44,7 +44,7 @@ try:
     _specs_module_available = True
 except ImportError:
     print("WARNING: kpi_management.specs.add_kpi_spec not available for subgroups.py. Mocks being used.")
-    def add_kpi_spec(indicator_id, description, calculation_type, unit_of_measure, visible): return None
+    def add_kpi_spec(indicator_id, description, calculation_type, unit_of_measure, visible, formula_json=None, formula_string=None): return None
 
 
 # --- Helper Function to Apply Template Indicators to a New/Updated Subgroup ---

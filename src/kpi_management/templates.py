@@ -35,7 +35,7 @@ try:
     _specs_module_available = True
 except ImportError:
     print("WARNING: kpi_management.specs not available for templates.py. Mocks being used for _propagate.")
-    def add_kpi_spec(indicator_id, description, calculation_type, unit_of_measure, visible): return None # Returns ID
+    def add_kpi_spec(indicator_id, description, calculation_type, unit_of_measure, visible, formula_json=None, formula_string=None): return None # Returns ID
 
 
 # --- Propagation Helper Function (Critical Logic) ---

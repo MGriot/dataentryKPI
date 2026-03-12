@@ -79,6 +79,19 @@ def setup_databases():
                     UNIQUE (template_id, indicator_name_in_template)
                 )"""
             )
+            
+            # --- New table for Global Annual Splits ---
+            cursor.execute(
+                f"""CREATE TABLE IF NOT EXISTS global_kpi_splits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    year INTEGER NOT NULL,
+                    repartition_logic TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_YEAR}',
+                    repartition_values TEXT NOT NULL DEFAULT '{{}}',
+                    distribution_profile TEXT NOT NULL DEFAULT '{PROFILE_ANNUAL_PROGRESSIVE}',
+                    profile_params TEXT DEFAULT '{{}}'
+                )"""
+            )
             conn.commit()
         print(f"Table setup in {db_kpi_templates_path} completed.")
     except sqlite3.Error as e:
@@ -129,10 +142,26 @@ def setup_databases():
                     calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
                     unit_of_measure TEXT,
                     visible BOOLEAN NOT NULL DEFAULT 1,
+                    formula_json TEXT,
+                    formula_string TEXT,
+                    is_calculated BOOLEAN NOT NULL DEFAULT 0,
+                    default_distribution_profile TEXT,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE,
                     UNIQUE (indicator_id)
                 )"""
             )
+
+            # Check and add columns to 'kpis' if missing
+            cursor.execute("PRAGMA table_info(kpis)")
+            kpi_columns_info = {col[1] for col in cursor.fetchall()}
+            if "formula_json" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN formula_json TEXT")
+            if "formula_string" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN formula_string TEXT")
+            if "is_calculated" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN is_calculated BOOLEAN NOT NULL DEFAULT 0")
+            if "default_distribution_profile" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN default_distribution_profile TEXT")
 
             # Check and add 'indicator_template_id' to 'kpi_subgroups' if missing
             cursor.execute("PRAGMA table_info(kpi_subgroups)")
@@ -264,11 +293,6 @@ def setup_databases():
         with sqlite3.connect(db_targets_path) as conn:
             cursor = conn.cursor()
             try:
-                from src.interfaces.common_ui.constants import (
-                    PROFILE_ANNUAL_PROGRESSIVE,
-                    REPARTITION_LOGIC_YEAR,
-                )
-
                 cursor.execute(
                     f"""CREATE TABLE IF NOT EXISTS annual_targets (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -289,6 +313,7 @@ def setup_databases():
                         target2_is_formula_based BOOLEAN NOT NULL DEFAULT 0,
                         target2_formula TEXT,
                         target2_formula_inputs TEXT DEFAULT '[]',
+                        global_split_id INTEGER,
                         UNIQUE(year, plant_id, kpi_id)
                     )"""
                 )
@@ -321,6 +346,7 @@ def setup_databases():
                 "target2_is_formula_based": "BOOLEAN NOT NULL DEFAULT 0",
                 "target2_formula": "TEXT",
                 "target2_formula_inputs": "TEXT DEFAULT '[]'",  # Added default
+                "global_split_id": "INTEGER REFERENCES global_kpi_splits(id) ON DELETE SET NULL",
             }
             # Also ensure older columns have their defaults if added via ALTER
             # (though defaults in CREATE IF NOT EXISTS are better)

@@ -11,6 +11,7 @@ from src.config import settings as app_config
 from src.config import settings as app_config
 
 from src.data_retriever import get_annual_target_entry, get_kpi_detailed_by_id
+from src.kpi_management.splits import get_global_split
 from src.utils.repartition_utils import (
     get_weighted_proportions,
     get_parabolic_proportions,
@@ -1061,28 +1062,53 @@ def calculate_and_save_all_repartitions(
 
     # Proceed with calculation
     annual_target_to_use = float(annual_target_to_use)
-    user_repart_logic = target_info.get("repartition_logic", app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"])
-    distribution_profile = target_info.get(
-        "distribution_profile", app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"]
-    )
+    
+    # Check for Global Split Override
+    global_split_id = target_info.get("global_split_id")
+    global_split = None
+    if global_split_id:
+        try:
+            global_split = get_global_split(global_split_id)
+            if global_split:
+                print(f"    INFO: Using Global Split Template '{global_split['name']}' (ID {global_split_id}) for repartition.")
+        except Exception as e_gs:
+            print(f"    WARN: Failed to fetch global split template ID {global_split_id}: {e_gs}. Falling back to plant-specific settings.")
 
-    try:
-        user_repart_values = json.loads(
-            target_info.get("repartition_values", "{}") or "{}"
-        )
-    except json.JSONDecodeError:
-        print(
-            f"    WARN: Invalid JSON in 'repartition_values' for KPI {kpi_spec_id}. Using empty dict. Value: '{target_info.get('repartition_values')}'"
-        )
-        user_repart_values = {}
+    if global_split:
+        user_repart_logic = global_split.get("repartition_logic", app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"])
+        distribution_profile = global_split.get("distribution_profile", app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"])
+        user_repart_values = global_split.get("repartition_values", {})
+        profile_params = global_split.get("profile_params", {})
+    else:
+        user_repart_logic = target_info.get("repartition_logic", app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"])
+        
+        # Priority: 1. Target specific profile (if changed), 2. KPI default profile, 3. Global default
+        distribution_profile = target_info.get("distribution_profile")
+        if not distribution_profile or distribution_profile == app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"]:
+            # If target has default or null, use the KPI's default definition
+            kpi_default = kpi_details.get("default_distribution_profile")
+            if kpi_default:
+                distribution_profile = kpi_default
+            else:
+                distribution_profile = app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"]
 
-    try:
-        profile_params = json.loads(target_info.get("profile_params", "{}") or "{}")
-    except json.JSONDecodeError:
-        print(
-            f"    WARN: Invalid JSON in 'profile_params' for KPI {kpi_spec_id}. Using empty dict. Value: '{target_info.get('profile_params')}'"
-        )
-        profile_params = {}
+        try:
+            user_repart_values = json.loads(
+                target_info.get("repartition_values", "{}") or "{}"
+            )
+        except json.JSONDecodeError:
+            print(
+                f"    WARN: Invalid JSON in 'repartition_values' for KPI {kpi_spec_id}. Using empty dict. Value: '{target_info.get('repartition_values')}'"
+            )
+            user_repart_values = {}
+
+        try:
+            profile_params = json.loads(target_info.get("profile_params", "{}") or "{}")
+        except json.JSONDecodeError:
+            print(
+                f"    WARN: Invalid JSON in 'profile_params' for KPI {kpi_spec_id}. Using empty dict. Value: '{target_info.get('profile_params')}'"
+            )
+            profile_params = {}
 
     # 3. Clear any old periodic data for this specific target before saving new
     print(f"    Clearing old periodic data for KPI {kpi_spec_id}, T{target_number}...")

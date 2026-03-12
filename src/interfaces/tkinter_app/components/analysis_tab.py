@@ -70,17 +70,111 @@ class AnalysisTab(ttk.Frame):
         else: # Year
             return sorted(periods, key=lambda p: int(p))
 
-    def _format_period(self, period, period_type):
-        return period
+    def switch_view(self):
+        # Clear existing content
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+
+        if self.view_mode.get() == "single":
+            self.create_single_kpi_view()
+            self.populate_results_comboboxes()
+        else:
+            self.create_global_dashboard_view()
+            self.populate_dashboard_comboboxes()
+
+    def get_plant_color(self, plant_name):
+        # Fallback colors if not in settings
+        color_list = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        plant_colors_settings = self.app.settings.get('plant_colors', {})
+        if plant_name in plant_colors_settings:
+            return plant_colors_settings[plant_name]
+        
+        # If not in settings, use internal map or generate
+        if not hasattr(self, '_internal_plant_colors'):
+            self._internal_plant_colors = {}
+        
+        if plant_name not in self._internal_plant_colors:
+            self._internal_plant_colors[plant_name] = color_list[len(self._internal_plant_colors) % len(color_list)]
+        
+        return self._internal_plant_colors[plant_name]
+
+    def populate_dashboard_comboboxes(self):
+        years = [str(y["year"]) for y in db_retriever.get_distinct_years()]
+        self.dashboard_year_cb["values"] = ["All"] + years
+        if not self.dashboard_year_var.get():
+            self.dashboard_year_var.set("All")
+        self.load_dashboard_data()
+
+    def load_dashboard_data(self, event=None):
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+        year_str = self.dashboard_year_var.get()
+        year = int(year_str) if year_str != "All" and year_str else None
+        period_type = self.dashboard_period_var.get()
+
+        try:
+            all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
+            if not all_kpis:
+                ttk.Label(self.scrollable_frame, text="No visible KPIs defined.", background="#FFFFFF").pack(pady=20)
+                return
+
+            for kpi in all_kpis:
+                kpi_id = kpi["id"]
+                kpi_display_name = get_kpi_display_name(kpi)
+                
+                kpi_data = db_retriever.get_periodic_targets_for_kpi_all_plants(kpi_id, period_type, year)
+                if not kpi_data:
+                    continue
+
+                df = pd.DataFrame([dict(row) for row in kpi_data])
+
+                chart_card = ttk.LabelFrame(self.scrollable_frame, text=kpi_display_name, style="Card.TLabelframe", padding=10)
+                chart_card.pack(fill="x", expand=True, padx=10, pady=10)
+
+                fig = Figure(figsize=(10, 5), dpi=100)
+                ax = fig.add_subplot(111)
+
+                for plant_name, plant_data in df.groupby('plant_name'):
+                    color = self.get_plant_color(plant_name)
+                    # Filter by target_number if available in data
+                    t1_df = plant_data[plant_data['target_number'] == 1] if 'target_number' in plant_data.columns else plant_data
+                    t2_df = plant_data[plant_data['target_number'] == 2] if 'target_number' in plant_data.columns else pd.DataFrame()
+
+                    if not t1_df.empty:
+                        ax.plot(t1_df['period'], t1_df['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
+                    if not t2_df.empty:
+                        ax.plot(t2_df['period'], t2_df['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
+
+                ax.set_title(f"{period_type} Trend - {kpi_display_name}")
+                ax.set_xlabel(period_type)
+                ax.set_ylabel("Value")
+                ax.legend(fontsize='small', loc='upper right')
+                ax.grid(True, linestyle='--', alpha=0.6)
+                fig.tight_layout()
+
+                canvas = FigureCanvasTkAgg(fig, master=chart_card)
+                canvas.get_tk_widget().pack(fill="both", expand=True)
+                canvas.draw()
+
+        except Exception as e:
+            traceback.print_exc()
+            messagebox.showerror("Data Loading Error", f"Could not load dashboard data: {e}")
+
+    def _bind_dashboard_mousewheel(self, event):
+        self.main_canvas.bind_all("<MouseWheel>", self._on_dashboard_mousewheel)
+
+    def _unbind_dashboard_mousewheel(self, event):
+        self.main_canvas.unbind_all("<MouseWheel>")
+
+    def _on_dashboard_mousewheel(self, event):
+        self.main_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
     def create_widgets(self):
         # --- View Mode Selection ---
         view_mode_frame = ttk.Frame(self, style="Content.TFrame")
         view_mode_frame.pack(fill="x", pady=10)
         
-        # Using standard Radiobuttons but placed on the content background
-        # ttk.Radiobutton usually picks up style, but let's ensure it looks clean
-        # If needed, we could define a custom style for these, but defaults usually work on light grey
         rb1 = ttk.Radiobutton(view_mode_frame, text="Single KPI Analysis", variable=self.view_mode, value="single", command=self.switch_view)
         rb1.pack(side="left", padx=15)
         rb2 = ttk.Radiobutton(view_mode_frame, text="Global Dashboard", variable=self.view_mode, value="global", command=self.switch_view)
