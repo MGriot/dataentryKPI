@@ -110,7 +110,8 @@ class AnalysisTab(ttk.Frame):
             widget.destroy()
 
         year_str = self.dashboard_year_var.get()
-        year = int(year_str) if year_str != "All" and year_str else None
+        is_all_years = (year_str == "All" or not year_str)
+        year = int(year_str) if not is_all_years else None
         period_type = self.dashboard_period_var.get()
 
         try:
@@ -128,6 +129,15 @@ class AnalysisTab(ttk.Frame):
                     continue
 
                 df = pd.DataFrame([dict(row) for row in kpi_data])
+                
+                # Create a timeline label to prevent aggregation across years
+                if is_all_years and period_type != 'Year':
+                    df['timeline_label'] = df.apply(lambda x: f"{x['year']}-{self._format_period(x['period'], period_type)}", axis=1)
+                else:
+                    df['timeline_label'] = df['period'].apply(lambda x: self._format_period(x, period_type))
+
+                # Sort DF correctly by year and period
+                df = self._sort_dashboard_df(df, period_type)
 
                 chart_card = ttk.LabelFrame(self.scrollable_frame, text=kpi_display_name, style="Card.TLabelframe", padding=10)
                 chart_card.pack(fill="x", expand=True, padx=10, pady=10)
@@ -135,21 +145,35 @@ class AnalysisTab(ttk.Frame):
                 fig = Figure(figsize=(10, 5), dpi=100)
                 ax = fig.add_subplot(111)
 
+                # Get unique timeline labels in sorted order for x-axis
+                unique_labels = df['timeline_label'].unique()
+                label_to_idx = {label: i for i, label in enumerate(unique_labels)}
+
                 for plant_name, plant_data in df.groupby('plant_name'):
                     color = self.get_plant_color(plant_name)
-                    # Filter by target_number if available in data
-                    t1_df = plant_data[plant_data['target_number'] == 1] if 'target_number' in plant_data.columns else plant_data
-                    t2_df = plant_data[plant_data['target_number'] == 2] if 'target_number' in plant_data.columns else pd.DataFrame()
-
+                    
+                    # Target 1
+                    t1_df = plant_data[plant_data['target_number'] == 1]
                     if not t1_df.empty:
-                        ax.plot(t1_df['period'], t1_df['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
+                        x_vals = [label_to_idx[l] for label in t1_df['timeline_label']]
+                        ax.plot(x_vals, t1_df['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
+                    
+                    # Target 2
+                    t2_df = plant_data[plant_data['target_number'] == 2]
                     if not t2_df.empty:
-                        ax.plot(t2_df['period'], t2_df['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
+                        x_vals = [label_to_idx[l] for label in t2_df['timeline_label']]
+                        ax.plot(x_vals, t2_df['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
 
                 ax.set_title(f"{period_type} Trend - {kpi_display_name}")
-                ax.set_xlabel(period_type)
+                ax.set_xlabel("Timeline" if is_all_years else period_type)
                 ax.set_ylabel("Value")
-                ax.legend(fontsize='small', loc='upper right')
+                
+                ax.set_xticks(range(len(unique_labels)))
+                ax.set_xticklabels(unique_labels, rotation=45, ha="right", fontsize=8)
+                if len(unique_labels) > 20:
+                    ax.xaxis.set_major_locator(mticker.MaxNLocator(20))
+
+                ax.legend(fontsize='x-small', loc='upper right', bbox_to_anchor=(1.15, 1))
                 ax.grid(True, linestyle='--', alpha=0.6)
                 fig.tight_layout()
 
@@ -160,6 +184,24 @@ class AnalysisTab(ttk.Frame):
         except Exception as e:
             traceback.print_exc()
             messagebox.showerror("Data Loading Error", f"Could not load dashboard data: {e}")
+
+    def _sort_dashboard_df(self, df, period_type):
+        if period_type == 'Month':
+            months = list(calendar.month_name)[1:]
+            month_map = {m: i for i, m in enumerate(months)}
+            df['sort_val'] = df['period'].map(month_map)
+            return df.sort_values(['year', 'sort_val']).drop('sort_val', axis=1)
+        elif period_type == 'Quarter':
+            q_map = {'Q1': 1, 'Q2': 2, 'Q3': 3, 'Q4': 4}
+            df['sort_val'] = df['period'].map(q_map)
+            return df.sort_values(['year', 'sort_val']).drop('sort_val', axis=1)
+        elif period_type == 'Week':
+            df['sort_val'] = df['period'].apply(lambda x: int(x.split('-W')[-1]))
+            return df.sort_values(['year', 'sort_val']).drop('sort_val', axis=1)
+        elif period_type == 'Day':
+            return df.sort_values(['year', 'period'])
+        else: # Year
+            return df.sort_values('year')
 
     def _bind_dashboard_mousewheel(self, event):
         self.main_canvas.bind_all("<MouseWheel>", self._on_dashboard_mousewheel)
