@@ -155,13 +155,13 @@ class AnalysisTab(ttk.Frame):
                     # Target 1
                     t1_df = plant_data[plant_data['target_number'] == 1]
                     if not t1_df.empty:
-                        x_vals = [label_to_idx[l] for label in t1_df['timeline_label']]
+                        x_vals = [label_to_idx[label] for label in t1_df['timeline_label']]
                         ax.plot(x_vals, t1_df['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
                     
                     # Target 2
                     t2_df = plant_data[plant_data['target_number'] == 2]
                     if not t2_df.empty:
-                        x_vals = [label_to_idx[l] for label in t2_df['timeline_label']]
+                        x_vals = [label_to_idx[label] for label in t2_df['timeline_label']]
                         ax.plot(x_vals, t2_df['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
 
                 ax.set_title(f"{period_type} Trend - {kpi_display_name}")
