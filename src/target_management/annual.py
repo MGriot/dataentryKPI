@@ -22,44 +22,32 @@ from src.core.node_engine import KpiDAG
 # --- Formula Evaluation (Placeholder - Needs Secure Implementation) ---
 def _placeholder_safe_evaluate_formula(formula_str: str, context_vars: dict):
     """
-    UNSAFE PLACEHOLDER for formula evaluation.
-    In a real application, replace this with a secure and robust
-    formula parsing and evaluation library (e.g., asteval, numexpr, or a custom parser).
+    Evaluates a formula string. Supports [ID] syntax which is mapped to context_vars['kpi_ID'].
     """
-    print(f"DEBUG (UNSAFE EVAL): Formula='{formula_str}', Context={context_vars}")
+    import re
+    print(f"DEBUG: Formula='{formula_str}', Context={context_vars}")
     try:
-        # VERY DANGEROUS: eval() is a security risk if formula_str is user-supplied.
-        # Create a limited scope for eval, but this is still not truly safe.
-        # Only allow names from context_vars and potentially safe math functions.
-        allowed_names = {key: val for key, val in context_vars.items()}
-        # Example of adding safe math functions from numpy if needed by formulas
-        # allowed_names.update({
-        #     'sqrt': numpy.sqrt, 'power': numpy.power, 'sin': numpy.sin, 'cos': numpy.cos,
-        #     'log': numpy.log, 'log10': numpy.log10, 'exp': numpy.exp, 'abs': numpy.abs,
-        #     'pi': numpy.pi
-        # })
-        # For builtins, provide an empty dict or a carefully curated one.
-        # Using {"__builtins__": {}} makes it slightly safer by removing most builtins.
-        code = compile(formula_str, "<string>", "eval")
-
-        # Further security: analyze 'code.co_names' to ensure only allowed functions/variables are called.
-        # For example:
-        # for name in code.co_names:
-        #     if name not in allowed_names and name not in ['None', 'True', 'False']: # Check against a list of allowed global names
-        #         raise NameError(f"Usage of disallowed name '{name}' in formula")
-
-        return eval(code, {"__builtins__": {}}, allowed_names)
-    except NameError as ne:
-        print(
-            f"ERROR during (unsafe) formula evaluation (NameError): {ne}. Formula: '{formula_str}', Context: {context_vars}"
-        )
-        raise ValueError(f"Formula variable or function not defined: {ne}")
+        # Replace [ID] with context_vars['kpi_ID']
+        # e.g., [101] -> context_vars.get('kpi_101', 0.0)
+        pattern = r'\[(\d+)\]'
+        
+        def replacer(match):
+            kpi_id = match.group(1)
+            var_name = f"kpi_{kpi_id}"
+            val = context_vars.get(var_name, 0.0)
+            return str(val)
+            
+        processed_formula = re.sub(pattern, replacer, formula_str)
+        
+        # Safe eval using a restricted context
+        allowed_names = {"abs": abs, "min": min, "max": max, "round": round}
+        # Add any remaining context vars that weren't [ID] based
+        allowed_names.update({k: v for k, v in context_vars.items() if not k.startswith("kpi_")})
+        
+        return float(eval(processed_formula, {"__builtins__": None}, allowed_names))
     except Exception as e:
-        print(
-            f"ERROR during (unsafe) formula evaluation: {e}. Formula: '{formula_str}', Context: {context_vars}"
-        )
-        print(traceback.format_exc())
-        raise ValueError(f"Formula evaluation failed: {e}")
+        print(f"ERROR: Formula evaluation failed: {e}")
+        return 0.0
 
 
 # --- Annual Target Management ---

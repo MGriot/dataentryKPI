@@ -45,80 +45,122 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         self.unit_entry = ttk.Entry(master, textvariable=self.unit_var, width=40)
         self.unit_entry.grid(row=3, column=1, padx=5, pady=3)
 
-        # Default Visible (for general visibility, if not overridden by plant-specific)
+        # Default Visible
         ttk.Label(master, text="Default Visible:").grid(row=4, column=0, sticky="w", padx=5, pady=3)
         self.visible_var = tk.BooleanVar(value=bool(self.initial_spec_data.get("visible", True)))
         self.visible_chk = ttk.Checkbutton(master, variable=self.visible_var)
         self.visible_chk.grid(row=4, column=1, sticky="w", padx=5, pady=3)
 
         # Calculation Mode
-        ttk.Label(master, text="Calculation Mode:").grid(row=5, column=0, sticky="w", padx=5, pady=3)
+        ttk.Label(master, text="Calc Mode:").grid(row=5, column=0, sticky="w", padx=5, pady=3)
         self.is_calculated_var = tk.BooleanVar(value=bool(self.initial_spec_data.get("is_calculated", False)))
         mode_frame = ttk.Frame(master)
         mode_frame.grid(row=5, column=1, sticky="w", padx=5, pady=3)
-        ttk.Radiobutton(mode_frame, text="Manual Entry", variable=self.is_calculated_var, value=False, command=self._toggle_formula_ui).pack(side="left")
-        ttk.Radiobutton(mode_frame, text="Calculated (Formula)", variable=self.is_calculated_var, value=True, command=self._toggle_formula_ui).pack(side="left", padx=10)
+        ttk.Radiobutton(mode_frame, text="Manual", variable=self.is_calculated_var, value=False, command=self._toggle_formula_ui).pack(side="left")
+        ttk.Radiobutton(mode_frame, text="Formula", variable=self.is_calculated_var, value=True, command=self._toggle_formula_ui).pack(side="left", padx=10)
 
-        # Formula Section
-        ttk.Label(master, text="Visual Formula:").grid(row=6, column=0, sticky="w", padx=5, pady=3)
+        # Formula Type (Nodes vs String)
+        self.formula_type_frame = ttk.Frame(master)
+        self.formula_type_frame.grid(row=6, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
+        
+        ttk.Label(self.formula_type_frame, text="Formula Type:").pack(side="left", padx=5)
+        # We determine mode based on whether formula_string exists or formula_json
+        initial_mode = "string" if self.initial_spec_data.get("formula_string") else "nodes"
+        self.formula_mode_var = tk.StringVar(value=initial_mode)
+        ttk.Radiobutton(self.formula_type_frame, text="Visual Nodes", variable=self.formula_mode_var, value="nodes", command=self._toggle_formula_ui).pack(side="left", padx=5)
+        ttk.Radiobutton(self.formula_type_frame, text="Expression String", variable=self.formula_mode_var, value="string", command=self._toggle_formula_ui).pack(side="left", padx=5)
+
+        # --- Formula Editors (Conditional) ---
+        self.editor_container = ttk.Frame(master)
+        self.editor_container.grid(row=7, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+
+        # Node Editor UI
+        self.nodes_frame = ttk.Frame(self.editor_container)
         self.formula_json_var = tk.StringVar(value=self.initial_spec_data.get("formula_json", ""))
         self.formula_display_var = tk.StringVar(value="Defined" if self.formula_json_var.get() else "None")
-        
-        self.formula_ui_frame = ttk.Frame(master)
-        self.formula_ui_frame.grid(row=6, column=1, sticky="ew", padx=5, pady=3)
-        ttk.Label(self.formula_ui_frame, textvariable=self.formula_display_var).pack(side="left")
-        self.edit_nodes_btn = ttk.Button(self.formula_ui_frame, text="Edit Nodes...", command=self._open_node_editor)
-        self.edit_nodes_btn.pack(side="right")
+        ttk.Label(self.nodes_frame, text="Visual Formula:").pack(side="left", padx=5)
+        ttk.Label(self.nodes_frame, textvariable=self.formula_display_var, font=("Helvetica", 9, "bold")).pack(side="left", padx=5)
+        self.edit_nodes_btn = ttk.Button(self.nodes_frame, text="Open Node Editor...", command=self._open_node_editor)
+        self.edit_nodes_btn.pack(side="left", padx=10)
+
+        # String Editor UI
+        self.string_frame = ttk.Frame(self.editor_container)
+        ttk.Label(self.string_frame, text="Formula:").pack(side="left", padx=5)
+        self.formula_string_var = tk.StringVar(value=self.initial_spec_data.get("formula_string", ""))
+        self.string_entry = ttk.Entry(self.string_frame, textvariable=self.formula_string_var, width=40)
+        self.string_entry.pack(side="left", padx=5, fill="x", expand=True)
+        ttk.Button(self.string_frame, text="KPI Picker", command=self._on_kpi_picker).pack(side="left", padx=2)
 
         # Standard Distribution Profile
         from src.interfaces.common_ui.constants import DISTRIBUTION_PROFILE_OPTIONS
-        ttk.Label(master, text="Default Split Profile:").grid(row=7, column=0, sticky="w", padx=5, pady=3)
+        ttk.Label(master, text="Split Profile:").grid(row=8, column=0, sticky="w", padx=5, pady=3)
         self.dist_profile_var = tk.StringVar(value=self.initial_spec_data.get("default_distribution_profile", DISTRIBUTION_PROFILE_OPTIONS[0]))
         self.dist_profile_cb = ttk.Combobox(master, textvariable=self.dist_profile_var, values=DISTRIBUTION_PROFILE_OPTIONS, state="readonly", width=38)
-        self.dist_profile_cb.grid(row=7, column=1, padx=5, pady=3)
+        self.dist_profile_cb.grid(row=8, column=1, padx=5, pady=3)
 
         # Per-Plant Visibility Section
-        plant_visibility_frame = ttk.LabelFrame(master, text="Per-Plant Visibility")
-        plant_visibility_frame.grid(row=8, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
+        self.pv_frame = ttk.LabelFrame(master, text="Per-Plant Visibility")
+        self.pv_frame.grid(row=9, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
-        # Populate plant visibility checkboxes
-        row_idx = 0
-        # Get existing per-plant visibility settings for this KPI
         existing_per_plant_visibility = self.initial_spec_data.get("per_plant_visibility", [])
         existing_per_plant_map = {item["plant_id"]: item["is_enabled"] for item in existing_per_plant_visibility}
 
-        for plant in self.all_plants:
-            plant_id = plant["id"]
-            plant_name = plant["name"]
-            # Default to True if no specific entry exists for this plant
-            initial_plant_visible = existing_per_plant_map.get(plant_id, True)
-            
-            var = tk.BooleanVar(value=initial_plant_visible)
-            self.plant_visibility_vars[plant_id] = var
-
-            ttk.Label(plant_visibility_frame, text=plant_name).grid(row=row_idx, column=0, sticky="w", padx=2, pady=1)
-            ttk.Checkbutton(plant_visibility_frame, variable=var).grid(row=row_idx, column=1, sticky="w", padx=2, pady=1)
-            row_idx += 1
+        for i, plant in enumerate(self.all_plants):
+            var = tk.BooleanVar(value=existing_per_plant_map.get(plant["id"], True))
+            self.plant_visibility_vars[plant["id"]] = var
+            ttk.Checkbutton(self.pv_frame, text=plant["name"], variable=var).grid(row=i//3, column=i%3, sticky="w", padx=10)
 
         self._toggle_formula_ui()
         return self.indicator_name_entry
 
     def _toggle_formula_ui(self):
-        state = "normal" if self.is_calculated_var.get() else "disabled"
-        self.edit_nodes_btn.config(state=state)
+        is_calc = self.is_calculated_var.get()
+        mode = self.formula_mode_var.get()
+        
+        # Show/Hide Type selection
+        if is_calc:
+            self.formula_type_frame.grid()
+            self.nodes_frame.pack_forget()
+            self.string_frame.pack_forget()
+            
+            if mode == "nodes":
+                self.nodes_frame.pack(fill="x", expand=True)
+            else:
+                self.string_frame.pack(fill="x", expand=True)
+        else:
+            self.formula_type_frame.grid_remove()
+            self.nodes_frame.pack_forget()
+            self.string_frame.pack_forget()
 
     def _open_node_editor(self):
-        # Fetch all KPIs for selection in the node editor
         kpis = [dict(row) for row in data_retriever.get_all_kpis_detailed(only_visible=True)]
         kpi_list = [{"id": k['id'], "name": f"{k.get('group_name')} > {k.get('subgroup_name')} > {k.get('indicator_name')}"} for k in kpis]
-        
         dialog = NodeEditorDialog(self, self.formula_json_var.get(), kpi_list)
         self.wait_window(dialog)
-        
-        result_json = dialog.get_result()
-        if result_json:
-            self.formula_json_var.set(result_json)
+        res = dialog.get_result()
+        if res:
+            self.formula_json_var.set(res)
             self.formula_display_var.set("Defined")
+
+    def _on_kpi_picker(self):
+        # Open a simple listbox selection window to pick a KPI ID
+        picker = tk.Toplevel(self)
+        picker.title("Select KPI Reference")
+        picker.geometry("400x500")
+        
+        lb = tk.Listbox(picker, font=("Helvetica", 10))
+        lb.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        kpis = sorted([dict(row) for row in data_retriever.get_all_kpis_detailed(only_visible=True)], key=lambda x: x['indicator_name'])
+        for k in kpis: lb.insert(tk.END, f"{k['indicator_name']} [ID:{k['id']}]")
+            
+        def select():
+            if lb.curselection():
+                k = kpis[lb.curselection()[0]]
+                self.string_entry.insert(tk.INSERT, f"[{k['id']}]")
+                picker.destroy()
+        
+        ttk.Button(picker, text="Insert Reference", command=select).pack(pady=10)
 
     def apply(self):
         indicator_name = self.indicator_name_var.get().strip()
@@ -127,19 +169,24 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
             self.result_data = None
             return
 
-        per_plant_visibility_data = []
-        for plant_id, var in self.plant_visibility_vars.items():
-            per_plant_visibility_data.append({"plant_id": plant_id, "is_enabled": var.get()})
+        per_plant_visibility_data = [{"plant_id": pid, "is_enabled": var.get()} for pid, var in self.plant_visibility_vars.items()]
+
+        # Clean up formula based on mode
+        is_calc = self.is_calculated_var.get()
+        mode = self.formula_mode_var.get()
+        
+        f_json = self.formula_json_var.get() if (is_calc and mode == "nodes") else None
+        f_string = self.formula_string_var.get().strip() if (is_calc and mode == "string") else None
 
         self.result_data = {
             "indicator_name": indicator_name,
             "description": self.desc_var.get().strip(),
             "calculation_type": self.calc_type_var.get(),
             "unit_of_measure": self.unit_var.get().strip(),
-            "visible": self.visible_var.get(), # Default visibility
-            "is_calculated": self.is_calculated_var.get(),
-            "formula_json": self.formula_json_var.get(),
-            "formula_string": None,
+            "visible": self.visible_var.get(),
+            "is_calculated": is_calc,
+            "formula_json": f_json,
+            "formula_string": f_string,
             "default_distribution_profile": self.dist_profile_var.get(),
             "per_plant_visibility": per_plant_visibility_data
         }

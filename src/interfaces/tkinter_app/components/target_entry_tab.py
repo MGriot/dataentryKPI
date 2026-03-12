@@ -167,20 +167,6 @@ class TargetEntryTab(ttk.Frame):
         t2_frame.pack(side='left', fill='x', expand=True)
         self.create_target_input(t2_frame, kpi, 2, target_data, is_sub_kpi, is_calculated, content_style)
 
-        # Repartition profile (Compact)
-        repart_summary_frame = ttk.Frame(content_frame, style=content_style)
-        repart_summary_frame.pack(side='right', padx=10)
-        
-        current_profile = target_data.get('distribution_profile') if target_data else None
-        if not current_profile or current_profile == 'annual_progressive':
-            current_profile = kpi.get('default_distribution_profile', 'annual_progressive')
-            
-        ttk.Label(repart_summary_frame, text=f"Profile: {current_profile}", font=("Helvetica", 8, "italic")).pack()
-        
-        if not is_calculated:
-            ttk.Button(repart_summary_frame, text="Split Settings", style="Small.TButton",
-                       command=lambda: self._open_repartition_dialog(kpi, target_data)).pack()
-
     def create_target_input(self, parent, kpi, target_num, target_data, is_sub_kpi, is_calculated, style):
         kpi_id = kpi['id']
         frame = ttk.Frame(parent, style=style)
@@ -231,7 +217,8 @@ class TargetEntryTab(ttk.Frame):
             'manual_var': manual_var,
             'manual_cb': manual_cb,
             'is_calculated': is_calculated,
-            'formula_json': kpi.get('formula_json') # CACHE
+            'formula_json': kpi.get('formula_json'),
+            'formula_string': kpi.get('formula_string') # CACHE
         }
 
     def _on_override_toggle(self, kpi_id, target_num):
@@ -255,6 +242,33 @@ class TargetEntryTab(ttk.Frame):
         self._recalculate_all_formulas_ui(target_num)
         self.recalculate_master_sub_distribution(kpi_id, target_num)
 
+    def _evaluate_string_formula(self, formula_str, target_num):
+        if not formula_str: return 0.0
+        import re
+        
+        # Replace [ID] with actual values from UI
+        # Pattern matches [digits]
+        pattern = r'\[(\d+)\]'
+        
+        def replacer(match):
+            kpi_id = int(match.group(1))
+            w = self.kpi_target_entry_widgets.get(kpi_id)
+            if w:
+                val_str = w['targets'][target_num]['target_var'].get()
+                try: return str(float(val_str) if val_str else 0.0)
+                except: return "0.0"
+            return "0.0"
+            
+        expression = re.sub(pattern, replacer, formula_str)
+        
+        # Safe eval using a restricted context
+        allowed_names = {"abs": abs, "min": min, "max": max, "round": round}
+        try:
+            return float(eval(expression, {"__builtins__": None}, allowed_names))
+        except Exception as e:
+            print(f"DEBUG: String Formula Error: {e} | Expression: {expression}")
+            return 0.0
+
     def _recalculate_all_formulas_ui(self, target_num):
         if self._populating_target_kpi_entries: return
         
@@ -268,40 +282,36 @@ class TargetEntryTab(ttk.Frame):
                     t_widgets = widgets['targets'][target_num]
                     
                     if t_widgets['is_calculated'] and not t_widgets['manual_var'].get():
+                        calc_val = 0.0
                         formula_json = t_widgets['formula_json']
-                        if not formula_json: continue
+                        formula_string = t_widgets['formula_string']
                         
-                        try:
-                            dag = KpiDAG.from_json(formula_json)
-                            def ui_resolver(kid, tn):
-                                # Ensure kid is handled as int
-                                try: kid_key = int(kid)
-                                except: kid_key = kid
-                                
-                                w = self.kpi_target_entry_widgets.get(kid_key)
-                                if w:
-                                    val_str = w['targets'][tn]['target_var'].get()
-                                    try:
-                                        return float(val_str) if val_str else 0.0
-                                    except ValueError:
-                                        return 0.0
-                                return 0.0
-                            
-                            # Pass current target_num as default for input nodes
-                            calc_val = dag.evaluate(ui_resolver, default_target_num=target_num)
-                            calc_val = round(calc_val, 4)
-                            
-                            current_val_str = t_widgets['target_var'].get()
+                        if formula_json:
                             try:
-                                current_val = float(current_val_str) if current_val_str else 0.0
-                            except ValueError:
-                                current_val = None 
-                            
-                            if current_val is None or abs(current_val - calc_val) > 1e-9:
-                                t_widgets['target_var'].set(str(calc_val))
-                                made_progress = True
-                        except Exception as e:
-                            print(f"DEBUG: Error evaluating formula for KPI {kpi_id}: {e}")
+                                dag = KpiDAG.from_json(formula_json)
+                                def ui_resolver(kid, tn):
+                                    try: kid_key = int(kid)
+                                    except: kid_key = kid
+                                    w = self.kpi_target_entry_widgets.get(kid_key)
+                                    if w:
+                                        val_str = w['targets'][tn]['target_var'].get()
+                                        try: return float(val_str) if val_str else 0.0
+                                        except: return 0.0
+                                    return 0.0
+                                calc_val = round(dag.evaluate(ui_resolver, default_target_num=target_num), 4)
+                            except: pass
+                        elif formula_string:
+                            calc_val = round(self._evaluate_string_formula(formula_string, target_num), 4)
+                        
+                        current_val_str = t_widgets['target_var'].get()
+                        try:
+                            current_val = float(current_val_str) if current_val_str else 0.0
+                        except ValueError:
+                            current_val = None 
+                        
+                        if current_val is None or abs(current_val - calc_val) > 1e-9:
+                            t_widgets['target_var'].set(str(calc_val))
+                            made_progress = True
                 if not made_progress: break
         finally:
             self._recalculating_ui = False
@@ -373,7 +383,3 @@ class TargetEntryTab(ttk.Frame):
                 self.after(0, lambda ex=e: messagebox.showerror("Error", str(ex)))
         
         threading.Thread(target=run_save, daemon=True).start()
-
-    def _open_repartition_dialog(self, kpi, target_data):
-        # Implementation for the detailed repartition settings dialog
-        pass

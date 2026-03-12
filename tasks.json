@@ -2,106 +2,127 @@
   {
     "id": "TASK-001",
     "title": "Architectural Analysis & Dependency Check",
-    "description": "Perform a dependency check on the current Repository to ensure the new 'Calculated' fields don't conflict with existing reporting queries and ensure the Tkinter mainloop remains responsive.",
+    "description": "Perform a dependency check on the current Repository to ensure the new 'Calculated' fields don't conflict with existing reporting or UI logic.",
     "status": "done",
-    "verification_method": "Report summarizing dependencies and responsiveness strategy."
+    "verification_method": "Manual verification of call sites and query impact analysis."
   },
   {
     "id": "TASK-002",
     "title": "Database Evolution: Global KPI Splits Table",
-    "description": "Create 'global_kpi_splits' table in 'db_kpi_templates.db' to store standardized distribution templates.",
+    "description": "Create a new table `global_kpi_splits` in `db_kpi_templates.db` to store standardized distribution templates.",
     "status": "done",
-    "verification_method": "Verify table existence and schema in db_kpi_templates.db."
+    "verification_method": "Verify table existence and columns via SQLite CLI."
   },
   {
     "id": "TASK-003",
     "title": "Database Evolution: Add Global Split Reference to Annual Targets",
-    "description": "Add 'global_split_id' column to 'annual_targets' in 'db_kpi_targets.db' as a non-destructive update.",
+    "description": "Add `global_split_id` to the `annual_targets` table in `db_kpi_targets.db` to link specific targets to global templates.",
     "status": "done",
-    "verification_method": "Verify column existence in annual_targets table."
+    "verification_method": "Verify column addition via schema check."
   },
   {
     "id": "TASK-004",
     "title": "Standardized Splits: Implement Global Split CRUD",
-    "description": "Create service/logic to manage Global Annual Splits templates.",
+    "description": "Implement backend functions to Create, Read, Update, and Delete global split definitions.",
     "status": "done",
-    "verification_method": "Unit tests for CRUD operations."
+    "verification_method": "Run `test_splits_crud.py`."
   },
   {
     "id": "TASK-005",
     "title": "Standardized Splits: Refactor Repartition Logic",
-    "description": "Refactor repartition.py to prioritize Global Annual Splits templates.",
+    "description": "Update the repartition engine to prioritize `global_split_id` values over local target settings.",
     "status": "done",
-    "verification_method": "Automated tests verifying distribution totals match previous logic."
+    "verification_method": "Run `test_global_repartition.py`."
   },
   {
     "id": "TASK-006",
     "title": "Node Engine: Define Serialization Schema",
-    "description": "Define the JSON schema for serializing KPI calculation nodes and edges.",
+    "description": "Create a Directed Acyclic Graph (DAG) schema for KPI calculations, including nodes for Inputs, Constants, and Operators.",
     "status": "done",
-    "verification_method": "Schema documentation and sample JSON validation."
+    "verification_method": "Run `test_node_engine.py`."
   },
   {
     "id": "TASK-007",
-    "title": "Node Engine: Visual Editor Implementation (Tkinter)",
-    "description": "Implement a custom Tkinter canvas for visual node editing of KPI formulas.",
+    "title": "Node Engine: Visual Editor Implementation",
+    "description": "Build a Tkinter-based visual canvas for dragging, dropping, and connecting nodes to define KPI formulas.",
     "status": "done",
-    "verification_method": "Manual verification of node creation, linking, and serialization in UI."
+    "verification_method": "Manual UI testing of the Node Editor Dialog."
   },
   {
     "id": "TASK-008",
     "title": "Node Engine: Integration with Annual Target Evaluation",
-    "description": "Integrate the node-based formula results into the annual.py evaluation logic.",
+    "description": "Update the backend calculation loop to recursively evaluate node-based formulas during target saving.",
     "status": "done",
-    "verification_method": "Verify calculated targets match expected node results."
+    "verification_method": "Run `test_node_integration.py`."
   },
   {
     "id": "TASK-009",
     "title": "Smart Data Entry: Hierarchical UI Refactor",
-    "description": "Reorganize TargetEntryTab to group KPIs by Group/Subgroup using collapsible Frames/Treeview.",
+    "description": "Refactor Target Entry UI to group KPIs by Group/Subgroup using collapsible frames.",
     "status": "done",
     "verification_method": "Manual UI check for hierarchical organization."
   },
   {
     "id": "TASK-010",
     "title": "Smart Data Entry: Auto-population & Visual Feedback",
-    "description": "Implement auto-population of calculated KPIs and color-coding (light blue for calculated, white for manual).",
+    "description": "Implement live tracing on target inputs to automatically update dependent formula-based fields.",
     "status": "done",
-    "verification_method": "Manual UI check for colors and auto-updates."
+    "verification_method": "Manual UI check for live refresh behavior."
   },
   {
     "id": "TASK-011",
     "title": "Smart Data Entry: Manual Override & Priority Logic",
-    "description": "Ensure manual entries take priority over calculated values and persist correctly.",
+    "description": "Allow manual overrides on calculated KPIs and ensure overrides are respected during batch saves.",
     "status": "done",
-    "verification_method": "Verify manual values are saved and prioritized in calculations."
+    "verification_method": "Verify 'Override' flag persistence in DB."
   },
   {
     "id": "TASK-012",
-    "title": "Validation Layer: Circular Dependency & Integrity Checks",
-    "description": "Implement checks for circular dependencies in node-based formulas and data integrity validation.",
+    "title": "Validation Layer: Circular Dependency Detection",
+    "description": "Implement cycle detection to prevent infinite loops in inter-dependent KPI calculations.",
     "status": "done",
-    "verification_method": "Unit tests for circular dependency detection."
+    "verification_method": "Run `test_cycle_detection.py`."
   },
   {
     "id": "TASK-013",
-    "title": "Node Editor: Role-Based Sockets & Dynamic Connections",
-    "description": "Refactor node editor to support dynamic input sockets and role-based handles (e.g. Numerator/Denominator).",
+    "title": "Node Editor: Role-Based Sockets & Snapping",
+    "description": "Refine node connections with labeled sockets (Numerator/Denominator) and snapping logic.",
     "status": "done",
-    "verification_method": "Manual verification of connections and labels in UI."
+    "verification_method": "Manual UI verification of node snapping and deletion."
   },
   {
     "id": "TASK-014",
-    "title": "Architecture: Standardized KPI Formulas & Centralized Distribution",
-    "description": "Move formulas and distribution profiles from annual_targets to centralized KPI definitions.",
+    "title": "Architecture: Standardized KPI Formulas",
+    "description": "Move formula and distribution settings to the centralized KPI definition level.",
     "status": "done",
-    "verification_method": "Verify formula persistence in kpis table and usage in repartition logic."
+    "verification_method": "Verify `kpis` table schema update."
   },
   {
     "id": "TASK-015",
-    "title": "UI: Modernized Target Entry with Manual Override",
+    "title": "UI: Modernized Target Entry Layout",
     "description": "Refactor Target Entry UI for side-by-side layout and implement forced manual overrides for calculated KPIs.",
     "status": "done",
     "verification_method": "Manual UI check for layout and live refresh behavior."
+  },
+  {
+    "id": "TASK-016",
+    "title": "KPI Management: Hierarchical Treeview Migration",
+    "description": "Replace the 3-column listbox layout with a unified Treeview and Detail Panel for clearer hierarchy management.",
+    "status": "done",
+    "verification_method": "Manual UI check of the Hierarchy & Specifications tab."
+  },
+  {
+    "id": "TASK-017",
+    "title": "Hybrid Formula System: Node vs String Toggle",
+    "description": "Implement a toggle in the KPI editor to switch between visual node editing and string-based expressions.",
+    "status": "done",
+    "verification_method": "Verify formula mode switch and KPI picker functionality."
+  },
+  {
+    "id": "TASK-018",
+    "title": "Unified Calculation Engine: String Expression Support",
+    "description": "Integrate regex-based string formula evaluation into both the UI live-refresh and backend save routines.",
+    "status": "done",
+    "verification_method": "Verify [ID] formulas evaluate correctly in Target Entry."
   }
 ]
