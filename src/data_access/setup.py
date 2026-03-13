@@ -108,30 +108,41 @@ def setup_databases():
                 "PRAGMA foreign_keys = ON;"  # Ensure FK constraints are active during setup for consistency
             )
 
+            # --- KPI Hierarchy (Recursive) ---
             cursor.execute(
-                """CREATE TABLE IF NOT EXISTS kpi_groups (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
-                )"""
-            )
-            cursor.execute(
-                """CREATE TABLE IF NOT EXISTS kpi_subgroups (
+                """CREATE TABLE IF NOT EXISTS kpi_nodes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    group_id INTEGER NOT NULL,
-                    indicator_template_id INTEGER,
-                    FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE,
-                    FOREIGN KEY (indicator_template_id) REFERENCES kpi_indicator_templates(id) ON DELETE SET NULL,
-                    UNIQUE (name, group_id)
+                    parent_id INTEGER,
+                    node_type TEXT CHECK(node_type IN ('group', 'subgroup', 'folder')),
+                    FOREIGN KEY (parent_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
+                    UNIQUE (name, parent_id)
                 )"""
             )
+
+            # Migration: If kpi_groups and kpi_subgroups exist, migrate them to kpi_nodes
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='kpi_groups'")
+            if cursor.fetchone():
+                print("Migrating legacy groups and subgroups to recursive kpi_nodes...")
+                # Migrate groups
+                cursor.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, node_type) SELECT id, name, 'group' FROM kpi_groups")
+                # Migrate subgroups
+                cursor.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, parent_id, node_type) SELECT id + 1000, name, group_id, 'subgroup' FROM kpi_subgroups")
+                
+                # Update indicators to link to the new node IDs
+                cursor.execute("PRAGMA table_info(kpi_indicators)")
+                if 'subgroup_id' in {col[1] for col in cursor.fetchall()}:
+                    cursor.execute("ALTER TABLE kpi_indicators ADD COLUMN node_id INTEGER REFERENCES kpi_nodes(id)")
+                    cursor.execute("UPDATE kpi_indicators SET node_id = subgroup_id + 1000")
+                    print("Updated indicators to use new node_id.")
+
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS kpi_indicators (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
-                    subgroup_id INTEGER NOT NULL,
-                    FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE,
-                    UNIQUE (name, subgroup_id)
+                    node_id INTEGER NOT NULL,
+                    FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
+                    UNIQUE (name, node_id)
                 )"""
             )
             cursor.execute(

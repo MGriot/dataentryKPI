@@ -6,119 +6,41 @@ from pathlib import Path
 
 # --- KPI Indicator CRUD Operations ---
 
-def add_kpi_indicator(name: str, subgroup_id: int) -> int:
+def add_kpi_indicator(name: str, node_id: int) -> int:
     """
-    Adds a new KPI indicator to a specific subgroup.
-
-    Args:
-        name (str): The name of the KPI indicator. Must be unique within the subgroup.
-        subgroup_id (int): The ID of the subgroup this indicator belongs to.
-
-    Returns:
-        int: The ID of the newly created KPI indicator.
-             If an indicator with the same name already exists in the subgroup,
-             its existing ID is returned.
-
-    Raises:
-        sqlite3.IntegrityError: If `subgroup_id` does not exist or for other integrity issues
-                                (but duplicate name/subgroup is handled by returning existing ID).
-        Exception: For other database errors.
+    Adds a new KPI indicator to a specific node in the recursive hierarchy.
     """
     db_kpis_path = app_config.get_database_path("db_kpis.db")
-    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
-        raise ConnectionError(
-            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot add indicator."
-        )
-
     with sqlite3.connect(db_kpis_path) as conn:
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO kpi_indicators (name, subgroup_id) VALUES (?,?)",
-                (name, subgroup_id),
+                "INSERT INTO kpi_indicators (name, node_id) VALUES (?,?)",
+                (name, node_id),
             )
             conn.commit()
-            indicator_id = cursor.lastrowid
-            print(f"INFO: KPI Indicator '{name}' (subgroup {subgroup_id}) added successfully with ID: {indicator_id}.")
-            return indicator_id
-        except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed: kpi_indicators.name, kpi_indicators.subgroup_id" in str(e) or \
-               "UNIQUE constraint failed: kpi_indicators.subgroup_id, kpi_indicators.name" in str(e) : # Order might vary
-                # Indicator with this name already exists in this subgroup, fetch and return its ID
-                print(f"INFO: KPI Indicator '{name}' already exists in subgroup {subgroup_id}. Fetching existing ID.")
-                cursor.execute(
-                    "SELECT id FROM kpi_indicators WHERE name=? AND subgroup_id=?",
-                    (name, subgroup_id),
-                )
-                existing_row = cursor.fetchone()
-                if existing_row:
-                    existing_id = existing_row[0]
-                    print(f"  Found existing indicator ID: {existing_id}")
-                    return existing_id
-                else:
-                    # This case should ideally not happen if the UNIQUE constraint was the cause.
-                    print(f"ERROR: IntegrityError for indicator '{name}' in subgroup {subgroup_id}, "
-                          "but could not find existing entry after error. This is unexpected.")
-                    raise # Re-raise the original integrity error
-            elif "FOREIGN KEY constraint failed" in str(e):
-                print(f"ERROR: Could not add KPI indicator '{name}'. Subgroup ID {subgroup_id} likely does not exist. Details: {e}")
-                raise
-            else:
-                print(f"ERROR: IntegrityError while adding KPI indicator '{name}'. Details: {e}")
-                raise
-        except sqlite3.Error as e_general:
-            print(f"ERROR: Database error while adding KPI indicator '{name}'. Details: {e_general}")
-            print(traceback.format_exc())
-            raise Exception(f"A database error occurred while adding KPI indicator '{name}'.") from e_general
-
-
-def update_kpi_indicator(indicator_id: int, new_name: str, subgroup_id: int):
-    """
-    Updates the name and/or subgroup of an existing KPI indicator.
-
-    Args:
-        indicator_id (int): The ID of the KPI indicator to update.
-        new_name (str): The new name for the KPI indicator.
-        subgroup_id (int): The new subgroup ID for the KPI indicator.
-
-    Raises:
-        sqlite3.IntegrityError: If the new name already exists in the new subgroup,
-                                or if the new subgroup_id is invalid.
-        Exception: If the indicator_id does not exist or for other database errors.
-    """
-    db_kpis_path = app_config.get_database_path("db_kpis.db")
-    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
-        raise ConnectionError(
-            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot update indicator."
-        )
-
-    with sqlite3.connect(db_kpis_path) as conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE kpi_indicators SET name = ?, subgroup_id = ? WHERE id = ?",
-                (new_name, subgroup_id, indicator_id),
-            )
-            conn.commit()
-            if cursor.rowcount == 0:
-                print(f"WARNING: No KPI indicator found with ID {indicator_id}. Update had no effect.")
-                # Consider raising ValueError here if an update on non-existent ID is critical
-            else:
-                print(f"INFO: KPI indicator ID {indicator_id} updated to name '{new_name}' and subgroup {subgroup_id}.")
-        except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed" in str(e):
-                print(f"ERROR: Could not update KPI indicator ID {indicator_id}. "
-                      f"The name '{new_name}' might already exist in subgroup {subgroup_id}. Details: {e}")
-            elif "FOREIGN KEY constraint failed" in str(e):
-                 print(f"ERROR: Could not update KPI indicator ID {indicator_id}. "
-                      f"The new subgroup ID {subgroup_id} likely does not exist. Details: {e}")
-            else:
-                print(f"ERROR: IntegrityError while updating KPI indicator ID {indicator_id}. Details: {e}")
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            cursor.execute("SELECT id FROM kpi_indicators WHERE name=? AND node_id=?", (name, node_id))
+            row = cursor.fetchone()
+            if row: return row[0]
             raise
-        except sqlite3.Error as e_general:
-            print(f"ERROR: Database error while updating KPI indicator ID {indicator_id}. Details: {e_general}")
-            print(traceback.format_exc())
-            raise Exception(f"A database error occurred while updating KPI indicator ID {indicator_id}.") from e_general
+
+def update_kpi_indicator(indicator_id: int, new_name: str, node_id: int):
+    """
+    Updates the name and/or parent node of an existing KPI indicator.
+    """
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    with sqlite3.connect(db_kpis_path) as conn:
+        try:
+            conn.execute(
+                "UPDATE kpi_indicators SET name = ?, node_id = ? WHERE id = ?",
+                (new_name, node_id, indicator_id),
+            )
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"ERROR (update_kpi_indicator): {e}")
+            raise
 
 
 def delete_kpi_indicator(indicator_id: int):

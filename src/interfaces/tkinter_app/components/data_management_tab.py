@@ -1,3 +1,4 @@
+# src/interfaces/tkinter_app/components/data_management_tab.py
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import traceback
@@ -13,63 +14,72 @@ class DataManagementTab(ttk.Frame):
         self.create_widgets()
 
     def create_widgets(self):
-        main_frame = ttk.Frame(self, padding=20, style="Content.TFrame")
-        main_frame.pack(expand=True, fill="both")
+        # Background frame
+        container = ttk.Frame(self, style="Content.TFrame", padding=20)
+        container.pack(fill="both", expand=True)
 
-        ttk.Label(main_frame, text="Data Management", font=("Helvetica", 16, "bold"), background="#F5F5F5").pack(pady=(0, 20))
+        ttk.Label(container, text="Data Management Center", font=("Helvetica", 18, "bold"), background="#F5F5F5").pack(pady=(0, 25))
 
-        backup_frame = ttk.LabelFrame(main_frame, text="Backup", padding=15, style="Card.TLabelframe")
-        backup_frame.pack(fill="x", expand=True, pady=10)
+        # Horizontal container for 3 cards
+        cards_frame = ttk.Frame(container, style="Content.TFrame")
+        cards_frame.pack(fill="x", expand=True)
 
-        ttk.Button(backup_frame, text="Create Backup (ZIP)", command=self.create_backup, style="Action.TButton").pack(pady=10, ipadx=10, ipady=5)
-        ttk.Label(backup_frame, text="Export all data (KPIs, plants, targets) into a single ZIP file.", wraplength=400, background="#FFFFFF").pack(pady=(0,10))
+        # --- Card 1: CSV Export ---
+        csv_card = ttk.LabelFrame(cards_frame, text="CSV Data Export", padding=15, style="Card.TLabelframe")
+        csv_card.place(relx=0, rely=0, relwidth=0.32, relheight=0.8) # Using place for equal height or grid
+        csv_card.pack(side="left", fill="both", expand=True, padx=5)
 
-        restore_frame = ttk.LabelFrame(main_frame, text="Restore", padding=15, style="Card.TLabelframe")
-        restore_frame.pack(fill="x", expand=True, pady=10)
+        ttk.Label(csv_card, text="Generate flat CSV files for external reporting or Excel analysis.", wraplength=200, background="#FFFFFF").pack(pady=10)
+        ttk.Button(csv_card, text="Export CSVs", command=self.export_csvs, style="Action.TButton").pack(side="bottom", pady=10)
 
-        ttk.Button(restore_frame, text="Restore from Backup (ZIP)", command=self.restore_backup, style="Action.TButton").pack(pady=10, ipadx=10, ipady=5)
-        ttk.Label(restore_frame, text="Restore data from a ZIP file. WARNING: This operation will overwrite existing data.", wraplength=400, background="#FFFFFF").pack(pady=(0,10))
+        # --- Card 2: Backup ---
+        backup_card = ttk.LabelFrame(cards_frame, text="System Backup", padding=15, style="Card.TLabelframe")
+        backup_card.pack(side="left", fill="both", expand=True, padx=5)
+
+        ttk.Label(backup_card, text="Create a full ZIP backup of all databases and configuration.", wraplength=200, background="#FFFFFF").pack(pady=10)
+        ttk.Button(backup_card, text="Create ZIP", command=self.create_backup, style="Action.TButton").pack(side="bottom", pady=10)
+
+        # --- Card 3: Restore ---
+        restore_card = ttk.LabelFrame(cards_frame, text="System Restore", padding=15, style="Card.TLabelframe")
+        restore_card.pack(side="left", fill="both", expand=True, padx=5)
+
+        ttk.Label(restore_card, text="Restore system state from a previous ZIP backup. WARN: Overwrites data.", wraplength=200, background="#FFFFFF").pack(pady=10)
+        ttk.Button(restore_card, text="Restore ZIP", command=self.restore_backup).pack(side="bottom", pady=10)
+
+    def export_csvs(self):
+        try:
+            export_manager.export_all_data_to_global_csvs()
+            messagebox.showinfo("Success", f"All tables exported as CSV to:\n{CSV_EXPORT_BASE_PATH}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
     def create_backup(self):
         try:
-            # First, ensure the CSVs are up-to-date
+            # Update CSVs before zipping
             export_manager.export_all_data_to_global_csvs()
-
-            # Then, ask where to save the ZIP
-            output_zip_filepath = filedialog.asksaveasfilename(
+            
+            path = filedialog.asksaveasfilename(
                 title="Save Backup",
                 initialdir=CSV_EXPORT_BASE_PATH,
-                initialfile="dataentryKPI_backup.zip",
+                initialfile=f"KPI_Backup_{datetime.datetime.now().strftime('%Y%m%d')}.zip",
                 defaultextension=".zip",
                 filetypes=[("ZIP files", "*.zip")]
             )
-            if not output_zip_filepath:
-                return
+            if not path: return
 
-            success, message = export_manager.package_all_csvs_as_zip(output_zip_filepath_str=output_zip_filepath)
-            if success:
-                messagebox.showinfo("Success", f"Backup created successfully:{output_zip_filepath}")
-            else:
-                messagebox.showerror("Error", f"Could not create backup:{message}")
-        except Exception as e:
-            messagebox.showerror("Error", f"An unexpected error occurred during backup creation:{e}")
-            traceback.print_exc()
+            success, msg = export_manager.package_all_csvs_as_zip(output_zip_filepath_str=path)
+            if success: messagebox.showinfo("Success", "Backup created successfully.")
+            else: messagebox.showerror("Error", msg)
+        except Exception as e: messagebox.showerror("Error", str(e))
 
     def restore_backup(self):
-        file_path = filedialog.askopenfilename(
-            title="Select the Backup file to restore",
-            filetypes=[("ZIP files", "*.zip")]
-        )
-        if not file_path:
-            return
+        path = filedialog.askopenfilename(title="Select Backup ZIP", filetypes=[("ZIP files", "*.zip")])
+        if not path: return
 
-        if not messagebox.askyesno("Confirm Restore", "Are you sure you want to restore data from this backup? This operation is irreversible and will overwrite all current data."):
-            return
+        if not messagebox.askyesno("Confirm", "Overwrite ALL current data with this backup?"): return
 
         try:
-            result = import_manager.import_from_zip(file_path)
-            messagebox.showinfo("Restore Complete", result)
+            res = import_manager.import_from_zip(path)
+            messagebox.showinfo("Restore Complete", res)
             self.app.refresh_all_data()
-        except Exception as e:
-            messagebox.showerror("Restore Error", f"An error occurred during restore:{e}")
-            traceback.print_exc()
+        except Exception as e: messagebox.showerror("Restore Error", str(e))

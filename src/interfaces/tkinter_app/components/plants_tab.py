@@ -1,3 +1,4 @@
+# src/interfaces/tkinter_app/components/plants_tab.py
 import tkinter as tk
 from tkinter import ttk, messagebox, colorchooser
 import traceback
@@ -9,178 +10,160 @@ class PlantsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
+        self.current_plants_map = {}
         self.create_widgets()
         self.refresh_tree()
 
     def create_widgets(self):
-        # Main container with padding
-        main_frame = ttk.Frame(self, style="Content.TFrame")
-        main_frame.pack(fill="both", expand=True)
+        # Main container with a PanedWindow
+        self.paned = ttk.PanedWindow(self, orient="horizontal")
+        self.paned.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # --- Content Card ---
-        card_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=15)
-        card_frame.pack(fill="both", expand=True, padx=0, pady=0)
+        # --- Left Side: List ---
+        list_frame = ttk.Frame(self.paned, style="Card.TFrame")
+        self.paned.add(list_frame, weight=1)
 
-        self.st_tree = ttk.Treeview(
-            card_frame,
-            columns=("ID", "Name", "Description", "Visible", "Color"),
-            show="headings",
-        )
-        self.st_tree.heading("ID", text="ID")
-        self.st_tree.column("ID", width=50, anchor="center", stretch=tk.NO)
-        self.st_tree.heading("Name", text="Name")
-        self.st_tree.column("Name", width=200, stretch=tk.YES)
-        self.st_tree.heading("Description", text="Description")
-        self.st_tree.column("Description", width=250, stretch=tk.YES)
-        self.st_tree.heading("Visible", text="Visible")
-        self.st_tree.column("Visible", width=80, anchor="center", stretch=tk.NO)
-        self.st_tree.heading("Color", text="Color")
-        self.st_tree.column("Color", width=100, anchor="center", stretch=tk.NO)
+        toolbar = ttk.Frame(list_frame, style="Card.TFrame")
+        toolbar.pack(fill="x", pady=(0, 5))
+        ttk.Button(toolbar, text="+ Add Plant", command=self.add_plant_window, style="Action.TButton").pack(side="left")
 
-        # Add scrollbar
-        tree_scrollbar = ttk.Scrollbar(card_frame, orient="vertical", command=self.st_tree.yview)
-        self.st_tree.configure(yscrollcommand=tree_scrollbar.set)
-        tree_scrollbar.pack(side="right", fill="y")
-        self.st_tree.pack(expand=True, fill="both", padx=5, pady=5)
+        self.tree = ttk.Treeview(list_frame, columns=("Name", "Visible"), show="tree headings", selectmode="browse")
+        self.tree.heading("#0", text="Color")
+        self.tree.column("#0", width=50, anchor="center")
+        self.tree.heading("Name", text="Plant Name")
+        self.tree.heading("Visible", text="Vis.")
+        self.tree.column("Visible", width=40, anchor="center")
+        self.tree.pack(fill="both", expand=True)
+        
+        sb = ttk.Scrollbar(list_frame, orient="vertical", command=self.tree.yview)
+        sb.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=sb.set)
 
-        # Button Frame
-        bf_container = ttk.Frame(card_frame, style="Card.TFrame")
-        bf_container.pack(fill="x", pady=10)
-        bf = ttk.Frame(bf_container, style="Card.TFrame")
-        bf.pack()
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.tree.bind("<Double-1>", lambda e: self.edit_plant_window())
 
-        ttk.Button(bf, text="Add", command=self.add_plant_window, style="Action.TButton").pack(side="left", padx=5)
-        ttk.Button(bf, text="Edit", command=self.edit_plant_window).pack(side="left", padx=5)
-        ttk.Button(bf, text="Delete", command=self.delete_plant).pack(side="left", padx=5)
+        # --- Right Side: Detail Panel ---
+        self.detail_container = ttk.LabelFrame(self.paned, text="Plant Details", style="Card.TLabelframe", padding=15)
+        self.paned.add(self.detail_container, weight=2)
+        
+        self.detail_content = ttk.Frame(self.detail_container, style="Card.TFrame")
+        self.detail_content.pack(fill="both", expand=True)
+        
+        self._clear_details()
 
     def refresh_tree(self):
-        for i in self.st_tree.get_children():
-            self.st_tree.delete(i)
+        for i in self.tree.get_children(): self.tree.delete(i)
+        self.current_plants_map = {}
         try:
             for row in data_retriever.get_all_plants():
-                self.st_tree.insert(
-                    "",
-                    "end",
-                    values=(row["id"], row["name"], row["description"] if row["description"] is not None else "", "Yes" if row["visible"] else "No", row["color"]),
-                )
+                iid = self.tree.insert("", "end", values=(row["name"], "✓" if row["visible"] else "×"))
+                # Note: Setting tag for color background if supported by theme, or just ID mapping
+                self.current_plants_map[iid] = dict(row)
+                # Visual hint for color
+                self.tree.tag_configure(f"tag_{row['id']}", background=row['color'])
         except Exception as e:
-            messagebox.showerror("Loading Error", f"Could not load plants from the database:\n{e}")
+            messagebox.showerror("Error", str(e))
+
+    def _on_select(self, event):
+        sel = self.tree.selection()
+        if not sel:
+            self._clear_details()
+            return
+        
+        plant = self.current_plants_map[sel[0]]
+        for child in self.detail_content.winfo_children(): child.destroy()
+
+        # Header
+        ttk.Label(self.detail_content, text=plant['name'], font=("Helvetica", 14, "bold"), background="#FFFFFF").pack(anchor="w")
+        
+        # Color Box
+        color_f = ttk.Frame(self.detail_content, style="Card.TFrame")
+        color_f.pack(fill="x", pady=10)
+        ttk.Label(color_f, text="Brand Color: ", background="#FFFFFF").pack(side="left")
+        tk.Label(color_f, width=4, height=1, bg=plant['color'], relief="solid").pack(side="left")
+        ttk.Label(color_f, text=f" ({plant['color']})", font=("Courier", 10), background="#FFFFFF").pack(side="left")
+
+        # Info
+        ttk.Label(self.detail_content, text="Description:", font=("Helvetica", 10, "bold"), background="#FFFFFF").pack(anchor="w", pady=(10,0))
+        ttk.Label(self.detail_content, text=plant['description'] or "No description provided.", wraplength=300, background="#FFFFFF").pack(anchor="w")
+        
+        ttk.Label(self.detail_content, text=f"Visible in Entry: {'Yes' if plant['visible'] else 'No'}", background="#FFFFFF").pack(anchor="w", pady=10)
+
+        # Actions
+        btn_f = ttk.Frame(self.detail_content, style="Card.TFrame")
+        btn_f.pack(fill="x", pady=20)
+        ttk.Button(btn_f, text="Edit Plant", command=self.edit_plant_window, style="Action.TButton").pack(side="left", padx=5)
+        ttk.Button(btn_f, text="Delete", command=self.delete_plant).pack(side="left", padx=5)
+
+    def _clear_details(self):
+        for child in self.detail_content.winfo_children(): child.destroy()
+        ttk.Label(self.detail_content, text="Select a plant to manage.", font=("Helvetica", 10, "italic"), background="#FFFFFF").pack(pady=50)
 
     def add_plant_window(self):
         self.plant_editor_window()
 
     def edit_plant_window(self):
-        selected_item_iid = self.st_tree.focus()
-        if not selected_item_iid:
-            messagebox.showwarning("Warning", "Select a plant to edit.")
-            return
-        
-        item_values = self.st_tree.item(selected_item_iid)["values"]
-        if not item_values:
-            messagebox.showerror("Error", "Could not read data for the selected plant.")
-            return
-            
-        try:
-            data_tuple = (
-                int(item_values[0]), 
-                item_values[1], 
-                item_values[2], 
-                item_values[3],
-                item_values[4]
-            )
-            self.plant_editor_window(data_tuple=data_tuple)
-        except (ValueError, IndexError) as e:
-            messagebox.showerror("Data Error", f"Data for the selected plant is not valid: {e}")
+        sel = self.tree.selection()
+        if not sel: return
+        plant = self.current_plants_map[sel[0]]
+        # Pass data in format the editor expects
+        data = (plant['id'], plant['name'], plant['description'], "Yes" if plant['visible'] else "No", plant['color'])
+        self.plant_editor_window(data_tuple=data)
 
     def delete_plant(self):
-        selected_item = self.st_tree.focus()
-        if not selected_item:
-            messagebox.showwarning("Warning", "Select a plant to delete.")
-            return
-        
-        item_values = self.st_tree.item(selected_item)["values"]
-        try:
-            plant_id = int(item_values[0])
-            plant_name = item_values[1]
-        except (ValueError, IndexError):
-            messagebox.showerror("Error", "Invalid plant ID.")
-            return
-
-        if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to delete plant '{plant_name}'?\nThis action is irreversible."):
+        sel = self.tree.selection()
+        if not sel: return
+        plant = self.current_plants_map[sel[0]]
+        if messagebox.askyesno("Confirm", f"Delete plant '{plant['name']}'?"):
             try:
-                plants_manager.delete_plant(plant_id)
-                self.app.refresh_all_data() 
-                messagebox.showinfo("Success", f"Plant '{plant_name}' deleted successfully.")
-            except ValueError as ve:
-                messagebox.showerror("Deletion Error", f"Could not delete plant:\n{ve}")
-            except Exception as e:
-                messagebox.showerror("Deletion Error", f"Could not delete plant:\n{e}\n\n{traceback.format_exc()}")
+                plants_manager.delete_plant(plant['id'])
+                self.refresh_tree()
+                self._clear_details()
+                self.app.refresh_all_data()
+            except Exception as e: messagebox.showerror("Error", str(e))
 
     def plant_editor_window(self, data_tuple=None):
         win = tk.Toplevel(self)
-        win.title("New Plant" if data_tuple is None else "Edit Plant")
-        win.transient(self)
-        win.grab_set()
-        win.geometry("450x220")
+        win.title("Plant Editor")
+        win.geometry("450x250")
         win.resizable(False, False)
+        win.grab_set()
 
-        plant_id, plant_name, plant_desc, plant_vis_str, plant_color = (
-            data_tuple
-            if data_tuple
-            else (None, "", "", "Yes", "#000000") # Default color for new plant
-        )
+        p_id, p_name, p_desc, p_vis, p_color = data_tuple if data_tuple else (None, "", "", "Yes", "#000000")
 
-        form_frame = ttk.Frame(win, padding=15)
-        form_frame.pack(expand=True, fill="both")
+        f = ttk.Frame(win, padding=20)
+        f.pack(fill="both", expand=True)
 
-        ttk.Label(form_frame, text="Plant Name:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        name_var = tk.StringVar(value=plant_name)
-        name_entry = ttk.Entry(form_frame, textvariable=name_var, width=40)
-        name_entry.grid(row=0, column=1, padx=5, pady=5)
-        name_entry.focus_set()
+        ttk.Label(f, text="Name:").grid(row=0, column=0, sticky="w")
+        name_v = tk.StringVar(value=p_name)
+        ttk.Entry(f, textvariable=name_v, width=30).grid(row=0, column=1, padx=10, pady=5)
 
-        ttk.Label(form_frame, text="Description:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
-        desc_var = tk.StringVar(value=plant_desc)
-        desc_entry = ttk.Entry(form_frame, textvariable=desc_var, width=40)
-        desc_entry.grid(row=1, column=1, padx=5, pady=5)
+        ttk.Label(f, text="Description:").grid(row=1, column=0, sticky="w")
+        desc_v = tk.StringVar(value=p_desc)
+        ttk.Entry(f, textvariable=desc_v, width=30).grid(row=1, column=1, padx=10, pady=5)
 
-        ttk.Label(form_frame, text="Color:").grid(row=2, column=0, sticky="w", padx=5, pady=5)
-        color_var = tk.StringVar(value=plant_color)
-        color_label = ttk.Label(form_frame, textvariable=color_var, background=plant_color, width=10, relief="solid")
-        color_label.grid(row=2, column=1, sticky="w", padx=5, pady=5)
-        ttk.Button(form_frame, text="Choose...", command=lambda: self._choose_color_for_editor(color_var, color_label)).grid(row=2, column=2, padx=5, pady=5)
+        ttk.Label(f, text="Color:").grid(row=2, column=0, sticky="w")
+        color_v = tk.StringVar(value=p_color)
+        c_lbl = tk.Label(f, width=10, bg=p_color, relief="solid")
+        c_lbl.grid(row=2, column=1, sticky="w", padx=10)
+        
+        def pick():
+            c = colorchooser.askcolor(color_v.get())[1]
+            if c: color_v.set(c); c_lbl.config(bg=c)
+        ttk.Button(f, text="Pick...", command=pick).grid(row=2, column=1, sticky="e", padx=10)
 
-        visible_var = tk.BooleanVar(value=(plant_vis_str == "Yes"))
-        ttk.Checkbutton(form_frame, text="Visible for Target Entry", variable=visible_var).grid(row=3, column=1, sticky="w", padx=5, pady=10)
+        vis_v = tk.BooleanVar(value=(p_vis == "Yes"))
+        ttk.Checkbutton(f, text="Visible for Target Entry", variable=vis_v).grid(row=3, column=1, sticky="w", pady=10)
 
-        btn_frame = ttk.Frame(form_frame)
-        btn_frame.grid(row=4, columnspan=3, pady=15)
-
-        def save_action():
-            name_val = name_var.get().strip()
-            desc_val = desc_var.get().strip()
-            if not name_val:
-                messagebox.showerror("Validation Error", "The 'Name' field is required.", parent=win)
-                return
-
+        def save():
+            if not name_v.get().strip(): return
             try:
-                if plant_id is not None:
-                    plants_manager.update_plant(plant_id, name_val, desc_val, visible_var.get(), color_var.get())
-                else:
-                    plants_manager.add_plant(name_val, desc_val, visible_var.get(), color_var.get())
-
+                if p_id: plants_manager.update_plant(p_id, name_v.get().strip(), desc_v.get().strip(), vis_v.get(), color_v.get())
+                else: plants_manager.add_plant(name_v.get().strip(), desc_v.get().strip(), vis_v.get(), color_v.get())
                 self.refresh_tree()
                 self.app.refresh_all_data()
                 win.destroy()
-                messagebox.showinfo("Success", "Plant saved successfully.")
-            except Exception as e:
-                messagebox.showerror("Save Error", f"Save failed:\n{e}\n\n{traceback.format_exc()}", parent=win)
-        ttk.Button(btn_frame, text="Save", command=save_action, style="Accent.TButton").pack(side="left", padx=10)
-        ttk.Button(btn_frame, text="Cancel", command=win.destroy).pack(side="left", padx=10)
+            except Exception as e: messagebox.showerror("Error", str(e))
 
-    def _choose_color_for_editor(self, color_var, color_label):
-        color_code = colorchooser.askcolor(title="Choose color")
-        if color_code:
-            color_hex = color_code[1]
-            color_var.set(color_hex)
-            color_label.config(background=color_hex)
+        ttk.Button(f, text="Save", command=save, style="Action.TButton").grid(row=4, column=1, sticky="w", pady=10)
+        ttk.Button(f, text="Cancel", command=win.destroy).grid(row=4, column=1, sticky="e", pady=10)
