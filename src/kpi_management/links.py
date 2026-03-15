@@ -223,10 +223,10 @@ if __name__ == "__main__":
             cur.execute("INSERT OR IGNORE INTO kpi_groups (id, name) VALUES (1, 'Test Group for Links')")
             cur.execute("CREATE TABLE IF NOT EXISTS kpi_subgroups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL, FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));")
             cur.execute("INSERT OR IGNORE INTO kpi_subgroups (id, name, group_id) VALUES (1, 'Test Subgroup for Links', 1)")
-            cur.execute("CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL, FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));")
-            cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (1, 'Master Ind Link Test', 1)")
-            cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (2, 'Sub Ind1 Link Test', 1)")
-            cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (3, 'Sub Ind2 Link Test', 1)")
+            cur.execute("CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, node_id INTEGER NOT NULL, subgroup_id INTEGER, FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE, UNIQUE (name, node_id));")
+            cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, node_id) VALUES (1, 'Master Ind Link Test', 1)")
+            cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, node_id) VALUES (2, 'Sub Ind1 Link Test', 1)")
+            cur.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, node_id) VALUES (3, 'Sub Ind2 Link Test', 1)")
 
             # kpis table (parent for kpi_master_sub_links)
             cur.execute('''

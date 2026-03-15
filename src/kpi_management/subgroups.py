@@ -447,15 +447,12 @@ if __name__ == "__main__":
         # Setup in DB_KPIS
         with sqlite3.connect(db_kpis_path) as conn:
             cur = conn.cursor()
-            cur.execute("CREATE TABLE IF NOT EXISTS kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);")
-            cur.execute("INSERT OR IGNORE INTO kpi_groups (id, name) VALUES (?, 'Test Group for Subgroups')", (group_id,))
-            cur.execute("""CREATE TABLE IF NOT EXISTS kpi_subgroups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
-                           indicator_template_id INTEGER,
-                           FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE,
-                           FOREIGN KEY (indicator_template_id) REFERENCES kpi_indicator_templates(id) ON DELETE SET NULL,
-                           UNIQUE (name, group_id));""")
-            cur.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
-                           FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE, UNIQUE (name, subgroup_id));""")
+            cur.execute("CREATE TABLE IF NOT EXISTS kpi_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, parent_id INTEGER, node_type TEXT, FOREIGN KEY (parent_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE, UNIQUE (name, parent_id));")
+            cur.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, node_type) VALUES (?, 'Test Group for Subgroups', 'group')", (group_id,))
+            cur.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, parent_id, node_type) VALUES (?, 'Test Subgroup for Subgroups', ?, 'subgroup')", (group_id + 1000, group_id))
+            
+            cur.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, node_id INTEGER NOT NULL, subgroup_id INTEGER,
+                           FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE, UNIQUE (name, node_id));""")
             cur.execute(f"""CREATE TABLE IF NOT EXISTS kpis (id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE, description TEXT,
                            calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
                            unit_of_measure TEXT, visible BOOLEAN DEFAULT 1,

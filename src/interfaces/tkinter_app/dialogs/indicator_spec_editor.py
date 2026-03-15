@@ -134,7 +134,7 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
 
     def _open_node_editor(self):
         kpis = [dict(row) for row in data_retriever.get_all_kpis_detailed(only_visible=True)]
-        kpi_list = [{"id": k['id'], "name": f"{k.get('group_name')} > {k.get('subgroup_name')} > {k.get('indicator_name')}"} for k in kpis]
+        kpi_list = [{"id": k['id'], "name": f"{k.get('hierarchy_path', 'Root')} > {k.get('indicator_name')}"} for k in kpis]
         dialog = NodeEditorDialog(self, self.formula_json_var.get(), kpi_list)
         self.wait_window(dialog)
         res = dialog.get_result()
@@ -151,8 +151,10 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         lb = tk.Listbox(picker, font=("Helvetica", 10))
         lb.pack(fill="both", expand=True, padx=10, pady=10)
         
-        kpis = sorted([dict(row) for row in data_retriever.get_all_kpis_detailed(only_visible=True)], key=lambda x: x['indicator_name'])
-        for k in kpis: lb.insert(tk.END, f"{k['indicator_name']} [ID:{k['id']}]")
+        kpis = sorted([dict(row) for row in data_retriever.get_all_kpis_detailed(only_visible=True)], key=lambda x: x['indicator_name'] or "")
+        for k in kpis:
+            path = k.get('hierarchy_path', 'Root')
+            lb.insert(tk.END, f"{path} > {k['indicator_name']} [ID:{k['id']}]")
             
         def select():
             if lb.curselection():

@@ -28,6 +28,23 @@ def set_kpi_plant_visibility(kpi_id: int, plant_id: int, is_enabled: bool):
         except sqlite3.Error as e:
             raise Exception(f"Database error while setting KPI-Plant visibility: {e}") from e
 
+def update_plant_visibility(kpi_id: int, visibility_data: list):
+    """Updates visibility for multiple plants for a given KPI.
+    visibility_data is a list of dicts: [{'plant_id': int, 'is_enabled': bool}]
+    """
+    _validate_db_path(_get_db_kpis_path(), "DB_KPIS")
+    with sqlite3.connect(_get_db_kpis_path()) as conn:
+        try:
+            cursor = conn.cursor()
+            for entry in visibility_data:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO kpi_plant_visibility (kpi_id, plant_id, is_enabled) VALUES (?, ?, ?)",
+                    (kpi_id, entry['plant_id'], 1 if entry['is_enabled'] else 0),
+                )
+            conn.commit()
+        except sqlite3.Error as e:
+            raise Exception(f"Database error while updating KPI-Plant visibility: {e}") from e
+
 def get_kpi_plant_visibility(kpi_id: int, plant_id: int) -> bool:
     """Gets the visibility status of a KPI for a specific plant.
     Returns True if enabled, False if disabled, and True if no specific entry exists (default).
@@ -45,7 +62,7 @@ def get_kpi_plant_visibility(kpi_id: int, plant_id: int) -> bool:
             return bool(row['is_enabled'])
         return True # Default to visible if no specific entry exists
 
-def get_plants_for_kpi(kpi_id: int) -> list:
+def get_plant_visibility_for_kpi(kpi_id: int) -> list:
     """Returns a list of plant IDs for which a KPI has explicit visibility settings.
     Each item in the list is a dictionary with 'plant_id' and 'is_enabled'.
     """
@@ -58,6 +75,10 @@ def get_plants_for_kpi(kpi_id: int) -> list:
             (kpi_id,),
         )
         return [dict(row) for row in cursor.fetchall()]
+
+def get_plants_for_kpi(kpi_id: int) -> list:
+    """Alias for get_plant_visibility_for_kpi (legacy support)"""
+    return get_plant_visibility_for_kpi(kpi_id)
 
 def get_kpis_for_plant(plant_id: int) -> list:
     """Returns a list of KPI IDs for which a plant has explicit visibility settings.
@@ -88,41 +109,3 @@ def delete_kpi_plant_visibility(kpi_id: int, plant_id: int):
             conn.commit()
         except sqlite3.Error as e:
             raise Exception(f"Database error while deleting KPI-Plant visibility: {e}") from e
-
-if __name__ == "__main__":
-    print("--- Running kpi_management/visibility.py for testing ---")
-    # Ensure app_config is set up for testing or use a test DB
-    # For a real test, you'd want to create a temporary db_kpis.db and plants.db
-    # and populate them with test data.
-
-    # Example usage (requires a test setup with kpis and plants)
-    # Assuming KPI ID 1 and Plant ID 1 exist for testing
-    test_kpi_id = 1
-    test_plant_id = 1
-
-    try:
-        print(f"Setting KPI {test_kpi_id} for Plant {test_plant_id} to disabled...")
-        set_kpi_plant_visibility(test_kpi_id, test_plant_id, False)
-        is_visible = get_kpi_plant_visibility(test_kpi_id, test_plant_id)
-        print(f"Is KPI {test_kpi_id} visible for Plant {test_plant_id}? {is_visible}")
-        assert not is_visible
-
-        print(f"Setting KPI {test_kpi_id} for Plant {test_plant_id} to enabled...")
-        set_kpi_plant_visibility(test_kpi_id, test_plant_id, True)
-        is_visible = get_kpi_plant_visibility(test_kpi_id, test_plant_id)
-        print(f"Is KPI {test_kpi_id} visible for Plant {test_plant_id}? {is_visible}")
-        assert is_visible
-
-        print(f"Getting all plants for KPI {test_kpi_id}...")
-        plants_for_kpi = get_plants_for_kpi(test_kpi_id)
-        print(f"Plants for KPI {test_kpi_id}: {plants_for_kpi}")
-
-        print(f"Deleting visibility for KPI {test_kpi_id} and Plant {test_plant_id}...")
-        delete_kpi_plant_visibility(test_kpi_id, test_plant_id)
-        is_visible = get_kpi_plant_visibility(test_kpi_id, test_plant_id)
-        print(f"Is KPI {test_kpi_id} visible for Plant {test_plant_id} after deletion? {is_visible}")
-        assert is_visible # Should revert to default True
-
-    except Exception as e:
-        print(f"An error occurred during testing: {e}")
-        print(traceback.format_exc())

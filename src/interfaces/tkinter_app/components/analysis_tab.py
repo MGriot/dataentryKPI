@@ -61,7 +61,7 @@ class AnalysisTab(ttk.Frame):
         self.switch_view()
 
     def populate_initial_data(self):
-        years = [str(y["year"]) for y in db_retriever.get_distinct_years()]
+        years = [str(y["year"]) for y in db_retriever.get_distinct_years() if y["year"] is not None]
         self.year_cb["values"] = sorted(list(set(years + [str(datetime.datetime.now().year)])), reverse=True)
         
         plants = db_retriever.get_all_plants()
@@ -124,15 +124,22 @@ class AnalysisTab(ttk.Frame):
         kpis = db_retriever.get_all_kpis_detailed(only_visible=True, plant_id=p_id)
         
         hierarchy = {}
-        for k in kpis:
-            g, sg = k.get('group_name', 'No Group'), k.get('subgroup_name', 'No Subgroup')
+        for k_row in kpis:
+            k = dict(k_row)
+            path = k.get('hierarchy_path', 'No Group')
+            parts = path.split(' > ')
+            
+            # Simple 2-level hierarchy for now
+            g = parts[0]
+            sg = parts[1] if len(parts) > 1 else 'Default'
+            
             if g not in hierarchy: hierarchy[g] = {}
             if sg not in hierarchy[g]: hierarchy[g][sg] = []
             hierarchy[g][sg].append(k)
 
-        for g in sorted(hierarchy.keys()):
+        for g in sorted(hierarchy.keys(), key=lambda x: str(x) if x is not None else ""):
             gid = self.kpi_tree.insert("", "end", text=f"📁 {g}", open=True)
-            for sg in sorted(hierarchy[g].keys()):
+            for sg in sorted(hierarchy[g].keys(), key=lambda x: str(x) if x is not None else ""):
                 sgid = self.kpi_tree.insert(gid, "end", text=f"📂 {sg}")
                 for k in hierarchy[g][sg]:
                     self.kpi_tree.insert(sgid, "end", iid=f"KPI_{k['id']}", text=f"📊 {k['indicator_name']}", values=(k['id'],))
@@ -203,7 +210,8 @@ class AnalysisTab(ttk.Frame):
         period_type = self.period_var.get()
 
         kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
-        for k in kpis:
+        for k_row in kpis:
+            k = dict(k_row)
             data = db_retriever.get_periodic_targets_for_kpi_all_plants(k["id"], period_type, year)
             if not data: continue
             
@@ -253,9 +261,9 @@ class AnalysisTab(ttk.Frame):
     def _sort_periods(self, periods, pt):
         if pt == 'Month':
             m_map = {m: i for i, m in enumerate(list(calendar.month_name)[1:])}
-            return sorted(periods, key=lambda x: m_map.get(x, 0))
-        if pt == 'Day': return sorted(periods)
-        return sorted(periods)
+            return sorted(periods, key=lambda x: m_map.get(x, 0) if x is not None else 0)
+        if pt == 'Day': return sorted(periods, key=lambda x: str(x) if x is not None else "")
+        return sorted(periods, key=lambda x: str(x) if x is not None else "")
 
     def _sort_dashboard_df(self, df, pt):
         if pt == 'Month':

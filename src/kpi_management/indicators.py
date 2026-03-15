@@ -166,39 +166,30 @@ def delete_kpi_indicator(indicator_id: int):
     print(f"INFO: Deletion process for KPI Indicator ID {indicator_id} fully completed.")
 
 
-def get_kpi_indicators_by_subgroup(subgroup_id: int) -> list[dict]:
+def get_kpi_indicators_by_node(node_id: int) -> list[dict]:
     """
-    Retrieves all KPI indicators for a given subgroup ID.
-
-    Args:
-        subgroup_id (int): The ID of the parent KPI subgroup.
-
-    Returns:
-        list[dict]: A list of dictionaries, where each dictionary represents a KPI indicator
-                    with 'id', 'name', and 'subgroup_id'. Returns an empty list if no indicators are found for the subgroup.
-    Raises:
-        Exception: For database errors.
+    Retrieves all KPI indicators for a given node ID in the recursive hierarchy.
     """
     db_kpis_path = app_config.get_database_path("db_kpis.db")
-    if not isinstance(db_kpis_path, Path) or not db_kpis_path.parent.exists():
-        raise ConnectionError(
-            f"DB_KPIS is not properly configured ({db_kpis_path}). Cannot retrieve indicators."
-        )
-
     with sqlite3.connect(db_kpis_path) as conn:
-        conn.row_factory = sqlite3.Row  # This allows accessing columns by name
+        conn.row_factory = sqlite3.Row
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, name, subgroup_id FROM kpi_indicators WHERE subgroup_id = ? ORDER BY name",
-                (subgroup_id,),
+                "SELECT id, name, node_id, subgroup_id FROM kpi_indicators WHERE node_id = ? ORDER BY name",
+                (node_id,),
             )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except sqlite3.Error as e:
-            print(f"ERROR: Database error while retrieving KPI indicators for subgroup {subgroup_id}. Details: {e}")
-            print(traceback.format_exc())
-            raise Exception(f"A database error occurred while retrieving KPI indicators for subgroup {subgroup_id}.") from e
+            print(f"ERROR: Database error while retrieving KPI indicators for node {node_id}. Details: {e}")
+            raise
+
+def get_kpi_indicators_by_subgroup(subgroup_id: int) -> list[dict]:
+    """
+    Legacy support for retrieving KPI indicators by subgroup_id.
+    """
+    return get_kpi_indicators_by_node(subgroup_id + 1000) # Assuming the 1000 offset migration
 
 
 if __name__ == "__main__":
@@ -216,26 +207,16 @@ if __name__ == "__main__":
     indicator_id_test = None
     kpi_spec_id_for_test_indicator = None
 
-    # Helper to set up a minimal kpi_groups and kpi_subgroups for testing
-    def setup_minimal_parent_tables_for_indicators(db_path, subgroup_id_to_ensure):
+    # Helper to set up a minimal kpi_nodes for testing
+    def setup_minimal_parent_tables_for_indicators(db_path, node_id_to_ensure):
         with sqlite3.connect(db_path) as conn:
             cur = conn.cursor()
-            # Ensure kpi_groups table and a group
-            cur.execute("CREATE TABLE IF NOT EXISTS kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);")
-            cur.execute("INSERT OR IGNORE INTO kpi_groups (id, name) VALUES (?, ?)", (1, "Test Group for Indicators"))
-            # Ensure kpi_subgroups table and the specific subgroup
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS kpi_subgroups (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
-                    indicator_template_id INTEGER,
-                    FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));
-            """)
-            cur.execute("INSERT OR IGNORE INTO kpi_subgroups (id, name, group_id) VALUES (?, ?, ?)",
-                        (subgroup_id_to_ensure, f"Test Subgroup {subgroup_id_to_ensure}", 1))
+            cur.execute("CREATE TABLE IF NOT EXISTS kpi_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, parent_id INTEGER, node_type TEXT, FOREIGN KEY (parent_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE, UNIQUE (name, parent_id));")
+            cur.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, node_type) VALUES (?, ?, ?)", (node_id_to_ensure, f"Test Node {node_id_to_ensure}", "subgroup"))
             # Ensure kpis table
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS kpis (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL, description TEXT,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE, description TEXT,
                     calculation_type TEXT NOT NULL CHECK(calculation_type IN ('Incremental', 'Average')),
                     unit_of_measure TEXT, visible BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE,
@@ -244,9 +225,10 @@ if __name__ == "__main__":
             # Ensure kpi_indicators table (this module's target)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS kpi_indicators (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
-                    FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE,
-                    UNIQUE (name, subgroup_id));
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, node_id INTEGER NOT NULL,
+                    subgroup_id INTEGER,
+                    FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
+                    UNIQUE (name, node_id));
             """)
             conn.commit()
 
@@ -273,7 +255,7 @@ if __name__ == "__main__":
     setup_minimal_parent_tables_for_indicators(app_config.get_database_path("db_kpis.db"), TEST_SUBGROUP_ID)
 
     try:
-        print(f"\nTest 1: Add new indicator 'Revenue' to subgroup {TEST_SUBGROUP_ID}")
+        print(f"\nTest 1: Add new indicator 'Revenue' to node {TEST_SUBGROUP_ID}")
         indicator_id_test = add_kpi_indicator("Revenue", TEST_SUBGROUP_ID)
         assert isinstance(indicator_id_test, int), "add_kpi_indicator should return an int."
         print(f"  SUCCESS: Added 'Revenue' with ID {indicator_id_test}")
@@ -294,7 +276,7 @@ if __name__ == "__main__":
         assert existing_id == indicator_id_test, "Duplicate add should return existing ID."
         print(f"  SUCCESS: Duplicate add returned existing ID {existing_id}.")
 
-        print(f"\nTest 3: Update indicator ID {indicator_id_test} to 'Net Revenue' in subgroup {TEST_SUBGROUP_ID}")
+        print(f"\nTest 3: Update indicator ID {indicator_id_test} to 'Net Revenue' in node {TEST_SUBGROUP_ID}")
         update_kpi_indicator(indicator_id_test, "Net Revenue", TEST_SUBGROUP_ID)
         with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
             name = conn.execute("SELECT name FROM kpi_indicators WHERE id = ?", (indicator_id_test,)).fetchone()[0]

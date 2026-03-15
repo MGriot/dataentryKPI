@@ -129,22 +129,40 @@ def setup_databases():
                 # Migrate subgroups
                 cursor.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, parent_id, node_type) SELECT id + 1000, name, group_id, 'subgroup' FROM kpi_subgroups")
                 
-                # Update indicators to link to the new node IDs
-                cursor.execute("PRAGMA table_info(kpi_indicators)")
-                if 'subgroup_id' in {col[1] for col in cursor.fetchall()}:
-                    cursor.execute("ALTER TABLE kpi_indicators ADD COLUMN node_id INTEGER REFERENCES kpi_nodes(id)")
-                    cursor.execute("UPDATE kpi_indicators SET node_id = subgroup_id + 1000")
-                    print("Updated indicators to use new node_id.")
-
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS kpi_indicators (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     node_id INTEGER NOT NULL,
+                    subgroup_id INTEGER,
                     FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
                     UNIQUE (name, node_id)
                 )"""
             )
+            # Migration check: ensure node_id is populated from legacy subgroup_id if needed
+            cursor.execute("PRAGMA table_info(kpi_indicators)")
+            indicator_cols_info = {col[1]: col for col in cursor.fetchall()}
+            
+            if 'subgroup_id' in indicator_cols_info and indicator_cols_info['subgroup_id'][3] == 1:
+                # subgroup_id is NOT NULL (col[3] is the 'notnull' flag) - RECREATE to fix
+                print("Recreating kpi_indicators to fix NOT NULL constraint on subgroup_id...")
+                cursor.execute("ALTER TABLE kpi_indicators RENAME TO kpi_indicators_old")
+                cursor.execute(
+                    """CREATE TABLE kpi_indicators (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        node_id INTEGER NOT NULL,
+                        subgroup_id INTEGER,
+                        FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
+                        UNIQUE (name, node_id)
+                    )"""
+                )
+                cursor.execute("INSERT INTO kpi_indicators (id, name, node_id, subgroup_id) SELECT id, name, node_id, subgroup_id FROM kpi_indicators_old")
+                cursor.execute("DROP TABLE kpi_indicators_old")
+            
+            # Ensure node_id is populated from subgroup_id if it's missing (legacy data)
+            if 'subgroup_id' in indicator_cols_info:
+                cursor.execute("UPDATE kpi_indicators SET node_id = subgroup_id + 1000 WHERE (node_id IS NULL OR node_id = 0) AND subgroup_id IS NOT NULL")
             cursor.execute(
                 f"""CREATE TABLE IF NOT EXISTS kpis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

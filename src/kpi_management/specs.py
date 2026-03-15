@@ -177,37 +177,27 @@ if __name__ == "__main__":
     def setup_minimal_tables_for_specs(db_path, indicator_id_to_ensure):
         with sqlite3.connect(db_path) as conn:
             cur = conn.cursor()
-            # Dependencies: kpi_groups, kpi_subgroups
-            cur.execute(
-                "CREATE TABLE IF NOT EXISTS kpi_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);"
-            )
-            cur.execute(
-                "INSERT OR IGNORE INTO kpi_groups (id, name) VALUES (1, 'Test Group for Specs')"
-            )
-            cur.execute(
-                """CREATE TABLE IF NOT EXISTS kpi_subgroups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, group_id INTEGER NOT NULL,
-                           FOREIGN KEY (group_id) REFERENCES kpi_groups(id) ON DELETE CASCADE, UNIQUE (name, group_id));"""
-            )
-            cur.execute(
-                "INSERT OR IGNORE INTO kpi_subgroups (id, name, group_id) VALUES (1, 'Test Subgroup for Specs', 1)"
-            )
+            # Dependencies: kpi_nodes
+            cur.execute("CREATE TABLE IF NOT EXISTS kpi_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, parent_id INTEGER, node_type TEXT, FOREIGN KEY (parent_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE, UNIQUE (name, parent_id));")
+            cur.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, node_type) VALUES (1, 'Test Group for Specs', 'group')")
+            cur.execute("INSERT OR IGNORE INTO kpi_nodes (id, name, parent_id, node_type) VALUES (2, 'Test Subgroup for Specs', 1, 'subgroup')")
 
             # kpi_indicators table (parent for kpis)
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS kpi_indicators (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, subgroup_id INTEGER NOT NULL,
-                    FOREIGN KEY (subgroup_id) REFERENCES kpi_subgroups(id) ON DELETE CASCADE,
-                    UNIQUE (name, subgroup_id));
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, node_id INTEGER NOT NULL, subgroup_id INTEGER,
+                    FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
+                    UNIQUE (name, node_id));
             """
             )
             # Ensure the specific indicator_id exists
             cur.execute(
-                "INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES (?, ?, ?)",
-                (indicator_id_to_ensure, f"Test Indicator {indicator_id_to_ensure}", 1),
+                "INSERT OR IGNORE INTO kpi_indicators (id, name, node_id) VALUES (?, ?, ?)",
+                (indicator_id_to_ensure, f"Test Indicator {indicator_id_to_ensure}", 2),
             )
             cur.execute(
-                f"INSERT OR IGNORE INTO kpi_indicators (id, name, subgroup_id) VALUES ({indicator_id_to_ensure + 1}, 'Another Test Ind for Specs', 1)"
+                f"INSERT OR IGNORE INTO kpi_indicators (id, name, node_id) VALUES ({indicator_id_to_ensure + 1}, 'Another Test Ind for Specs', 2)"
             )
 
             # kpis table (this module's target)

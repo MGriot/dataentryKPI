@@ -50,6 +50,9 @@ class TargetEntryTab(ttk.Frame):
         self.plant_cb_target.bind('<<ComboboxSelected>>', lambda e: self.load_data())
 
         ttk.Button(toolbar, text="Save All Changes", command=self.save_all_targets_entry, style="Action.TButton").pack(side='right', padx=5)
+        
+        self.apply_all_plants_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(toolbar, text="Apply to All Plants", variable=self.apply_all_plants_var).pack(side='right', padx=15)
 
         # Paned UI
         self.paned = ttk.PanedWindow(self, orient="horizontal")
@@ -124,18 +127,29 @@ class TargetEntryTab(ttk.Frame):
         for item in self.tree.get_children(): self.tree.delete(item)
         self.tree.insert("", "end", iid="ALL", text="🌍 All Indicators", open=True)
         
-        # Organize for tree
-        hierarchy = {}
+        # Organize for tree using hierarchy_path
+        # Map: path_tuple -> tree_iid
+        path_map = { (): "ALL" }
+        
+        # Sort paths to build parent levels before children
+        all_paths = set()
         for kid, data in self.all_kpis_data_cache.items():
-            g = data['kpi_info'].get('group_name', 'No Group')
-            sg = data['kpi_info'].get('subgroup_name', 'No Subgroup')
-            if g not in hierarchy: hierarchy[g] = set()
-            hierarchy[g].add(sg)
+            path_str = data['kpi_info'].get('hierarchy_path', '')
+            if path_str:
+                parts = tuple(path_str.split(' > '))
+                for i in range(1, len(parts) + 1):
+                    all_paths.add(parts[:i])
 
-        for g in sorted(hierarchy.keys()):
-            self.tree.insert("ALL", "end", iid=f"G_{g}", text=f"📁 {g}", open=False)
-            for sg in sorted(list(hierarchy[g])):
-                self.tree.insert(f"G_{g}", "end", iid=f"S_{g}_{sg}", text=f"📂 {sg}")
+        sorted_paths = sorted(list(all_paths), key=len)
+        
+        for p in sorted_paths:
+            parent_p = p[:-1]
+            parent_iid = path_map[parent_p]
+            iid = "P_" + "_".join(p)
+            name = p[-1]
+            icon = "📂" if len(p) > 1 else "📁"
+            self.tree.insert(parent_iid, "end", iid=iid, text=f"{icon} {name}", open=False)
+            path_map[p] = iid
 
     def _on_filter_change(self, *args):
         self.render_cards()
@@ -154,9 +168,19 @@ class TargetEntryTab(ttk.Frame):
             info = data['kpi_info']
             # Search filter
             if query and query not in info['indicator_name'].lower(): continue
-            # Tree filter
-            if sel_id.startswith("G_") and sel_id != f"G_{info.get('group_name')}": continue
-            if sel_id.startswith("S_") and sel_id != f"S_{info.get('group_name')}_{info.get('subgroup_name')}": continue
+            
+            # Tree filter logic
+            if sel_id != "ALL":
+                # sel_id is "P_Part1_Part2..."
+                path_str = info.get('hierarchy_path', '')
+                if not path_str: continue # KPI has no path, but we are in a sub-path
+                
+                parts = path_str.split(' > ')
+                current_p_str = "_".join(parts)
+                # Check if current KPI path starts with the selected path
+                target_p_str = sel_id[2:] # Remove "P_"
+                if not current_p_str.startswith(target_p_str):
+                    continue
             
             self._create_card(kid, data)
 
@@ -292,6 +316,16 @@ class TargetEntryTab(ttk.Frame):
         p_name = self.plant_cb_target.get()
         p_id = [p['id'] for p in self.plants if p['name'] == p_name][0]
         
+        if self.apply_all_plants_var.get():
+            target_plant_ids = [p['id'] for p in self.plants]
+            msg = f"Save these targets for ALL {len(target_plant_ids)} plants?"
+        else:
+            target_plant_ids = p_id
+            msg = f"Save targets for {p_name}?"
+
+        if not messagebox.askyesno("Confirm Save", msg):
+            return
+
         data_map = {}
         for kid, data in self.all_kpis_data_cache.items():
             data_map[str(kid)] = {
@@ -305,7 +339,8 @@ class TargetEntryTab(ttk.Frame):
             
         def run():
             try:
-                annual_targets_manager.save_annual_targets(year, p_id, data_map)
-                self.after(0, lambda: messagebox.showinfo("Success", "All targets saved."))
-            except Exception as e: self.after(0, lambda: messagebox.showerror("Error", str(e)))
+                annual_targets_manager.save_annual_targets(year, target_plant_ids, data_map)
+                self.after(0, lambda: messagebox.showinfo("Success", "Targets saved successfully."))
+            except Exception as e:
+                self.after(0, lambda ex=e: messagebox.showerror("Error", str(ex)))
         threading.Thread(target=run, daemon=True).start()

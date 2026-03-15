@@ -12,7 +12,7 @@ from src.config.settings import load_settings
 
 # Import page modules
 from src.interfaces.streamlit_app.pages import target_entry
-from src.interfaces.streamlit_app.components import kpi_hierarchy, plants, kpi_templates, kpi_specs, master_sub_link, export, analysis, settings
+from src.interfaces.streamlit_app.components import kpi_explorer, plants, kpi_templates, master_sub_link, export, analysis, settings
 
 st.set_page_config(
     page_title="KPI Target Management",
@@ -39,15 +39,15 @@ st.sidebar.title("Navigation")
 # Define pages (mirroring Tkinter tabs)
 pages = {
     "🎯 Target Entry": target_entry,
-    # "🗂️ KPI Hierarchy Management": kpi_hierarchy,
-    # "📋 Indicator Template Management": kpi_templates,
-    # "⚙️ KPI Specification Management": kpi_specs,
-    # "🔗 Master/Sub Link Management": master_sub_link,
-    # "🏭 Plant Management": plants,
-    # "📦 Data Export": export,
-    # "📈 Results Analysis": analysis,
-    # "⚙️ Settings": settings,
+    "📁 KPI Explorer": kpi_explorer,
+    "📋 Indicator Template Management": kpi_templates,
+    "🔗 Master/Sub Link Management": master_sub_link,
+    "🏭 Plant Management": plants,
+    "📦 Data Export": export,
+    "📈 Results Analysis": analysis,
+    "⚙️ Settings": settings,
 }
+
 
 selected_page_name = st.sidebar.radio("Go to:", list(pages.keys()))
 selected_page_module = pages[selected_page_name]
