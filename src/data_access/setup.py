@@ -328,80 +328,63 @@ def setup_databases():
                         year INTEGER NOT NULL,
                         plant_id INTEGER NOT NULL,
                         kpi_id INTEGER NOT NULL,
-                        annual_target1 REAL NOT NULL DEFAULT 0,
-                        annual_target2 REAL NOT NULL DEFAULT 0,
                         repartition_logic TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_YEAR}',
                         repartition_values TEXT NOT NULL DEFAULT '{{}}',
                         distribution_profile TEXT NOT NULL DEFAULT '{PROFILE_ANNUAL_PROGRESSIVE}',
                         profile_params TEXT DEFAULT '{{}}',
-                        is_target1_manual BOOLEAN NOT NULL DEFAULT 0,
-                        is_target2_manual BOOLEAN NOT NULL DEFAULT 0,
-                        target1_is_formula_based BOOLEAN NOT NULL DEFAULT 0,
-                        target1_formula TEXT,
-                        target1_formula_inputs TEXT DEFAULT '[]',
-                        target2_is_formula_based BOOLEAN NOT NULL DEFAULT 0,
-                        target2_formula TEXT,
-                        target2_formula_inputs TEXT DEFAULT '[]',
                         global_split_id INTEGER,
                         UNIQUE(year, plant_id, kpi_id)
                     )"""
                 )
             except sqlite3.OperationalError as e_create:
                 if "table annual_targets already exists" not in str(e_create).lower():
-                    raise  # Re-raise if it's not the 'already exists' error
+                    raise
+
+            # --- New table for Normalized Annual Target Values ---
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS kpi_annual_target_values (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    annual_target_id INTEGER NOT NULL,
+                    target_number INTEGER NOT NULL,
+                    target_value REAL,
+                    is_manual BOOLEAN NOT NULL DEFAULT 1,
+                    is_formula_based BOOLEAN NOT NULL DEFAULT 0,
+                    formula TEXT,
+                    formula_inputs TEXT DEFAULT '[]',
+                    FOREIGN KEY (annual_target_id) REFERENCES annual_targets(id) ON DELETE CASCADE,
+                    UNIQUE(annual_target_id, target_number)
+                )
+            """)
 
             # Check and rename 'stabilimento_id' to 'plant_id' if it exists
             cursor.execute("PRAGMA table_info(annual_targets)")
-            annual_targets_cols = {col[1] for col in cursor.fetchall()}
+            annual_targets_cols_info = cursor.fetchall()
+            annual_targets_cols = {col[1] for col in annual_targets_cols_info}
+            
             if "stabilimento_id" in annual_targets_cols and "plant_id" not in annual_targets_cols:
                 try:
                     cursor.execute("ALTER TABLE annual_targets RENAME COLUMN stabilimento_id TO plant_id")
                     print("Renamed column 'stabilimento_id' to 'plant_id' in 'annual_targets'.")
                 except sqlite3.OperationalError as e:
                     print(f"WARN: Could not rename 'stabilimento_id' to 'plant_id' in 'annual_targets': {e}")
-            conn.commit() # Commit rename before creating/checking table
+            
+            # Check for legacy columns and migrate if new table is empty
+            if "annual_target1" in annual_targets_cols:
+                cursor.execute("SELECT COUNT(*) FROM kpi_annual_target_values")
+                if cursor.fetchone()[0] == 0:
+                    print("Found legacy target columns. Migrating to kpi_annual_target_values...")
+                    cursor.execute("""
+                        INSERT INTO kpi_annual_target_values 
+                        (annual_target_id, target_number, target_value, is_manual, is_formula_based, formula, formula_inputs)
+                        SELECT id, 1, annual_target1, is_target1_manual, target1_is_formula_based, target1_formula, target1_formula_inputs FROM annual_targets
+                    """)
+                    cursor.execute("""
+                        INSERT INTO kpi_annual_target_values 
+                        (annual_target_id, target_number, target_value, is_manual, is_formula_based, formula, formula_inputs)
+                        SELECT id, 2, annual_target2, is_target2_manual, target2_is_formula_based, target2_formula, target2_formula_inputs FROM annual_targets
+                    """)
+                    print("Migration of legacy columns completed.")
 
-            # Check and add columns to 'annual_targets'
-            cursor.execute("PRAGMA table_info(annual_targets)")
-            target_columns_info = {col[1].lower(): col for col in cursor.fetchall()}
-
-            columns_to_add_with_defaults = {
-                "profile_params": "TEXT DEFAULT '{}'",  # Added default
-                "is_target1_manual": "BOOLEAN NOT NULL DEFAULT 0",
-                "is_target2_manual": "BOOLEAN NOT NULL DEFAULT 0",
-                "target1_is_formula_based": "BOOLEAN NOT NULL DEFAULT 0",
-                "target1_formula": "TEXT",
-                "target1_formula_inputs": "TEXT DEFAULT '[]'",  # Added default
-                "target2_is_formula_based": "BOOLEAN NOT NULL DEFAULT 0",
-                "target2_formula": "TEXT",
-                "target2_formula_inputs": "TEXT DEFAULT '[]'",  # Added default
-                "global_split_id": "INTEGER REFERENCES global_kpi_splits(id) ON DELETE SET NULL",
-            }
-            # Also ensure older columns have their defaults if added via ALTER
-            # (though defaults in CREATE IF NOT EXISTS are better)
-            older_columns_with_potential_missing_defaults = {
-                "repartition_logic": f"TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_YEAR}'",  # from app_config
-                "repartition_values": "TEXT NOT NULL DEFAULT '{}'",
-                "distribution_profile": f"TEXT NOT NULL DEFAULT '{PROFILE_ANNUAL_PROGRESSIVE}'",  # from app_config
-            }
-            all_columns_to_check = {
-                **columns_to_add_with_defaults,
-                **older_columns_with_potential_missing_defaults,
-            }
-
-            for col_name, col_def_with_default in all_columns_to_check.items():
-                if col_name not in target_columns_info:
-                    try:
-                        cursor.execute(
-                            f"ALTER TABLE annual_targets ADD COLUMN {col_name} {col_def_with_default}"
-                        )
-                        print(
-                            f"Added column '{col_name}' with definition '{col_def_with_default}' to 'annual_targets'."
-                        )
-                    except sqlite3.OperationalError as e_alter:
-                        print(
-                            f"WARN: Could not add column '{col_name}' to 'annual_targets': {e_alter}. It might already exist or there is a default value issue."
-                        )
             conn.commit()
         print(f"Table setup in {db_targets_path} completed.")
     except sqlite3.Error as e:
@@ -464,7 +447,7 @@ def setup_databases():
                         year INTEGER NOT NULL,
                         plant_id INTEGER NOT NULL,
                         kpi_id INTEGER NOT NULL,
-                        target_number INTEGER NOT NULL CHECK(target_number IN (1, 2)),
+                        target_number INTEGER NOT NULL CHECK(target_number > 0),
                         {period_col_name_for_unique.replace(' UNIQUE', '')},
                         target_value REAL NOT NULL,
                         UNIQUE(year, plant_id, kpi_id, target_number, {period_col_name_for_unique})

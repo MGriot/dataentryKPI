@@ -194,17 +194,61 @@ def get_template_defined_indicators(template_id):
         return conn.execute("SELECT * FROM template_defined_indicators WHERE template_id = ?", (template_id,)).fetchall()
 
 # --- Targets ---
+def get_kpi_annual_target_values(annual_target_id):
+    """Fetches all target values for a specific annual target record."""
+    if _handle_db_connection_error("db_kpi_targets.db", "get_kpi_annual_target_values"): return []
+    with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM kpi_annual_target_values WHERE annual_target_id = ? ORDER BY target_number", (annual_target_id,)).fetchall()
+
 def get_annual_target_entry(year, plant_id, kpi_id):
     if _handle_db_connection_error("db_kpi_targets.db", "get_annual_target_entry"): return None
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?", (year, plant_id, kpi_id)).fetchone()
+        row = conn.execute("SELECT * FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?", (year, plant_id, kpi_id)).fetchone()
+        
+        if row:
+            # Enrich with dynamic target values to maintain backward compatibility
+            # and provide full data for new logic.
+            enriched_data = dict(row)
+            target_values = get_kpi_annual_target_values(row['id'])
+            enriched_data['target_values'] = [dict(tv) for tv in target_values]
+            
+            # Map specific target numbers back to the old fields if they exist
+            for tv in target_values:
+                tn = tv['target_number']
+                enriched_data[f'annual_target{tn}'] = tv['target_value']
+                enriched_data[f'is_target{tn}_manual'] = tv['is_manual']
+                enriched_data[f'target{tn}_is_formula_based'] = tv['is_formula_based']
+                enriched_data[f'target{tn}_formula'] = tv['formula']
+                enriched_data[f'target{tn}_formula_inputs'] = tv['formula_inputs']
+            
+            return enriched_data
+        return None
 
 def get_annual_targets(plant_id, year):
     if _handle_db_connection_error("db_kpi_targets.db", "get_annual_targets"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM annual_targets WHERE plant_id=? AND year=?", (plant_id, year)).fetchall()
+        rows = conn.execute("SELECT * FROM annual_targets WHERE plant_id=? AND year=?", (plant_id, year)).fetchall()
+        
+        # Enrich all rows
+        enriched_rows = []
+        for row in rows:
+            enriched_data = dict(row)
+            target_values = get_kpi_annual_target_values(row['id'])
+            enriched_data['target_values'] = [dict(tv) for tv in target_values]
+            # Backward compatibility
+            for tv in target_values:
+                tn = tv['target_number']
+                enriched_data[f'annual_target{tn}'] = tv['target_value']
+                enriched_data[f'is_target{tn}_manual'] = tv['is_manual']
+                enriched_data[f'target{tn}_is_formula_based'] = tv['is_formula_based']
+                enriched_data[f'target{tn}_formula'] = tv['formula']
+                enriched_data[f'target{tn}_formula_inputs'] = tv['formula_inputs']
+            enriched_rows.append(enriched_data)
+            
+        return enriched_rows
 
 def get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_number):
     db_map = { "Day": "days", "Week": "weeks", "Month": "months", "Quarter": "quarters" }

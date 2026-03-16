@@ -1015,13 +1015,12 @@ def calculate_and_save_all_repartitions(
     )
 
     # 1. Get Annual Target Info
-    target_info_row = get_annual_target_entry(year, plant_id, kpi_spec_id)
-    if not target_info_row:
+    target_info = get_annual_target_entry(year, plant_id, kpi_spec_id)
+    if not target_info:
         print(
             f"    ERROR: No annual target entry found for KPI {kpi_spec_id}, Year {year}, Plant {plant_id}. Cannot repartition."
         )
         return
-    target_info = dict(target_info_row)
 
     # 2. Get KPI Details
     kpi_details_row = get_kpi_detailed_by_id(kpi_spec_id)
@@ -1033,7 +1032,9 @@ def calculate_and_save_all_repartitions(
     kpi_details = dict(kpi_details_row)
     kpi_calc_type = kpi_details.get("calculation_type", app_config.CALC_TYPE_INCREMENTAL)
 
-    annual_target_to_use = target_info.get(f"annual_target{target_number}")
+    # Find the target value for the specific target_number from enriched data
+    target_value_rec = next((tv for tv in target_info.get('target_values', []) if tv['target_number'] == target_number), None)
+    annual_target_to_use = target_value_rec['target_value'] if target_value_rec else None
 
     # Clear old data if the target is None
     if annual_target_to_use is None:

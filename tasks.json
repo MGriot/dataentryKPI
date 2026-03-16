@@ -27,17 +27,54 @@
       "created_at": "2026-03-16T21:35:00Z"
     },
     {
-      "id": "TARGET-002",
-      "title": "Support dynamic number of targets per KPI",
-      "description": "Update the target entry logic and UI to allow users to add an arbitrary number of targets (Target 1, 2, 3...) at their discretion.",
-      "status": "todo",
+      "id": "TARGET-002-DB",
+      "title": "Refactor annual_targets schema for dynamic targets",
+      "description": "Create a new table kpi_annual_target_values to store an arbitrary number of targets per KPI, and migrate existing data from annual_targets.",
+      "status": "done",
+      "target_files": [
+        "src/data_access/setup.py"
+      ],
+      "verification_method": "Verify the new table exists and contains migrated data from annual_target1 and annual_target2.",
+      "priority": "high",
+      "created_at": "2026-03-16T22:10:00Z"
+    },
+    {
+      "id": "TARGET-002-SERVICE",
+      "title": "Update service layer for dynamic targets",
+      "description": "Refactor annual.py and repartition.py to handle a dynamic number of targets instead of hardcoded Target 1 and Target 2.",
+      "status": "done",
       "target_files": [
         "src/target_management/annual.py",
-        "src/interfaces/streamlit_app/components/target_entry.py"
+        "src/target_management/repartition.py",
+        "src/data_retriever.py"
       ],
-      "verification_method": "Verify that a new target can be added and saved successfully.",
+      "verification_method": "Run existing target tests and verify they pass with the new structure.",
+      "priority": "high",
+      "created_at": "2026-03-16T22:10:00Z"
+    },
+    {
+      "id": "TARGET-002-UI-1",
+      "title": "Streamlit UI: Dynamic Target Inputs",
+      "description": "Update the Streamlit Target Entry page to allow adding/removing targets dynamically for each KPI.",
+      "status": "in_progress",
+      "target_files": [
+        "src/interfaces/streamlit_app/pages/target_entry.py"
+      ],
+      "verification_method": "Manually verify in Streamlit that new target rows can be added and values entered.",
       "priority": "medium",
-      "created_at": "2026-03-16T21:35:00Z"
+      "created_at": "2026-03-16T22:10:00Z"
+    },
+    {
+      "id": "TARGET-002-UI-2",
+      "title": "Streamlit UI: Save/Load Dynamic Targets",
+      "description": "Update the save and load logic in Streamlit to correctly handle the new normalized target data structure.",
+      "status": "todo",
+      "target_files": [
+        "src/interfaces/streamlit_app/pages/target_entry.py"
+      ],
+      "verification_method": "Verify that multiple targets can be saved and reloaded correctly in the UI.",
+      "priority": "medium",
+      "created_at": "2026-03-16T22:10:00Z"
     },
     {
       "id": "UX-001",

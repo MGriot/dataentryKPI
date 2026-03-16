@@ -1,14 +1,14 @@
-# Ralph Stage · 2026-03-16 22:00
+# Ralph Stage · 2026-03-16 22:50
 
 ## Active Focus
-**[TARGET-002] · Support dynamic number of targets per KPI**
-- Quality Gate: DECOMPOSING
+**[TARGET-002-UI-1] · Streamlit UI: Dynamic Target Inputs**
+- Quality Gate: IMPLEMENTING
 
 ## Recent History
+- [TARGET-002-SERVICE] · Update service layer for dynamic targets (DONE)
+- [TARGET-002-DB] · Refactor annual_targets schema for dynamic targets (DONE)
 - [TARGET-001] · Show historical targets in Target Entry page (DONE)
-- [MAINT-001] · Verify backup, load, and export functionality (DONE)
-- [PRD-SETUP] · Initialized PRD and Task List
 
 ## Next Up
+- [TARGET-002-UI-2] · Streamlit UI: Save/Load Dynamic Targets
 - [UX-001] · Fix Explorer Tree refresh behavior
-- [NODE-001] · Hierarchical indicator selection in Node Editor
