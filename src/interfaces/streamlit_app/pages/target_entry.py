@@ -51,6 +51,8 @@ def load_kpi_targets_for_entry_target():
     if not st.session_state.selected_year_target or not st.session_state.selected_plant_name_target:
         st.session_state.kpis_for_entry = []
         st.session_state.targets_map_for_entry = {}
+        st.session_state.hist1_map_for_entry = {}
+        st.session_state.hist2_map_for_entry = {}
         return
 
     year = int(st.session_state.selected_year_target)
@@ -60,11 +62,22 @@ def load_kpi_targets_for_entry_target():
         st.error("Plant ID not found.")
         st.session_state.kpis_for_entry = []
         st.session_state.targets_map_for_entry = {}
+        st.session_state.hist1_map_for_entry = {}
+        st.session_state.hist2_map_for_entry = {}
         return
 
     st.session_state.kpis_for_entry = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True, plant_id=plant_id)]
+    
+    # Current year
     targets = [dict(row) for row in db_retriever.get_annual_targets(plant_id, year)]
     st.session_state.targets_map_for_entry = {t['kpi_id']: t for t in targets}
+    
+    # Historical years
+    hist1 = [dict(row) for row in db_retriever.get_annual_targets(plant_id, year - 1)]
+    st.session_state.hist1_map_for_entry = {t['kpi_id']: t for t in hist1}
+    
+    hist2 = [dict(row) for row in db_retriever.get_annual_targets(plant_id, year - 2)]
+    st.session_state.hist2_map_for_entry = {t['kpi_id']: t for t in hist2}
 
     # Initialize input values in session state for each KPI
     for kpi in st.session_state.kpis_for_entry:
@@ -193,6 +206,10 @@ def app():
         st.session_state.kpis_for_entry = []
     if 'targets_map_for_entry' not in st.session_state:
         st.session_state.targets_map_for_entry = {}
+    if 'hist1_map_for_entry' not in st.session_state:
+        st.session_state.hist1_map_for_entry = {}
+    if 'hist2_map_for_entry' not in st.session_state:
+        st.session_state.hist2_map_for_entry = {}
 
     # --- Filters ---
     col1, col2 = st.columns([1, 2])
@@ -248,6 +265,24 @@ def app():
             
             with st.container(border=True):
                 st.markdown(f"**{kpi_display_name}**")
+                
+                # --- Historical Context ---
+                hist1_data = st.session_state.hist1_map_for_entry.get(kpi_id, {})
+                hist2_data = st.session_state.hist2_map_for_entry.get(kpi_id, {})
+                
+                cur_year = int(st.session_state.selected_year_target)
+                h1_year = cur_year - 1
+                h2_year = cur_year - 2
+
+                hist_cols = st.columns([0.5, 0.5])
+                with hist_cols[0]:
+                    h1_t1 = hist1_data.get('annual_target1')
+                    h1_t2 = hist1_data.get('annual_target2')
+                    st.caption(f"📅 **{h1_year}**: {target1_display_name}: `{h1_t1 if h1_t1 is not None else '-'}` | {target2_display_name}: `{h1_t2 if h1_t2 is not None else '-'}`")
+                with hist_cols[1]:
+                    h2_t1 = hist2_data.get('annual_target1')
+                    h2_t2 = hist2_data.get('annual_target2')
+                    st.caption(f"📅 **{h2_year}**: {target1_display_name}: `{h2_t1 if h2_t1 is not None else '-'}` | {target2_display_name}: `{h2_t2 if h2_t2 is not None else '-'}`")
                 
                 # Target 1 & 2 Inputs
                 cols_target_input = st.columns([0.3, 0.1, 0.3, 0.3]) # Value, Manual, Formula, Formula String

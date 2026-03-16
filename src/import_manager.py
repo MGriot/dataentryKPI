@@ -18,15 +18,18 @@ def import_from_zip(zip_path: str):
             # The order is critical to respect foreign key constraints
             import_order = {
                 'dict_plants.csv': ('plants', get_database_path('db_plants.db')),
+                'dict_kpi_nodes.csv': ('kpi_nodes', get_database_path('db_kpis.db')),
                 'dict_kpi_groups.csv': ('kpi_groups', get_database_path('db_kpis.db')),
                 'dict_kpi_subgroups.csv': ('kpi_subgroups', get_database_path('db_kpis.db')),
                 'dict_kpi_indicators.csv': ('kpi_indicators', get_database_path('db_kpis.db')),
                 'dict_kpis.csv': ('kpis', get_database_path('db_kpis.db')),
+                'dict_kpi_master_sub_links.csv': ('kpi_master_sub_links', get_database_path('db_kpis.db')),
+                'dict_kpi_plant_visibility.csv': ('kpi_plant_visibility', get_database_path('db_kpis.db')),
                 'all_annual_kpi_master_targets.csv': ('annual_targets', get_database_path('db_kpi_targets.db')),
-                'all_daily_kpi_targets.csv': ('daily_targets', get_database_path('db_periodic_targets.db')),
-                'all_weekly_kpi_targets.csv': ('weekly_targets', get_database_path('db_periodic_targets.db')),
-                'all_monthly_kpi_targets.csv': ('monthly_targets', get_database_path('db_periodic_targets.db')),
-                'all_quarterly_kpi_targets.csv': ('quarterly_targets', get_database_path('db_periodic_targets.db')),
+                'all_daily_kpi_targets.csv': ('daily_targets', get_database_path('db_kpi_days.db')),
+                'all_weekly_kpi_targets.csv': ('weekly_targets', get_database_path('db_kpi_weeks.db')),
+                'all_monthly_kpi_targets.csv': ('monthly_targets', get_database_path('db_kpi_months.db')),
+                'all_quarterly_kpi_targets.csv': ('quarterly_targets', get_database_path('db_kpi_quarters.db')),
             }
 
             for file_name, (table_name, db_path) in import_order.items():

@@ -99,24 +99,38 @@ class TargetEntryTab(ttk.Frame):
 
     def load_data(self):
         """Loads all data into cache and builds tree."""
-        year = self.year_cb_target.get()
+        year_str = self.year_cb_target.get()
         p_name = self.plant_cb_target.get()
-        if not year or not p_name: return
+        if not year_str or not p_name: return
 
+        year = int(year_str)
         p_id = [p['id'] for p in self.plants if p['name'] == p_name][0]
         kpis = [dict(row) for row in db_retriever.get_all_kpis_detailed(only_visible=True, plant_id=p_id)]
-        targets = {t['kpi_id']: dict(t) for t in db_retriever.get_annual_targets(p_id, int(year))}
+        
+        # Current year targets
+        targets = {t['kpi_id']: dict(t) for t in db_retriever.get_annual_targets(p_id, year)}
+        
+        # Historical targets
+        hist1 = {t['kpi_id']: dict(t) for t in db_retriever.get_annual_targets(p_id, year - 1)}
+        hist2 = {t['kpi_id']: dict(t) for t in db_retriever.get_annual_targets(p_id, year - 2)}
 
         # Populate state cache
         self.all_kpis_data_cache = {}
         for k in kpis:
             tid = k['id']
             t_data = targets.get(tid, {})
+            h1_data = hist1.get(tid, {})
+            h2_data = hist2.get(tid, {})
+            
             self.all_kpis_data_cache[tid] = {
                 'target1': t_data.get('annual_target1', 0.0),
                 'target2': t_data.get('annual_target2', 0.0),
                 'manual1': bool(t_data.get('is_target1_manual', False)),
                 'manual2': bool(t_data.get('is_target2_manual', False)),
+                'hist_y1_t1': h1_data.get('annual_target1'),
+                'hist_y1_t2': h1_data.get('annual_target2'),
+                'hist_y2_t1': h2_data.get('annual_target1'),
+                'hist_y2_t2': h2_data.get('annual_target2'),
                 'kpi_info': k
             }
 
@@ -215,6 +229,19 @@ class TargetEntryTab(ttk.Frame):
         state = 'normal' if (not is_calc or m_var.get()) else 'disabled'
         ent = ttk.Entry(f, textvariable=var, width=12, state=state)
         ent.pack(side='left', padx=5)
+        
+        # Historical info
+        h1 = data.get(f'hist_y1_t{tn}')
+        h2 = data.get(f'hist_y2_t{tn}')
+        h_text = ""
+        if h1 is not None or h2 is not None:
+            parts = []
+            if h1 is not None: parts.append(f"Y-1: {round(h1, 2)}")
+            if h2 is not None: parts.append(f"Y-2: {round(h2, 2)}")
+            h_text = f"({', '.join(parts)})"
+        
+        if h_text:
+            ttk.Label(f, text=h_text, font=("Segoe UI", 8, "italic"), foreground="gray").pack(side='left', padx=2)
         
         # Prevent immediate trace-driven updates while typing. 
         # Use FocusOut to sync the cache and trigger global updates.

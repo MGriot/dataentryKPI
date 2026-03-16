@@ -274,6 +274,27 @@ def get_all_periodic_targets_for_export(period_type: str) -> list:
         conn.row_factory = sqlite3.Row
         return conn.execute(f"SELECT year, plant_id, kpi_id, target_number, {col_name}, target_value FROM {table_name}").fetchall()
 
+def get_all_kpi_nodes():
+    """Returns all records from the kpi_nodes table."""
+    if _handle_db_connection_error("db_kpis.db", "get_all_kpi_nodes"): return []
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM kpi_nodes").fetchall()
+
+def get_all_kpi_master_sub_links():
+    """Returns all records from the kpi_master_sub_links table."""
+    if _handle_db_connection_error("db_kpis.db", "get_all_kpi_master_sub_links"): return []
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM kpi_master_sub_links").fetchall()
+
+def get_all_kpi_plant_visibility():
+    """Returns all records from the kpi_plant_visibility table."""
+    if _handle_db_connection_error("db_kpis.db", "get_all_kpi_plant_visibility"): return []
+    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("SELECT * FROM kpi_plant_visibility").fetchall()
+
 def get_distinct_years():
     if _handle_db_connection_error("db_kpi_targets.db", "get_distinct_years"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:

@@ -1,37 +1,67 @@
-[
-  {
-    "id": "TASK-018",
-    "title": "Architecture: Recursive KPI Hierarchy",
-    "description": "Migrate to a single recursive nodes table to allow unlimited nesting of indicators.",
-    "status": "done",
-    "verification_method": "Verify kpi_nodes table and successful CTE-based data retrieval."
-  },
-  {
-    "id": "TASK-019",
-    "title": "UI: Plants Tab Modernization",
-    "description": "Implement Master-Detail layout for plant management with visual color indicators.",
-    "status": "done",
-    "verification_method": "Manual UI check of the Plants explorer."
-  },
-  {
-    "id": "TASK-020",
-    "title": "UI: Data Management Refactor",
-    "description": "Simplify backup/restore and add explicit user-triggered CSV export.",
-    "status": "done",
-    "verification_method": "Verify CSV files are only generated when Export button is clicked."
-  },
-  {
-    "id": "TASK-021",
-    "title": "UI: Results Analysis Simplification",
-    "description": "Modernize Results tab with sidebar KPI selection and consolidated filters.",
-    "status": "done",
-    "verification_method": "Manual verification of tree-based KPI navigation in Results tab."
-  },
-  {
-    "id": "TASK-022",
-    "title": "Target Entry: Input Stabilization",
-    "description": "Switch entry fields to FocusOut validation to prevent mid-keystroke UI jumps.",
-    "status": "done",
-    "verification_method": "Manual data entry test to confirm smooth typing experience."
-  }
-]
+{
+  "tasks": [
+    {
+      "id": "MAINT-001",
+      "title": "Verify backup, load, and export functionality",
+      "description": "Ensure that the core data maintenance functions (backup to zip, load from zip, and CSV export) are working correctly.",
+      "status": "done",
+      "target_files": [
+        "src/export_manager.py",
+        "src/import_manager.py"
+      ],
+      "verification_method": "Run existing export/import tests or a manual verification script.",
+      "priority": "high",
+      "created_at": "2026-03-16T21:35:00Z"
+    },
+    {
+      "id": "TARGET-001",
+      "title": "Show historical targets in Target Entry page",
+      "description": "In the target entry page, display the target values from the previous two years for each KPI if they exist in the database.",
+      "status": "done",
+      "target_files": [
+        "src/interfaces/streamlit_app/components/target_entry.py",
+        "src/data_retriever.py"
+      ],
+      "verification_method": "Manually verify that historical values appear next to the current target inputs for a KPI with existing data.",
+      "priority": "medium",
+      "created_at": "2026-03-16T21:35:00Z"
+    },
+    {
+      "id": "TARGET-002",
+      "title": "Support dynamic number of targets per KPI",
+      "description": "Update the target entry logic and UI to allow users to add an arbitrary number of targets (Target 1, 2, 3...) at their discretion.",
+      "status": "todo",
+      "target_files": [
+        "src/target_management/annual.py",
+        "src/interfaces/streamlit_app/components/target_entry.py"
+      ],
+      "verification_method": "Verify that a new target can be added and saved successfully.",
+      "priority": "medium",
+      "created_at": "2026-03-16T21:35:00Z"
+    },
+    {
+      "id": "UX-001",
+      "title": "Fix Explorer Tree refresh behavior",
+      "description": "Ensure that after creating any hierarchy element (Folder, Group, Subgroup, Indicator), the tree explorer refreshes and resets to its initial root state.",
+      "status": "todo",
+      "target_files": [
+        "src/interfaces/streamlit_app/components/kpi_explorer.py"
+      ],
+      "verification_method": "Create a new element and observe the tree view state.",
+      "priority": "medium",
+      "created_at": "2026-03-16T21:35:00Z"
+    },
+    {
+      "id": "NODE-001",
+      "title": "Hierarchical indicator selection in Node Editor",
+      "description": "Implement tree-based indicator selection in the Node Editor, matching the structure of KPI management.",
+      "status": "todo",
+      "target_files": [
+        "src/gui/node_editor.py"
+      ],
+      "verification_method": "Open Node Editor and verify the indicator selection UI is hierarchical.",
+      "priority": "medium",
+      "created_at": "2026-03-16T21:35:00Z"
+    }
+  ]
+}
