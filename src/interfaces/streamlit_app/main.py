@@ -12,7 +12,7 @@ from src.config.settings import load_settings
 
 # Import page modules
 from src.interfaces.streamlit_app.pages import target_entry
-from src.interfaces.streamlit_app.components import kpi_explorer, plants, kpi_templates, master_sub_link, export, analysis, settings
+from src.interfaces.streamlit_app.components import kpi_explorer, plants, kpi_templates, master_sub_link, export, analysis, settings, global_splits
 
 st.set_page_config(
     page_title="KPI Target Management",
@@ -41,6 +41,7 @@ pages = {
     "🎯 Target Entry": target_entry,
     "📁 KPI Explorer": kpi_explorer,
     "📋 Indicator Template Management": kpi_templates,
+    "✂️ Global Splits": global_splits,
     "🔗 Master/Sub Link Management": master_sub_link,
     "🏭 Plant Management": plants,
     "📦 Data Export": export,

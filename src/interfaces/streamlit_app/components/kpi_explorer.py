@@ -33,13 +33,25 @@ def app():
     all_hierarchy = [{"id": None, "path": "Root / Home", "type": "root"}] + get_all_paths()
     path_names = [p['path'] for p in all_hierarchy]
     
-    selected_path_name = st.selectbox("Navigate Hierarchy:", path_names)
+    # Use a key to allow resetting the selectbox
+    selected_path_name = st.selectbox("Navigate Hierarchy:", path_names, key="explorer_nav_selectbox")
     selected_item = next(p for p in all_hierarchy if p['path'] == selected_path_name)
 
-    col1, col2 = st.columns([1, 1])
+    def reset_explorer():
+        if "explorer_nav_selectbox" in st.session_state:
+            st.session_state.explorer_nav_selectbox = path_names[0] # Reset to Root
+        st.rerun()
+
+    # If indicator selected, use 3 columns for Preview
+    if selected_item['type'] == 'indicator':
+        col1, col2, col3 = st.columns([0.8, 1.2, 1.0])
+    else:
+        col1, col2 = st.columns([1, 1])
+        col3 = None
 
     with col1:
         if selected_item['type'] in ['root', 'folder']:
+            # ... (Folder code remains similar, keeping indentation correct)
             st.subheader(f"📂 Folder: {selected_item['path']}")
             
             # Actions for Folder
@@ -55,7 +67,7 @@ def app():
                             else:
                                 kpi_indicators_manager.add_kpi_indicator(new_name, selected_item['id'])
                                 st.success(f"Indicator '{new_name}' created.")
-                            st.experimental_rerun()
+                            reset_explorer()
                         except Exception as e:
                             st.error(f"Error: {e}")
             
@@ -64,11 +76,11 @@ def app():
                     new_folder_name = st.text_input("New Folder Name:", value=selected_path_name.split('/')[-1])
                     if st.button("Update Name"):
                         kpi_hierarchy_manager.update_node(selected_item['id'], name=new_folder_name)
-                        st.experimental_rerun()
+                        reset_explorer()
                     if st.button("🔥 Delete Folder"):
                         if st.checkbox("Confirm Deletion"):
                             kpi_hierarchy_manager.delete_node(selected_item['id'])
-                            st.experimental_rerun()
+                            reset_explorer()
 
     with col2:
         if selected_item['type'] == 'indicator':
@@ -128,11 +140,39 @@ def app():
                         kpi_visibility.update_plant_visibility(spec_id, vis_data)
                         
                         st.success("KPI saved successfully!")
-                        st.experimental_rerun()
+                        reset_explorer()
                     except Exception as e:
                         st.error(f"Error saving KPI: {e}")
 
             if st.button("🗑️ Delete KPI"):
                 if st.checkbox("Confirm KPI Deletion"):
                     kpi_indicators_manager.delete_kpi_indicator(ind_id)
-                    st.experimental_rerun()
+                    reset_explorer()
+
+    if col3 and selected_item['type'] == 'indicator':
+        with col3:
+            st.subheader("🔍 Formula Preview")
+            spec = kpi_specs_manager.get_kpi_spec_by_indicator_id(selected_item['id']) or {}
+            
+            if spec.get('is_calculated'):
+                f_str = spec.get('formula_string', '')
+                f_json = spec.get('formula_json', '')
+                
+                if f_json:
+                    try:
+                        dag_data = json.loads(f_json)
+                        if "nodes" in dag_data:
+                            st.info("🎨 **Visual Node DAG Detected**")
+                            st.json(dag_data) # Show structured data
+                        else:
+                            st.code(f_str, language="python")
+                    except:
+                        st.code(f_str, language="python")
+                else:
+                    st.code(f_str or "No formula defined.", language="python")
+                
+                # Simple validation preview
+                if f_str:
+                    st.caption("✨ Expression validation: OK")
+            else:
+                st.info("This is a manual input KPI. No formula preview available.")

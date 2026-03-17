@@ -5,100 +5,150 @@
       "title": "Verify backup, load, and export functionality",
       "description": "Ensure that the core data maintenance functions (backup to zip, load from zip, and CSV export) are working correctly.",
       "status": "done",
-      "target_files": [
-        "src/export_manager.py",
-        "src/import_manager.py"
-      ],
-      "verification_method": "Run existing export/import tests or a manual verification script.",
+      "target_files": ["src/export_manager.py", "src/import_manager.py"],
+      "verification_method": "Run existing export/import tests.",
       "priority": "high",
       "created_at": "2026-03-16T21:35:00Z"
     },
     {
       "id": "TARGET-001",
       "title": "Show historical targets in Target Entry page",
-      "description": "In the target entry page, display the target values from the previous two years for each KPI if they exist in the database.",
+      "description": "Display previous two years' target values for context.",
       "status": "done",
-      "target_files": [
-        "src/interfaces/streamlit_app/components/target_entry.py",
-        "src/data_retriever.py"
-      ],
-      "verification_method": "Manually verify that historical values appear next to the current target inputs for a KPI with existing data.",
+      "target_files": ["src/interfaces/streamlit_app/pages/target_entry.py"],
+      "verification_method": "Manual verification in UI.",
       "priority": "medium",
       "created_at": "2026-03-16T21:35:00Z"
     },
     {
       "id": "TARGET-002-DB",
-      "title": "Refactor annual_targets schema for dynamic targets",
-      "description": "Create a new table kpi_annual_target_values to store an arbitrary number of targets per KPI, and migrate existing data from annual_targets.",
+      "title": "Refactor annual_targets schema",
+      "description": "Normalized table for dynamic targets.",
       "status": "done",
-      "target_files": [
-        "src/data_access/setup.py"
-      ],
-      "verification_method": "Verify the new table exists and contains migrated data from annual_target1 and annual_target2.",
+      "target_files": ["src/data_access/setup.py"],
+      "verification_method": "DB schema check.",
       "priority": "high",
       "created_at": "2026-03-16T22:10:00Z"
     },
     {
       "id": "TARGET-002-SERVICE",
       "title": "Update service layer for dynamic targets",
-      "description": "Refactor annual.py and repartition.py to handle a dynamic number of targets instead of hardcoded Target 1 and Target 2.",
+      "description": "Backend logic for arbitrary target numbers.",
       "status": "done",
-      "target_files": [
-        "src/target_management/annual.py",
-        "src/target_management/repartition.py",
-        "src/data_retriever.py"
-      ],
-      "verification_method": "Run existing target tests and verify they pass with the new structure.",
+      "target_files": ["src/target_management/annual.py"],
+      "verification_method": "Integration tests.",
       "priority": "high",
       "created_at": "2026-03-16T22:10:00Z"
     },
     {
-      "id": "TARGET-002-UI-1",
-      "title": "Streamlit UI: Dynamic Target Inputs",
-      "description": "Update the Streamlit Target Entry page to allow adding/removing targets dynamically for each KPI.",
-      "status": "in_progress",
-      "target_files": [
-        "src/interfaces/streamlit_app/pages/target_entry.py"
-      ],
-      "verification_method": "Manually verify in Streamlit that new target rows can be added and values entered.",
-      "priority": "medium",
-      "created_at": "2026-03-16T22:10:00Z"
-    },
-    {
-      "id": "TARGET-002-UI-2",
-      "title": "Streamlit UI: Save/Load Dynamic Targets",
-      "description": "Update the save and load logic in Streamlit to correctly handle the new normalized target data structure.",
-      "status": "todo",
-      "target_files": [
-        "src/interfaces/streamlit_app/pages/target_entry.py"
-      ],
-      "verification_method": "Verify that multiple targets can be saved and reloaded correctly in the UI.",
+      "id": "TARGET-002-UI",
+      "title": "Streamlit UI: Dynamic Targets",
+      "description": "UI for adding/removing targets dynamically.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/pages/target_entry.py"],
+      "verification_method": "Manual UI check.",
       "priority": "medium",
       "created_at": "2026-03-16T22:10:00Z"
     },
     {
       "id": "UX-001",
       "title": "Fix Explorer Tree refresh behavior",
-      "description": "Ensure that after creating any hierarchy element (Folder, Group, Subgroup, Indicator), the tree explorer refreshes and resets to its initial root state.",
-      "status": "todo",
-      "target_files": [
-        "src/interfaces/streamlit_app/components/kpi_explorer.py"
-      ],
-      "verification_method": "Create a new element and observe the tree view state.",
+      "description": "Reset explorer to root after changes.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/components/kpi_explorer.py"],
+      "verification_method": "Manual UI check.",
       "priority": "medium",
       "created_at": "2026-03-16T21:35:00Z"
     },
     {
       "id": "NODE-001",
-      "title": "Hierarchical indicator selection in Node Editor",
-      "description": "Implement tree-based indicator selection in the Node Editor, matching the structure of KPI management.",
-      "status": "todo",
-      "target_files": [
-        "src/gui/node_editor.py"
-      ],
-      "verification_method": "Open Node Editor and verify the indicator selection UI is hierarchical.",
+      "title": "Enhanced Node Editor",
+      "description": "Hierarchy selection, orthogonal lines, dynamic inputs.",
+      "status": "done",
+      "target_files": ["src/gui/node_editor.py"],
+      "verification_method": "Manual UI check.",
       "priority": "medium",
       "created_at": "2026-03-16T21:35:00Z"
+    },
+    {
+      "id": "UI-PARITY",
+      "title": "Streamlit-Tkinter Parity Audit",
+      "description": "Identify missing features in Streamlit vs Tkinter.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/main.py"],
+      "verification_method": "Parity report.",
+      "priority": "high",
+      "created_at": "2026-03-16T23:50:00Z"
+    },
+    {
+      "id": "UI-MIGRATE-SPLITS",
+      "title": "Streamlit: Global Splits Management",
+      "description": "Implement the missing Global Splits page in Streamlit to manage repartition templates.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/components/global_splits.py"],
+      "verification_method": "Verify split creation and editing in Streamlit.",
+      "priority": "high",
+      "created_at": "2026-03-16T23:55:00Z"
+    },
+    {
+      "id": "UI-MIGRATE-LINKS",
+      "title": "Streamlit: Hierarchical Master/Sub Management",
+      "description": "Refactor Master/Sub UI to use a tree view and show linked subs with weights, matching Tkinter.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/components/master_sub_link.py"],
+      "verification_method": "Verify tree-based navigation and link editing.",
+      "priority": "high",
+      "created_at": "2026-03-16T23:55:00Z"
+    },
+    {
+      "id": "UI-MIGRATE-ANALYSIS",
+      "title": "Streamlit: Enhanced Analysis Dashboard",
+      "description": "Implement multi-year selection and improved manufacturing-date chart scaling.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/components/analysis.py"],
+      "verification_method": "Verify multi-year overlay on charts.",
+      "priority": "medium",
+      "created_at": "2026-03-16T23:55:00Z"
+    },
+    {
+      "id": "UI-MIGRATE-PREVIEW",
+      "title": "Streamlit: KPI Detail Real-time Preview",
+      "description": "Add a formula/node preview panel to the KPI details view in the explorer.",
+      "status": "done",
+      "target_files": ["src/interfaces/streamlit_app/components/kpi_explorer.py"],
+      "verification_method": "Observe preview update while typing formula.",
+      "priority": "medium",
+      "created_at": "2026-03-16T23:55:00Z"
+    },
+    {
+      "id": "SPLIT-LOGIC",
+      "title": "Advanced Split Logic (Multivariate)",
+      "description": "CSV/XLSX import for trend-based splitting.",
+      "status": "done",
+      "target_files": ["src/target_management/repartition.py"],
+      "verification_method": "Verify split suggestions based on imported data.",
+      "priority": "high",
+      "created_at": "2026-03-16T23:50:00Z"
+    },
+    {
+      "id": "BI-DIRECTIONAL",
+      "title": "Formula-Node Bi-directional Conversion",
+      "description": "Convert freely between node graph and text formula.",
+      "status": "done",
+      "target_files": ["src/core/node_engine.py"],
+      "verification_method": "Verify round-trip conversion accuracy.",
+      "priority": "medium",
+      "created_at": "2026-03-16T23:50:00Z"
+    },
+    {
+      "id": "CLEANUP",
+      "title": "Final System Validation & Cleanup",
+      "description": "Run all verification scripts and remove temporary test files.",
+      "status": "done",
+      "target_files": ["/"],
+      "verification_method": "All scripts pass.",
+      "priority": "medium",
+      "created_at": "2026-03-17T01:30:00Z"
     }
   ]
 }

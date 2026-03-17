@@ -64,6 +64,65 @@ class KpiDAG:
             "edges": [e.to_dict() for e in self.edges]
         }, indent=2)
 
+    def to_formula(self) -> str:
+        """
+        Converts the DAG structure into a Python-like formula string.
+        Uses [ID] syntax for KPI inputs.
+        """
+        output_node = next((n for n in self.nodes.values() if n.type == NodeType.OUTPUT), None)
+        if not output_node:
+            return ""
+        
+        memo = {}
+        return self._to_formula_recursive(output_node.id, memo)
+
+    def _to_formula_recursive(self, node_id: str, memo: Dict[str, str]) -> str:
+        if node_id in memo:
+            return memo[node_id]
+
+        node = self.nodes.get(node_id)
+        if not node:
+            return "0"
+
+        result = ""
+        if node.type == NodeType.CONSTANT:
+            result = str(node.data.get("value", 0.0))
+        elif node.type == NodeType.KPI_INPUT:
+            kpi_id = node.data.get("kpi_id")
+            result = f"[{kpi_id}]"
+        elif node.type in (NodeType.OPERATOR, NodeType.OUTPUT):
+            inputs = []
+            node_edges = [e for e in self.edges if e.target == node_id]
+            node_edges.sort(key=lambda e: e.target_handle)
+            
+            for edge in node_edges:
+                inputs.append(self._to_formula_recursive(edge.source, memo))
+
+            if node.type == NodeType.OUTPUT:
+                result = inputs[0] if inputs else "0"
+            else:
+                op = node.data.get("op", "+")
+                if not inputs:
+                    result = "0"
+                elif op == "+":
+                    result = f"({' + '.join(inputs)})"
+                elif op == "-":
+                    if len(inputs) > 1:
+                        result = f"({inputs[0]} - {' - '.join(inputs[1:])})"
+                    else:
+                        result = f"(-{inputs[0]})"
+                elif op == "*":
+                    result = f"({' * '.join(inputs)})"
+                elif op == "/":
+                    result = f"({inputs[0]} / {inputs[1]})" if len(inputs) >= 2 else f"({inputs[0]})"
+                elif op == "pow":
+                    result = f"({inputs[0]} ** {inputs[1]})" if len(inputs) >= 2 else f"({inputs[0]})"
+                else: # min, max, avg
+                    result = f"{op}({', '.join(inputs)})"
+
+        memo[node_id] = result
+        return result
+
     @classmethod
     def from_json(cls, json_str: str):
         if not json_str:

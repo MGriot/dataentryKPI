@@ -4,6 +4,7 @@ import json
 import datetime
 import calendar
 import numpy as np
+import pandas as pd
 import traceback
 from src.config import settings as app_config
 
@@ -982,7 +983,54 @@ def _aggregate_and_save_periodic_targets(
             print(f"      ERROR saving quarterly targets: {e_quarters}")
 
 
-# --- Main Repartition Function (Called by annual.py) ---
+# --- Trend Analysis & Multivariate Splitting ---
+
+def suggest_split_from_trend(series: list[float], period_type: str = "Month") -> dict:
+    """
+    Analyzes a numeric series and suggests repartition weights/percentages.
+    Useful for seasonal splitting based on historical data.
+    """
+    if not series: return {}
+    
+    total = sum(series)
+    if abs(total) < 1e-9: return {}
+    
+    if period_type == "Month":
+        # Assume series length is 12
+        weights = {}
+        for i, val in enumerate(series[:12]):
+            month_name = calendar.month_name[i+1]
+            weights[month_name] = (val / total) * 100.0
+        return weights
+    elif period_type == "Quarter":
+        # Assume series length is 4
+        weights = {}
+        for i, val in enumerate(series[:4]):
+            weights[f"Q{i+1}"] = (val / total) * 100.0
+        return weights
+    
+    return {}
+
+def get_seasonal_weights_from_df(df: pd.DataFrame, date_col: str, value_col: str, period: str = "Month") -> dict:
+    """
+    Helper to extract seasonal weights from a user-uploaded DataFrame.
+    """
+    try:
+        df[date_col] = pd.to_datetime(df[date_col])
+        if period == "Month":
+            # Group by month index
+            monthly_sums = df.groupby(df[date_col].dt.month)[value_col].sum()
+            # Ensure all 12 months present
+            full_series = [monthly_sums.get(m, 0.0) for m in range(1, 13)]
+            return suggest_split_from_trend(full_series, "Month")
+        elif period == "Quarter":
+            quarterly_sums = df.groupby(df[date_col].dt.quarter)[value_col].sum()
+            full_series = [quarterly_sums.get(q, 0.0) for q in range(1, 5)]
+            return suggest_split_from_trend(full_series, "Quarter")
+    except Exception as e:
+        print(f"ERROR: Failed to analyze trend from DataFrame: {e}")
+        return {}
+    return {}
 def calculate_and_save_all_repartitions(
     year: int, plant_id: int, kpi_spec_id: int, target_number: int  # 1 or 2
 ):

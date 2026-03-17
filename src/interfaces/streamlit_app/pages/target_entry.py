@@ -84,24 +84,26 @@ def load_kpi_targets_for_entry_target():
         kpi_id = kpi['id']
         target_data = st.session_state.targets_map_for_entry.get(kpi_id, {})
         
-        # Target 1 & 2 values
-        st.session_state[f'target_{kpi_id}_1'] = target_data.get('annual_target1')
-        st.session_state[f'target_{kpi_id}_2'] = target_data.get('annual_target2')
+        # Get actual target values from enriched data
+        target_values = target_data.get('target_values', [])
+        target_nums = [tv['target_number'] for tv in target_values]
+        if not target_nums:
+            target_nums = [1, 2] # Default to 2 targets if new
+        
+        st.session_state[f'target_numbers_{kpi_id}'] = sorted(list(set(target_nums)))
 
-        # Manual flags
-        st.session_state[f'manual_{kpi_id}_1'] = bool(target_data.get('is_target1_manual', True))
-        st.session_state[f'manual_{kpi_id}_2'] = bool(target_data.get('is_target2_manual', True))
+        # Initialize each target
+        for tn in st.session_state[f'target_numbers_{kpi_id}']:
+            # Find specific target data
+            tv_rec = next((tv for tv in target_values if tv['target_number'] == tn), {})
+            
+            st.session_state[f'target_{kpi_id}_{tn}'] = tv_rec.get('target_value')
+            st.session_state[f'manual_{kpi_id}_{tn}'] = bool(tv_rec.get('is_manual', True))
+            st.session_state[f'formula_based_{kpi_id}_{tn}'] = bool(tv_rec.get('is_formula_based', False))
+            st.session_state[f'formula_str_{kpi_id}_{tn}'] = tv_rec.get('formula', '')
+            st.session_state[f'formula_inputs_{kpi_id}_{tn}'] = json.loads(tv_rec.get('formula_inputs', '[]') or '[]')
 
-        # Formula flags and strings
-        st.session_state[f'formula_based_{kpi_id}_1'] = bool(target_data.get('target1_is_formula_based', False))
-        st.session_state[f'formula_str_{kpi_id}_1'] = target_data.get('target1_formula', '')
-        st.session_state[f'formula_inputs_{kpi_id}_1'] = json.loads(target_data.get('target1_formula_inputs', '[]') or '[]')
-
-        st.session_state[f'formula_based_{kpi_id}_2'] = bool(target_data.get('target2_is_formula_based', False))
-        st.session_state[f'formula_str_{kpi_id}_2'] = target_data.get('target2_formula', '')
-        st.session_state[f'formula_inputs_{kpi_id}_2'] = json.loads(target_data.get('target2_formula_inputs', '[]') or '[]')
-
-        # Repartition profile and values
+        # Repartition profile and values (shared for all targets of this KPI)
         st.session_state[f'distribution_profile_{kpi_id}'] = target_data.get('distribution_profile', PROFILE_EVEN)
         st.session_state[f'repartition_logic_{kpi_id}'] = target_data.get('repartition_logic', REPARTITION_LOGIC_YEAR)
         st.session_state[f'repartition_values_{kpi_id}'] = json.loads(target_data.get('repartition_values', '{}') or '{}')
@@ -121,43 +123,35 @@ def save_all_targets_entry():
     targets_data_map = {}
     for kpi in st.session_state.kpis_for_entry:
         kpi_id = kpi['id']
-        try:
-            t1_val = st.session_state.get(f'target_{kpi_id}_1')
-            t2_val = st.session_state.get(f'target_{kpi_id}_2')
+        
+        target_list_to_save = []
+        target_nums = st.session_state.get(f'target_numbers_{kpi_id}', [1, 2])
+        
+        for tn in target_nums:
+            try:
+                t_val = st.session_state.get(f'target_{kpi_id}_{tn}')
+                # Convert empty strings to None, attempt float conversion
+                t_val = float(t_val) if t_val is not None and str(t_val).strip() != '' else 0.0
+            except ValueError:
+                st.error(f"Invalid value for KPI {get_kpi_display_name(kpi)} Target {tn}. Please enter a number.")
+                return
 
-            # Convert empty strings to None, attempt float conversion
-            t1_val = float(t1_val) if t1_val is not None and str(t1_val).strip() != '' else None
-            t2_val = float(t2_val) if t2_val is not None and str(t2_val).strip() != '' else None
+            target_list_to_save.append({
+                'target_number': tn,
+                'target_value': t_val,
+                'is_manual': st.session_state.get(f'manual_{kpi_id}_{tn}', True),
+                'is_formula_based': st.session_state.get(f'formula_based_{kpi_id}_{tn}', False),
+                'formula': st.session_state.get(f'formula_str_{kpi_id}_{tn}', ''),
+                'formula_inputs': st.session_state.get(f'formula_inputs_{kpi_id}_{tn}', [])
+            })
 
-        except ValueError:
-            st.error(f"Invalid value for KPI {get_kpi_display_name(kpi)}. Please enter a number.")
-            return
-
-        # Get states from session_state
-        is_target1_manual = st.session_state.get(f'manual_{kpi_id}_1', True)
-        is_target2_manual = st.session_state.get(f'manual_{kpi_id}_2', True)
-        target1_is_formula_based = st.session_state.get(f'formula_based_{kpi_id}_1', False)
-        target2_is_formula_based = st.session_state.get(f'formula_based_{kpi_id}_2', False)
-        target1_formula = st.session_state.get(f'formula_str_{kpi_id}_1', '')
-        target2_formula = st.session_state.get(f'formula_str_{kpi_id}_2', '')
-        target1_formula_inputs = st.session_state.get(f'formula_inputs_{kpi_id}_1', [])
-        target2_formula_inputs = st.session_state.get(f'formula_inputs_{kpi_id}_2', [])
         distribution_profile = st.session_state.get(f'distribution_profile_{kpi_id}', PROFILE_EVEN)
         repartition_logic = st.session_state.get(f'repartition_logic_{kpi_id}', REPARTITION_LOGIC_YEAR)
         repartition_values = st.session_state.get(f'repartition_values_{kpi_id}', {})
         profile_params = st.session_state.get(f'profile_params_{kpi_id}', {})
 
         targets_data = {
-            'annual_target1': t1_val,
-            'annual_target2': t2_val,
-            'is_target1_manual': is_target1_manual,
-            'is_target2_manual': is_target2_manual,
-            'target1_is_formula_based': target1_is_formula_based,
-            'target2_is_formula_based': target2_is_formula_based,
-            'target1_formula': target1_formula,
-            'target2_formula': target2_formula,
-            'target1_formula_inputs': json.dumps(target1_formula_inputs),
-            'target2_formula_inputs': json.dumps(target2_formula_inputs),
+            'targets': target_list_to_save,
             'distribution_profile': distribution_profile,
             'repartition_logic': repartition_logic,
             'repartition_values': json.dumps(repartition_values),
@@ -266,102 +260,54 @@ def app():
             with st.container(border=True):
                 st.markdown(f"**{kpi_display_name}**")
                 
-                # --- Historical Context ---
-                hist1_data = st.session_state.hist1_map_for_entry.get(kpi_id, {})
-                hist2_data = st.session_state.hist2_map_for_entry.get(kpi_id, {})
-                
+                # Historical Context (Simplified for dynamic)
+                hist1_map = st.session_state.hist1_map_for_entry.get(kpi_id, {})
+                hist2_map = st.session_state.hist2_map_for_entry.get(kpi_id, {})
                 cur_year = int(st.session_state.selected_year_target)
-                h1_year = cur_year - 1
-                h2_year = cur_year - 2
-
-                hist_cols = st.columns([0.5, 0.5])
-                with hist_cols[0]:
-                    h1_t1 = hist1_data.get('annual_target1')
-                    h1_t2 = hist1_data.get('annual_target2')
-                    st.caption(f"📅 **{h1_year}**: {target1_display_name}: `{h1_t1 if h1_t1 is not None else '-'}` | {target2_display_name}: `{h1_t2 if h1_t2 is not None else '-'}`")
-                with hist_cols[1]:
-                    h2_t1 = hist2_data.get('annual_target1')
-                    h2_t2 = hist2_data.get('annual_target2')
-                    st.caption(f"📅 **{h2_year}**: {target1_display_name}: `{h2_t1 if h2_t1 is not None else '-'}` | {target2_display_name}: `{h2_t2 if h2_t2 is not None else '-'}`")
                 
-                # Target 1 & 2 Inputs
-                cols_target_input = st.columns([0.3, 0.1, 0.3, 0.3]) # Value, Manual, Formula, Formula String
-                
-                # Target 1
-                with cols_target_input[0]:
-                    st.number_input(
-                        f"{target1_display_name}:",
-                        key=f'target_{kpi_id}_1',
-                        value=st.session_state.get(f'target_{kpi_id}_1'),
-                        format="%.2f",
-                        help=f"Enter the value for {target1_display_name}",
-                        disabled=st.session_state.get(f'formula_based_{kpi_id}_1', False) or (is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_1', True))
-                    )
-                with cols_target_input[1]:
-                    if is_sub_kpi:
-                        st.checkbox(
-                            "Man.",
-                            key=f'manual_{kpi_id}_1',
-                            value=st.session_state.get(f'manual_{kpi_id}_1', True),
-                            on_change=_on_manual_toggle, args=(kpi_id, 1),
-                            help="Select to manually enter the target for this sub-KPI."
-                        )
-                with cols_target_input[2]:
-                    st.checkbox(
-                        "Use Formula",
-                        key=f'formula_based_{kpi_id}_1',
-                        value=st.session_state.get(f'formula_based_{kpi_id}_1', False),
-                        on_change=_on_formula_toggle, args=(kpi_id, 1),
-                        help="Select to calculate the target using a formula."
-                    )
-                with cols_target_input[3]:
-                    st.text_input(
-                        "Formula T1:",
-                        key=f'formula_str_{kpi_id}_1',
-                        value=st.session_state.get(f'formula_str_{kpi_id}_1', ''),
-                        disabled=not st.session_state.get(f'formula_based_{kpi_id}_1', False),
-                        help="Enter the formula for calculating Target 1."
-                    )
-                    # Formula Inputs button - for now, just a placeholder or direct JSON input
-                    # st.button("Inputs...", key=f'formula_btn_{kpi_id}_1', disabled=not st.session_state.get(f'formula_based_{kpi_id}_1', False))
+                # Render all active targets for this KPI
+                target_nums = st.session_state.get(f'target_numbers_{kpi_id}', [1, 2])
+                for tn in target_nums:
+                    t_label = f"Target {tn}"
+                    if tn == 1: t_label = target1_display_name
+                    if tn == 2: t_label = target2_display_name
+                    
+                    # History for this specific target number
+                    h1_val = hist1_map.get(f'annual_target{tn}', '-')
+                    h2_val = hist2_map.get(f'annual_target{tn}', '-')
+                    st.caption(f"📅 **History {t_label}**: {cur_year-1}: `{h1_val}` | {cur_year-2}: `{h2_val}`")
 
-                # Target 2 (similar structure)
-                cols_target_input_2 = st.columns([0.3, 0.1, 0.3, 0.3])
-                with cols_target_input_2[0]:
-                    st.number_input(
-                        f"{target2_display_name}:",
-                        key=f'target_{kpi_id}_2',
-                        value=st.session_state.get(f'target_{kpi_id}_2'),
-                        format="%.2f",
-                        help=f"Enter the value for {target2_display_name}",
-                        disabled=st.session_state.get(f'formula_based_{kpi_id}_2', False) or (is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_2', True))
-                    )
-                with cols_target_input_2[1]:
-                    if is_sub_kpi:
-                        st.checkbox(
-                            "Man.",
-                            key=f'manual_{kpi_id}_2',
-                            value=st.session_state.get(f'manual_{kpi_id}_2', True),
-                            on_change=_on_manual_toggle, args=(kpi_id, 2),
-                            help="Select to manually enter the target for this sub-KPI."
+                    cols_t = st.columns([0.3, 0.1, 0.2, 0.3, 0.1])
+                    with cols_t[0]:
+                        st.number_input(
+                            f"{t_label}:",
+                            key=f'target_{kpi_id}_{tn}',
+                            format="%.2f",
+                            disabled=st.session_state.get(f'formula_based_{kpi_id}_{tn}', False) or (is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_{tn}', True))
                         )
-                with cols_target_input_2[2]:
-                    st.checkbox(
-                        "Use Formula",
-                        key=f'formula_based_{kpi_id}_2',
-                        value=st.session_state.get(f'formula_based_{kpi_id}_2', False),
-                        on_change=_on_formula_toggle, args=(kpi_id, 2),
-                        help="Select to calculate the target using a formula."
-                    )
-                with cols_target_input_2[3]:
-                    st.text_input(
-                        "Formula T2:",
-                        key=f'formula_str_{kpi_id}_2',
-                        value=st.session_state.get(f'formula_str_{kpi_id}_2', ''),
-                        disabled=not st.session_state.get(f'formula_based_{kpi_id}_2', False),
-                        help="Enter the formula for calculating Target 2."
-                    )
-                    # st.button("Inputs...", key=f'formula_btn_{kpi_id}_2', disabled=not st.session_state.get(f'formula_based_{kpi_id}_2', False))
+                    with cols_t[1]:
+                        if is_sub_kpi:
+                            st.checkbox("Man.", key=f'manual_{kpi_id}_{tn}', on_change=_on_manual_toggle, args=(kpi_id, tn))
+                    with cols_t[2]:
+                        st.checkbox("Formula", key=f'formula_based_{kpi_id}_{tn}', on_change=_on_formula_toggle, args=(kpi_id, tn))
+                    with cols_t[3]:
+                        st.text_input("Formula:", key=f'formula_str_{kpi_id}_{tn}', disabled=not st.session_state.get(f'formula_based_{kpi_id}_{tn}', False))
+                    with cols_t[4]:
+                        if tn > 2:
+                            if st.button("🗑️", key=f"rm_t_{kpi_id}_{tn}", help="Remove this target"):
+                                st.session_state[f'target_numbers_{kpi_id}'].remove(tn)
+                                st.rerun()
+
+                # Add Target Button
+                if st.button(f"➕ Add Target to {kpi['name']}", key=f"add_t_{kpi_id}"):
+                    new_tn = max(target_nums) + 1
+                    st.session_state[f'target_numbers_{kpi_id}'].append(new_tn)
+                    # Init state for new target
+                    st.session_state[f'target_{kpi_id}_{new_tn}'] = 0.0
+                    st.session_state[f'manual_{kpi_id}_{new_tn}'] = True
+                    st.session_state[f'formula_based_{kpi_id}_{new_tn}'] = False
+                    st.session_state[f'formula_str_{kpi_id}_{new_tn}'] = ""
+                    st.rerun()
 
                 # Repartition Profile
                 st.markdown("**Distribution Profile**")

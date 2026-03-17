@@ -6,6 +6,8 @@ import json
 from typing import Dict, List, Optional, Any
 from src.core.node_engine import KpiDAG, KpiNode, KpiEdge, NodeType
 
+from src import data_retriever as db_retriever
+
 class NodeEditorDialog(tk.Toplevel):
     def __init__(self, parent, initial_json: str = None, kpi_list: list = None):
         super().__init__(parent)
@@ -34,6 +36,7 @@ class NodeEditorDialog(tk.Toplevel):
         ttk.Button(toolbar, text="+ Constant", command=self._add_constant_node).pack(side="left", padx=2)
         ttk.Button(toolbar, text="+ Operator", command=self._add_operator_node).pack(side="left", padx=2)
         ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Button(toolbar, text="Edit Node", command=self._edit_selected_node).pack(side="left", padx=2)
         ttk.Button(toolbar, text="Delete Selected", command=lambda: self._on_delete_key(None)).pack(side="left", padx=2)
         ttk.Button(toolbar, text="Clear All", command=self._clear_canvas).pack(side="left", padx=2)
         
@@ -50,6 +53,7 @@ class NodeEditorDialog(tk.Toplevel):
         self.canvas.bind("<Button-1>", self._on_canvas_click)
         self.canvas.bind("<B1-Motion>", self._on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_canvas_release)
+        self.canvas.bind("<Double-Button-1>", lambda e: self._edit_selected_node())
         self.bind("<Delete>", self._on_delete_key)
         self.bind("<BackSpace>", self._on_delete_key)
         self.canvas.focus_set()
@@ -74,6 +78,11 @@ class NodeEditorDialog(tk.Toplevel):
         x, y = node.position["x"], node.position["y"]
         w, h = 150, 80
         
+        # Adjust height based on input count
+        in_labels = self._get_input_labels(node)
+        if len(in_labels) > 3:
+            h = 80 + (len(in_labels) - 3) * 20
+
         # Color mapping
         colors = {
             NodeType.KPI_INPUT: {"bg": "#E3F2FD", "border": "#2196F3"},
@@ -95,7 +104,7 @@ class NodeEditorDialog(tk.Toplevel):
         elif node.type == NodeType.OPERATOR:
             title = f"Op: {node.data.get('op', '+')}"
             
-        text = self.canvas.create_text(x + w/2, y + h/2, text=title, width=w-20, justify="center", font=("Helvetica", 9, "bold"), tags=("node", node.id))
+        text = self.canvas.create_text(x + w/2, y + 20, text=title, width=w-20, justify="center", font=("Helvetica", 9, "bold"), tags=("node", node.id))
         
         # Sockets
         sockets = {"in": {}, "out": None}
@@ -108,10 +117,10 @@ class NodeEditorDialog(tk.Toplevel):
             
         # Input Sockets (Left)
         if node.type in (NodeType.OPERATOR, NodeType.OUTPUT):
-            in_labels = self._get_input_labels(node)
             for i, label in enumerate(in_labels):
-                spacing = h / (len(in_labels) + 1)
-                in_y = y + (i + 1) * spacing
+                # Start after title
+                spacing = (h - 30) / (len(in_labels) + 1)
+                in_y = y + 30 + (i + 1) * spacing
                 s_id = self.canvas.create_oval(x-6, in_y-6, x+6, in_y+6, fill="#333", tags=("socket", "in", node.id, label))
                 self.canvas.create_text(x + 10, in_y, text=label, anchor="w", font=("Helvetica", 7), tags=("node", node.id))
                 sockets["in"][label] = s_id
@@ -123,17 +132,19 @@ class NodeEditorDialog(tk.Toplevel):
             return ["Result"]
         
         op = node.data.get("op", "+")
+        num_inputs = node.data.get("num_inputs", 2)
+        
         if op in ("/", "pow"):
             return ["A (Num/Base)", "B (Den/Exp)"]
         elif op == "-":
             return ["A", "B"]
         else:
-            return ["In 1", "In 2", "In 3"] # Default multi-input
+            return [f"In {i+1}" for i in range(num_inputs)]
 
     def _draw_edge(self, edge: KpiEdge):
         coords = self._get_edge_coords(edge)
         if not coords: return
-        line = self.canvas.create_line(*coords, arrow=tk.LAST, width=2, fill="#666", smooth=True, tags=("edge", edge.id))
+        line = self.canvas.create_line(*coords, arrow=tk.LAST, width=2, fill="#666", tags=("edge", edge.id))
         self.edges_ui[edge.id] = line
 
     def _get_edge_coords(self, edge: KpiEdge):
@@ -146,16 +157,17 @@ class NodeEditorDialog(tk.Toplevel):
         in_socket = target_ui["sockets"]["in"].get(edge.target_handle)
         
         if not out_socket or not in_socket:
-            # Fallback if handle name changed
-            if target_ui["sockets"]["in"]:
-                in_socket = list(target_ui["sockets"]["in"].values())[0]
-            else:
-                return None
+            return None
 
         s_box = self.canvas.coords(out_socket)
         t_box = self.canvas.coords(in_socket)
         
-        return (s_box[0]+6, s_box[1]+6, t_box[0]+6, t_box[1]+6)
+        x1, y1 = s_box[0]+6, s_box[1]+6
+        x2, y2 = t_box[0]+6, t_box[1]+6
+        
+        # Orthogonal points: Start -> Mid-X -> Mid-X -> End
+        mid_x = (x1 + x2) / 2
+        return (x1, y1, mid_x, y1, mid_x, y2, x2, y2)
 
     def _on_canvas_click(self, event):
         self.canvas.focus_set()
@@ -287,24 +299,53 @@ class NodeEditorDialog(tk.Toplevel):
 
     def _add_kpi_input_node(self):
         selection_win = tk.Toplevel(self)
-        selection_win.title("Select KPI")
-        selection_win.geometry("400x500")
+        selection_win.title("Select KPI (Hierarchy)")
+        selection_win.geometry("500x600")
         
-        lb = tk.Listbox(selection_win, font=("Helvetica", 10))
-        lb.pack(fill="both", expand=True, padx=10, pady=10)
+        tree_frame = ttk.Frame(selection_win)
+        tree_frame.pack(fill="both", expand=True, padx=10, pady=10)
         
-        sorted_kpis = sorted(self.kpi_list, key=lambda x: x.get('name', ''))
-        for k in sorted_kpis: lb.insert(tk.END, k['name'])
+        tree = ttk.Treeview(tree_frame, columns=("type", "id"), show="tree")
+        tree.pack(side="left", fill="both", expand=True)
+        
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
+        vsb.pack(side="right", fill="y")
+        tree.configure(yscrollcommand=vsb.set)
+
+        def load_tree(parent_id=None, tree_parent=""):
+            # Folders/Nodes
+            nodes = db_retriever.get_hierarchy_nodes(parent_id)
+            for n in nodes:
+                node_item = tree.insert(tree_parent, "end", text=f"📁 {n['name']}", values=("folder", n['id']), open=False)
+                load_tree(n['id'], node_item)
             
+            # Indicators
+            indicators = db_retriever.get_indicators_by_node(parent_id) if parent_id else []
+            for ind in indicators:
+                tree.insert(tree_parent, "end", text=f"📊 {ind['name']}", values=("indicator", ind['id']))
+
+        load_tree() # Initial load from root
+
         def on_select():
-            if lb.curselection():
-                kpi = sorted_kpis[lb.curselection()[0]]
-                node = KpiNode(str(uuid.uuid4()), NodeType.KPI_INPUT, {"kpi_id": kpi['id'], "kpi_name": kpi['name']}, {"x": 50, "y": 50})
+            selected = tree.selection()
+            if not selected: return
+            
+            item_data = tree.item(selected[0])
+            if item_data["values"][0] == "indicator":
+                kpi_id = item_data["values"][1]
+                kpi_name = item_data["text"].replace("📊 ", "")
+                
+                node = KpiNode(str(uuid.uuid4()), NodeType.KPI_INPUT, {"kpi_id": kpi_id, "kpi_name": kpi_name}, {"x": 50, "y": 50})
                 self.dag.add_node(node)
                 self._draw_node(node)
                 selection_win.destroy()
+            else:
+                messagebox.showinfo("Selection", "Please select a KPI (indicator), not a folder.")
         
-        ttk.Button(selection_win, text="Select", command=on_select).pack(pady=10)
+        btn_frame = ttk.Frame(selection_win)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        ttk.Button(btn_frame, text="Add KPI to Editor", command=on_select).pack(side="right")
+        ttk.Button(btn_frame, text="Cancel", command=selection_win.destroy).pack(side="right", padx=5)
 
     def _add_constant_node(self):
         val = simpledialog.askfloat("Constant", "Enter numeric value:", parent=self)
@@ -328,6 +369,48 @@ class NodeEditorDialog(tk.Toplevel):
             op_win.destroy()
             
         ttk.Button(op_win, text="OK", command=on_ok).pack(pady=10)
+
+    def _edit_selected_node(self):
+        if not self.selected_node: return
+        node = self.dag.nodes[self.selected_node]
+        
+        if node.type == NodeType.CONSTANT:
+            val = simpledialog.askfloat("Edit Constant", "Enter numeric value:", initialvalue=node.data.get('value', 0.0), parent=self)
+            if val is not None:
+                node.data['value'] = val
+                self._redraw_node(node.id)
+        
+        elif node.type == NodeType.OPERATOR:
+            op_win = tk.Toplevel(self)
+            op_win.title("Edit Operator")
+            
+            ops = ["+", "-", "*", "/", "pow", "min", "max", "avg"]
+            var_op = tk.StringVar(value=node.data.get('op', '+'))
+            for op in ops: ttk.Radiobutton(op_win, text=op, variable=var_op, value=op).pack(anchor="w", padx=30, pady=2)
+            
+            ttk.Label(op_win, text="Number of Inputs (for + or *):").pack(padx=30, pady=(10, 0))
+            var_num = tk.IntVar(value=node.data.get('num_inputs', 2))
+            ttk.Entry(op_win, textvariable=var_num).pack(padx=30, pady=5)
+
+            def on_ok():
+                node.data['op'] = var_op.get()
+                node.data['num_inputs'] = var_num.get()
+                self._redraw_node(node.id)
+                op_win.destroy()
+            
+            ttk.Button(op_win, text="OK", command=on_ok).pack(pady=10)
+
+    def _redraw_node(self, node_id):
+        # Remove old UI
+        self.canvas.delete(node_id)
+        self.canvas.delete(f"socket and {node_id}")
+        
+        # Redraw
+        node = self.dag.nodes[node_id]
+        self._draw_node(node)
+        
+        # Update edges
+        self._update_node_edges(node_id)
 
     def _clear_canvas(self):
         if messagebox.askyesno("Clear", "Reset formula?"):
