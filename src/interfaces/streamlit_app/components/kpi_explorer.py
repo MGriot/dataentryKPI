@@ -37,9 +37,13 @@ def app():
     selected_path_name = st.selectbox("Navigate Hierarchy:", path_names, key="explorer_nav_selectbox")
     selected_item = next(p for p in all_hierarchy if p['path'] == selected_path_name)
 
-    def reset_explorer():
+    def reset_explorer(new_path=None):
+        """Refreshes the explorer. If new_path is provided, switches to it. 
+        Otherwise, maintains the current 'tree explosion' (selection)."""
         if "explorer_nav_selectbox" in st.session_state:
-            st.session_state.explorer_nav_selectbox = path_names[0] # Reset to Root
+            if new_path:
+                st.session_state.explorer_nav_selectbox = new_path
+            # If no new_path, we DON'T set it to path_names[0], so it stays on current
         st.rerun()
 
     # If indicator selected, use 3 columns for Preview
@@ -115,7 +119,12 @@ def app():
                 calc_type = st.selectbox("Calc Type:", KPI_CALC_TYPE_OPTIONS, index=KPI_CALC_TYPE_OPTIONS.index(spec.get('calculation_type', KPI_CALC_TYPE_OPTIONS[0])))
                 unit = st.text_input("Unit:", value=spec.get('unit_of_measure', ''))
                 visible = st.checkbox("Visible", value=spec.get('visible', True))
-                dist_profile = st.selectbox("Split Profile:", DISTRIBUTION_PROFILE_OPTIONS, index=DISTRIBUTION_PROFILE_OPTIONS.index(spec.get('default_distribution_profile', DISTRIBUTION_PROFILE_OPTIONS[0])))
+                
+                # Safe profile selection
+                current_profile = spec.get('default_distribution_profile', DISTRIBUTION_PROFILE_OPTIONS[0])
+                if current_profile not in DISTRIBUTION_PROFILE_OPTIONS:
+                    current_profile = DISTRIBUTION_PROFILE_OPTIONS[0]
+                dist_profile = st.selectbox("Split Profile:", DISTRIBUTION_PROFILE_OPTIONS, index=DISTRIBUTION_PROFILE_OPTIONS.index(current_profile))
                 
                 is_calc = st.checkbox("Is Calculated (Formula)", value=spec.get('is_calculated', False))
                 # Formula support (Simplified for now)

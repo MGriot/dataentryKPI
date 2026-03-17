@@ -37,8 +37,8 @@ def app():
     
     if view_mode == "Single KPI Focus":
         st.sidebar.markdown("### 🎯 KPI Selection")
-        # Use a hierarchical list
-        kpi_display_list = [f"{k['group_name']} > {k['subgroup_name']} > {k['indicator_name']}" for k in kpis]
+        # Use hierarchy_path
+        kpi_display_list = [f"{k['hierarchy_path']} > {k['indicator_name']}" for k in kpis]
         selected_kpi_display = st.sidebar.selectbox("Select KPI:", kpi_display_list)
         
         selected_kpi = next(k for i, k in enumerate(kpis) if kpi_display_list[i] == selected_kpi_display)
@@ -120,7 +120,7 @@ def app():
             
             if not k_data: continue
             
-            with st.expander(f"📉 {k['indicator_name']} - {k['subgroup_name']}", expanded=True):
+            with st.expander(f"📉 {k['indicator_name']} - {k['hierarchy_path']}", expanded=True):
                 combined_k_df = pd.concat(k_data)
                 combined_k_df['Label'] = combined_k_df.apply(lambda x: f"{x['plant_name']} (T{x['target_number']} - {x['Year']})", axis=1)
                 

@@ -85,7 +85,12 @@ def app():
                     if submitted and def_name:
                         try:
                             kpi_templates_manager.add_indicator_definition_to_template(
-                                st.session_state.selected_template_id, def_name, def_calc_type, def_unit, def_visible, def_desc
+                                template_id=st.session_state.selected_template_id,
+                                indicator_name_in_template=def_name,
+                                default_calculation_type=def_calc_type,
+                                default_unit_of_measure=def_unit,
+                                default_visible=def_visible,
+                                default_description=def_desc
                             )
                             st.success(f"Definition '{def_name}' saved.")
                             st.rerun()

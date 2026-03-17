@@ -1,5 +1,5 @@
 import streamlit as st
-import data_retriever
+from src import data_retriever
 from src.plants_management import crud as plants_manager
 
 def app():

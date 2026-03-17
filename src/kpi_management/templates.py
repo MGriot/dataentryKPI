@@ -126,21 +126,21 @@ def delete_kpi_indicator_template(template_id: int):
         conn.execute("DELETE FROM kpi_indicator_templates WHERE id = ?", (template_id,))
         conn.commit()
 
-def add_indicator_definition_to_template(template_id, name, calc_type, unit, visible=True, description=""):
+def add_indicator_definition_to_template(template_id, indicator_name_in_template, default_calculation_type, default_unit_of_measure, default_visible=True, default_description=""):
     db_path = app_config.get_database_path("db_kpi_templates.db")
     with sqlite3.connect(db_path) as conn:
         conn.execute("""INSERT INTO template_defined_indicators 
                      (template_id, indicator_name_in_template, default_description, default_calculation_type, default_unit_of_measure, default_visible)
-                     VALUES (?,?,?,?,?,?)""", (template_id, name, description, calc_type, unit, 1 if visible else 0))
+                     VALUES (?,?,?,?,?,?)""", (template_id, indicator_name_in_template, default_description, default_calculation_type, default_unit_of_measure, 1 if default_visible else 0))
         conn.commit()
         def_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     
     _propagate_template_indicator_change(template_id, {
-        "indicator_name_in_template": name,
-        "default_description": description,
-        "default_calculation_type": calc_type,
-        "default_unit_of_measure": unit,
-        "default_visible": visible
+        "indicator_name_in_template": indicator_name_in_template,
+        "default_description": default_description,
+        "default_calculation_type": default_calculation_type,
+        "default_unit_of_measure": default_unit_of_measure,
+        "default_visible": default_visible
     }, "add_or_update")
 
 def update_indicator_definition_in_template(definition_id, template_id, name, calc_type, unit, visible, description):

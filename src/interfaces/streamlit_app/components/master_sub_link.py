@@ -41,7 +41,7 @@ def app():
             inds = db_retriever.get_indicators_by_node(parent_id) if parent_id else []
             for i in inds:
                 # Find the KPI spec ID for this indicator
-                spec = next((k for k in all_kpis_detailed if k['actual_indicator_id'] == i['id']), None)
+                spec = next((k for k in all_kpis_detailed if k['indicator_id'] == i['id']), None)
                 if spec:
                     icon = get_role_icon(spec['id'])
                     p = f"{current_path}/{i['name']}" if current_path else i['name']

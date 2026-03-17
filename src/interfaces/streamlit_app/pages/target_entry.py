@@ -299,7 +299,7 @@ def app():
                                 st.rerun()
 
                 # Add Target Button
-                if st.button(f"➕ Add Target to {kpi['name']}", key=f"add_t_{kpi_id}"):
+                if st.button(f"➕ Add Target to {kpi.get('indicator_name', 'KPI')}", key=f"add_t_{kpi_id}"):
                     new_tn = max(target_nums) + 1
                     st.session_state[f'target_numbers_{kpi_id}'].append(new_tn)
                     # Init state for new target
