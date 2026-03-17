@@ -90,6 +90,25 @@ def app():
             
             spec = kpi_specs_manager.get_kpi_spec_by_indicator_id(ind_id) or {}
             
+            # --- Live Preview in Col 3 (Fetch before form to allow 'live' read from session if we used it, 
+            # but for now it reads from DB after save. For true live, we'd need session state sync)
+            if col3:
+                with col3:
+                    st.subheader("🔍 Formula Preview")
+                    if spec.get('is_calculated'):
+                        f_str = spec.get('formula_string', '')
+                        f_json = spec.get('formula_json', '')
+                        if f_json:
+                            try:
+                                dag_data = json.loads(f_json)
+                                st.info("🎨 **Visual Node DAG**")
+                                st.json(dag_data)
+                            except: st.code(f_str, language="python")
+                        else:
+                            st.code(f_str or "No formula defined.", language="python")
+                    else:
+                        st.info("Manual input KPI.")
+
             with st.form("edit_kpi_form"):
                 kpi_name = st.text_input("KPI Name:", value=ind_name)
                 description = st.text_area("Description:", value=spec.get('description', ''))

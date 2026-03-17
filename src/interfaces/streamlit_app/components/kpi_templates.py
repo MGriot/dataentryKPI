@@ -39,7 +39,7 @@ def app():
                         try:
                             kpi_templates_manager.update_kpi_indicator_template(st.session_state.selected_template_id, template_name_to_edit, template_desc_to_edit)
                             st.success(f"Template '{template_name_to_edit}' updated.")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error updating template: {e}")
                     else:
@@ -47,7 +47,7 @@ def app():
                         try:
                             kpi_templates_manager.add_kpi_indicator_template(template_name_to_edit, template_desc_to_edit)
                             st.success(f"Template '{template_name_to_edit}' added.")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error adding template: {e}")
 
@@ -88,7 +88,7 @@ def app():
                                 st.session_state.selected_template_id, def_name, def_calc_type, def_unit, def_visible, def_desc
                             )
                             st.success(f"Definition '{def_name}' saved.")
-                            st.experimental_rerun()
+                            st.rerun()
                         except Exception as e:
                             st.error(f"Error saving definition: {e}")
         else:

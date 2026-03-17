@@ -76,6 +76,42 @@ class KpiDAG:
         memo = {}
         return self._to_formula_recursive(output_node.id, memo)
 
+    @classmethod
+    def from_formula(cls, formula_str: str):
+        """
+        Simple parser to convert a formula string back to a DAG.
+        Note: This is a basic implementation supporting simple expressions.
+        """
+        import re
+        dag = cls()
+        out_node = KpiNode("OUTPUT_NODE", NodeType.OUTPUT, {}, {"x": 900, "y": 350})
+        dag.add_node(out_node)
+        
+        if not formula_str: return dag
+
+        # 1. Identify all [ID] patterns
+        pattern = r'\[(\d+)\]'
+        kpi_ids = list(set(re.findall(pattern, formula_str)))
+        
+        kpi_nodes = {}
+        for i, kid in enumerate(kpi_ids):
+            node_id = f"kpi_{kid}"
+            node = KpiNode(node_id, NodeType.KPI_INPUT, {"kpi_id": int(kid), "kpi_name": f"KPI {kid}"}, {"x": 50, "y": 50 + i*100})
+            dag.add_node(node)
+            kpi_nodes[kid] = node_id
+
+        # 2. For now, since parsing arbitrary nested logic back to nodes is complex,
+        # if it's a string formula, we often just keep it as a string in the spec.
+        # But to show 'something' in the editor, we link all detected KPIs to a single operator.
+        if kpi_ids:
+            op_node = KpiNode("op_main", NodeType.OPERATOR, {"op": "+", "num_inputs": len(kpi_ids)}, {"x": 400, "y": 300})
+            dag.add_node(op_node)
+            for i, kid in enumerate(kpi_ids):
+                dag.add_edge(KpiEdge(str(uuid.uuid4()), kpi_nodes[kid], "op_main", f"In {i+1}"))
+            dag.add_edge(KpiEdge(str(uuid.uuid4()), "op_main", "OUTPUT_NODE", "in"))
+        
+        return dag
+
     def _to_formula_recursive(self, node_id: str, memo: Dict[str, str]) -> str:
         if node_id in memo:
             return memo[node_id]
