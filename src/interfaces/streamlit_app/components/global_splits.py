@@ -70,9 +70,9 @@ def app():
             split = kpi_splits_manager.get_global_split(split_id)
             st.subheader(f"✏️ Edit Split: {split['name']}")
             
-            # 1. Advanced Multivariate Analysis (Outside form for dynamic upload handling)
+            # 1. Advanced Multivariate Analysis (Outside form)
             with st.expander("🚀 Advanced Multivariate Analysis", expanded=False):
-                st.info("Upload historical data to suggest weights based on multiple correlated features.")
+                st.info("Upload historical data to suggest weights based on multiple historical targets and correlated features.")
                 up = st.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], key=f"up_{split_id}")
                 if up:
                     df = pd.read_csv(up) if up.name.endswith('.csv') else pd.read_excel(up)
@@ -81,18 +81,22 @@ def app():
                     cols = df.columns.tolist()
                     c1, c2 = st.columns(2)
                     with c1:
-                        target_col = st.selectbox("Historical Target Column", cols)
-                        date_col = st.selectbox("Date Column", cols)
+                        target_cols = st.multiselect("Historical Target Columns (to Average)", cols, help="Select multiple years of history to create a stable baseline.")
+                        date_col = st.selectbox("Date/Period Column", cols)
                     with c2:
-                        feature_cols = st.multiselect("Multivariate Feature Columns", cols)
-                        p_type = st.selectbox("Analyze as", ["Month", "Quarter", "Week", "Day"])
+                        feature_cols = st.multiselect("Multivariate Feature Columns (Drivers)", cols)
+                        p_type = st.selectbox("Analyze bucket as", ["Month", "Quarter", "Week", "Day"])
                     
                     if st.button("Calculate Multivariate Weights"):
-                        try:
-                            weights = split_analyzer.analyze_seasonality_from_file(up, target_col, feature_cols, date_col, p_type)
-                            st.session_state[f"suggested_{split_id}"] = weights
-                            st.json(weights)
-                        except Exception as e: st.error(str(e))
+                        if not target_cols:
+                            st.warning("Please select at least one historical target column.")
+                        else:
+                            try:
+                                weights = split_analyzer.analyze_seasonality_from_file(up, target_cols, feature_cols, date_col, p_type)
+                                st.session_state[f"suggested_{split_id}"] = weights
+                                st.success("Multivariate Analysis Complete!")
+                                st.json(weights)
+                            except Exception as e: st.error(str(e))
                 
                 if f"suggested_{split_id}" in st.session_state:
                     if st.button("Apply weights below"):
@@ -135,7 +139,7 @@ def app():
             
             all_inds = sorted(db_retriever.get_all_kpi_indicators(), key=lambda x: x['name'])
             
-            # Checkbox per indicator (Searchable via multiselect is better)
+            # Checkbox per indicator
             ind_options = {f"{i['name']} [ID:{i['id']}]": i['id'] for i in all_inds}
             default_labels = [f"{i['name']} [ID:{i['id']}]" for i in all_inds if i['id'] in current_ids]
             
