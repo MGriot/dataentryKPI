@@ -143,11 +143,21 @@ class SplitEditorDialog(tk.Toplevel):
     def _open_advanced_analysis(self):
         dialog = AdvancedSplitDialog(self)
         self.wait_window(dialog)
-        res = dialog.get_result()
-        if res:
+        res_tuple = dialog.get_result()
+        if res_tuple:
+            weights, target_kpis = res_tuple
+            # Apply Weights
             self.values_text.delete("1.0", tk.END)
-            self.values_text.insert("1.0", json.dumps(res, indent=4))
-            messagebox.showinfo("Analysis", "Suggested weights applied to repartition values.")
+            self.values_text.insert("1.0", json.dumps(weights, indent=4))
+            
+            # Apply Target KPIs (Append to existing)
+            existing_ids = [i['indicator_id'] for i in self.afflicted_indicators]
+            for k in target_kpis:
+                if k['indicator_id'] not in existing_ids:
+                    self.afflicted_indicators.append(k)
+            
+            self._refresh_ind_tree()
+            messagebox.showinfo("Analysis", f"Multivariate weights applied and {len(target_kpis)} indicators linked.")
 
     def _add_indicators(self):
         # Multi-select window
