@@ -1,21 +1,22 @@
 # src/services/split_analyzer.py
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 def analyze_seasonality_from_file(
     file_path: str, 
-    target_cols: List[str], # Changed to List
+    target_cols: List[str],
     feature_cols: List[str], 
     date_col: str, 
     period_type: str
-) -> Dict[str, float]:
+) -> Tuple[Dict[str, float], Dict[str, float], float]:
     """
-    Performs multivariate seasonality analysis.
-    Uses a weighted correlation approach:
-    1. Aggregates target(s) and features by the chosen Period.
-    2. Calculates baseline weights by averaging all provided Target Columns.
-    3. Refines the baseline using correlated features.
+    Performs multivariate seasonality analysis using Multiple Linear Regression (OLS).
+    
+    Returns:
+        - weights: {period_idx: weight} (sum = 1.0)
+        - coefficients: {feature_name: coefficient} (Driver Influence)
+        - r_squared: Model accuracy score (0-1)
     """
     # Load data
     df = pd.read_csv(file_path) if file_path.endswith('.csv') else pd.read_excel(file_path)
@@ -42,50 +43,61 @@ def analyze_seasonality_from_file(
         
     grouped = df.groupby('period_idx').agg(agg_dict).reset_index()
 
+    # Prepare Y (Target): Average of normalized historical targets
     def normalize(s):
         return (s - s.min()) / (s.max() - s.min()) if (s.max() - s.min()) != 0 else s
 
-    # 1. Calculate Baseline Seasonality (Average of all Target Columns)
     normalized_targets = pd.DataFrame()
     for col in target_cols:
         normalized_targets[col] = normalize(grouped[col])
     
-    base_seasonality = normalized_targets.mean(axis=1)
+    y = normalized_targets.mean(axis=1).values
 
+    # Base case: No features -> Use historical average directly
     if not feature_cols:
-        # Final Normalization of baseline
-        final_sum = base_seasonality.sum()
-        if final_sum == 0: return {str(p): 1.0/len(grouped) for p in grouped['period_idx']}
-        weights = base_seasonality / final_sum
-        return {str(int(p)): float(weights[i]) for i, p in enumerate(grouped['period_idx'])}
+        final_sum = y.sum()
+        if final_sum == 0: 
+            weights = {str(int(p)): 1.0/len(grouped) for p in grouped['period_idx']}
+        else:
+            weights = {str(int(p)): float(val/final_sum) for p, val in zip(grouped['period_idx'], y)}
+        return weights, {}, 1.0
 
-    # 2. Multivariate Logic
-    # Calculate correlations against the AVERAGE baseline target
-    correlations = {}
-    normalized_features = pd.DataFrame()
+    # Prepare X (Features): Drivers + Intercept
+    X_raw = pd.DataFrame()
     for col in feature_cols:
-        normalized_features[col] = normalize(grouped[col])
-        corr = base_seasonality.corr(normalized_features[col])
-        correlations[col] = abs(corr) if not np.isnan(corr) else 0.0
-
-    total_corr = sum(correlations.values())
+        X_raw[col] = normalize(grouped[col])
     
-    feature_seasonality = pd.Series(0.0, index=grouped.index)
-    if total_corr > 0:
-        for col in feature_cols:
-            weight = correlations[col] / total_corr
-            feature_seasonality += normalized_features[col] * weight
+    # Add intercept column
+    X = np.c_[np.ones(X_raw.shape[0]), X_raw.values] 
+
+    # Fit OLS Model: y = X*beta
+    # beta = (X^T X)^-1 X^T y
+    # using lstsq for stability
+    beta, residuals, rank, s = np.linalg.lstsq(X, y, rcond=None)
+
+    # Predict
+    y_pred = X @ beta
+    
+    # Ensure non-negative predictions for seasonality weights
+    y_pred = np.maximum(y_pred, 0)
+
+    # Normalize prediction to sum to 1.0
+    total_pred = y_pred.sum()
+    if total_pred == 0:
+        final_weights = {str(int(p)): 1.0/len(grouped) for p in grouped['period_idx']}
     else:
-        feature_seasonality = base_seasonality
+        final_weights = {str(int(p)): float(val/total_pred) for p, val in zip(grouped['period_idx'], y_pred)}
 
-    # 3. Combine: 60% historical average, 40% correlated drivers
-    combined = (base_seasonality * 0.6) + (feature_seasonality * 0.4)
-    
-    final_sum = combined.sum()
-    if final_sum == 0: 
-        return {str(int(p)): 1.0/len(grouped) for p in grouped['period_idx']}
-    
-    final_weights = combined / final_sum
-    
-    result = {str(int(row['period_idx'])): float(final_weights[i]) for i, row in grouped.iterrows()}
-    return result
+    # Calculate Metrics
+    # R^2 = 1 - (SS_res / SS_tot)
+    ss_res = np.sum((y - y_pred)**2)
+    ss_tot = np.sum((y - np.mean(y))**2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+    # Map coefficients to feature names
+    # beta[0] is intercept, beta[1:] are features
+    coefficients = {"Intercept": float(beta[0])}
+    for idx, col in enumerate(feature_cols):
+        coefficients[col] = float(beta[idx+1])
+
+    return final_weights, coefficients, float(r_squared)

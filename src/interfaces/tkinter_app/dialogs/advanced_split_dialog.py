@@ -76,7 +76,7 @@ class AdvancedSplitDialog(tk.Toplevel):
         ttk.Button(btn_f, text="🚀 Run Multivariate Seasonality Analysis", command=self._run_analysis, style="Action.TButton").pack(side="top", fill="x")
         
         # Results area
-        self.res_text = tk.Text(main, height=8, font=("Courier", 9), state="disabled", background="#F8F9FA")
+        self.res_text = tk.Text(main, height=12, font=("Courier", 9), state="disabled", background="#F8F9FA")
         self.res_text.pack(fill="x", pady=10)
         
         # Footer
@@ -129,7 +129,8 @@ class AdvancedSplitDialog(tk.Toplevel):
             return
 
         try:
-            weights = split_analyzer.analyze_seasonality_from_file(
+            # Call new regression-based service
+            weights, coefficients, r_squared = split_analyzer.analyze_seasonality_from_file(
                 self.file_path.get(),
                 selected_targets,
                 selected_features,
@@ -140,8 +141,19 @@ class AdvancedSplitDialog(tk.Toplevel):
             
             self.res_text.config(state="normal")
             self.res_text.delete("1.0", "end")
-            self.res_text.insert("1.0", f"Multivariate Results (Targets: {len(selected_targets)}, Features: {len(selected_features)}):\n\n")
             
+            # Show Model Details
+            self.res_text.insert("1.0", f"=== Analysis Results ===\n")
+            self.res_text.insert("end", f"Model: Multiple Linear Regression (OLS)\n")
+            self.res_text.insert("end", f"R² Score: {r_squared:.4f} (Accuracy of fit)\n\n")
+            
+            if coefficients:
+                self.res_text.insert("end", "Driver Influence (Coefficients):\n")
+                for feat, coef in coefficients.items():
+                    self.res_text.insert("end", f"  - {feat}: {coef:.4f}\n")
+                self.res_text.insert("end", "\n")
+            
+            self.res_text.insert("end", "Predicted Seasonal Weights:\n")
             for p, w in sorted(weights.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0]):
                 label = p
                 if self.period_var.get() == "Month":
@@ -149,9 +161,12 @@ class AdvancedSplitDialog(tk.Toplevel):
                     try: label = calendar.month_name[int(p)]
                     except: pass
                 self.res_text.insert("end", f"{label}: {w*100:.2f}%\n")
+            
             self.res_text.config(state="disabled")
             
         except Exception as e:
+            import traceback
+            print(traceback.format_exc())
             messagebox.showerror("Analysis Error", str(e))
 
     def _on_apply(self):

@@ -41,9 +41,13 @@ def test_and_plot():
     feature_cols = ["driver_sales", "noise"]
     
     # Perform Analysis
-    weights = split_analyzer.analyze_seasonality_from_file(
+    weights, coefs, r2 = split_analyzer.analyze_seasonality_from_file(
         test_file, target_cols, feature_cols, "date", "Month"
     )
+    
+    print(f"Analysis Complete.")
+    print(f"R² Score: {r2:.4f}")
+    print("Coefficients:", coefs)
     
     # Prepare Plotting Data
     # 1. Historical Targets Aggregated by Month
@@ -59,7 +63,7 @@ def test_and_plot():
     result_vals = [weights[str(m)] for m in result_months]
     
     # Visualization
-    plt.figure(figsize=(12, 7))
+    plt.figure(figsize=(12, 8))
     
     # Plot Initial Historical Trends (Normalized)
     plt.subplot(2, 1, 1)
@@ -73,12 +77,18 @@ def test_and_plot():
     
     # Plot Result after Multivariate refinement
     plt.subplot(2, 1, 2)
-    plt.bar(result_months, result_vals, color='skyblue', alpha=0.7, label="Final Multivariate Weights")
+    plt.bar(result_months, result_vals, color='skyblue', alpha=0.7, label="Final Predicted Weights (OLS)")
     plt.plot(monthly_targets.index, baseline_avg, 'r-', marker='x', label="Original Baseline (Target Only)")
-    plt.title("Final Analysis Result (Including Multi-feature Drivers)")
+    plt.title(f"Prediction Result (R²={r2:.2f})")
     plt.xlabel("Month")
     plt.ylabel("Weight %")
     plt.xticks(range(1, 13))
+    
+    # Add text box for coefficients
+    text_str = "Driver Influence:\n" + "\n".join([f"{k}: {v:.2f}" for k, v in coefs.items()])
+    plt.text(1.02, 0.5, text_str, transform=plt.gca().transAxes, fontsize=10,
+             verticalalignment='center', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+    
     plt.legend()
     plt.grid(True, alpha=0.3)
     
