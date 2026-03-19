@@ -159,9 +159,30 @@ class KpiManagementTab(ttk.Frame):
         for i in self.tree.get_children(): self.tree.delete(i)
         self.node_cache = {}
         self.indicator_cache = {}
+        self.ind_to_spec_map = {} # Map indicator_id -> kpi_spec_id
+        
+        # Cache links for visualization
+        try:
+            # 1. Fetch Links
+            all_links = db_retriever.get_all_kpi_master_sub_links()
+            self.master_ids = set(l['master_kpi_spec_id'] for l in all_links)
+            self.sub_ids = set(l['sub_kpi_spec_id'] for l in all_links)
+            
+            # 2. Fetch KPI Specs to map Indicator ID -> Spec ID
+            all_specs = db_retriever.get_all_kpis()
+            for s in all_specs:
+                self.ind_to_spec_map[s['indicator_id']] = s['id']
+                
+        except Exception as e:
+            print(f"Error refreshing tree cache: {e}")
+            self.master_ids = set()
+            self.sub_ids = set()
+            self.ind_to_spec_map = {}
+
         self._load_level(None, "")
 
     def _load_level(self, parent_id, tree_parent):
+        # 1. Load Nodes (Folders/Groups)
         nodes_raw = db_retriever.get_hierarchy_nodes(parent_id)
         for n_row in nodes_raw:
             n = dict(n_row)
@@ -176,13 +197,35 @@ class KpiManagementTab(ttk.Frame):
             self.node_cache[n['id']] = n
             self._load_level(n['id'], iid) # Recursive load
 
-        # Load indicators for this node
+        # 2. Load Indicators for this level
+        # Logic: If parent_id is None, we are at root.
+        # But get_indicators_by_node(None) might not work depending on DB schema (node_id is likely NOT NULL).
+        # Assuming indicators always belong to a node.
         if parent_id:
             inds_raw = db_retriever.get_indicators_by_node(parent_id)
             for i_row in inds_raw:
                 i = dict(i_row)
                 iid = f"I_{i['id']}"
-                self.tree.insert(tree_parent, "end", iid=iid, text=f"📊 {i['name']}")
+                
+                # Check link status via Specs
+                # To map indicator_id -> kpi_spec_id efficiently, we ideally need a cache or join.
+                # But get_indicators_by_node returns INDICATORS table rows. Links use KPI_SPEC_ID (from KPIS table).
+                # This requires resolving Indicator ID -> KPI Spec ID.
+                # db_retriever.get_all_kpis() returns kpis table.
+                # Let's verify spec existence.
+                # For performance in a loop, this is bad. But let's check kpi_specs_manager cache?
+                # No cache there.
+                # Optimization: Fetch all KPIs once in refresh_tree.
+                
+                suffix = ""
+                # We need spec_id for this indicator.
+                # Since we don't have it readily available without query, let's use a cached map.
+                spec_id = self.ind_to_spec_map.get(i['id'])
+                if spec_id:
+                    if spec_id in self.master_ids: suffix += " 🔗(M)"
+                    if spec_id in self.sub_ids: suffix += " 🔗(S)"
+                
+                self.tree.insert(tree_parent, "end", iid=iid, text=f"📊 {i['name']}{suffix}")
                 self.indicator_cache[i['id']] = i
 
     def refresh_templates(self):
@@ -290,20 +333,71 @@ class KpiManagementTab(ttk.Frame):
             ttk.Label(grid, text="Yes" if spec['visible'] else "No", background="#FFFFFF").grid(row=1, column=3, sticky="w", padx=5, pady=2)
 
             if spec['is_calculated']:
-                formula_f = ttk.LabelFrame(self.detail_content, text="Formula (Calculated KPI)", style="Formula.TLabelframe", padding=10)
+                formula_f = ttk.LabelFrame(self.detail_content, text="Formula Preview (Calculated KPI)", style="Formula.TLabelframe", padding=10)
                 formula_f.pack(fill="x", pady=10)
                 
+                # 1. Raw ID-based formula
                 f_str = spec.get('formula_string', 'No expression defined.')
-                ttk.Label(formula_f, text=f_str, wraplength=400, font=("Courier", 10), background="#E3F2FD").pack(fill="x", pady=5)
+                ttk.Label(formula_f, text=f"Expression: {f_str}", wraplength=400, font=("Courier", 9), background="#E3F2FD", foreground="#666").pack(fill="x")
                 
-                ttk.Button(formula_f, text="🛠️ Edit Visual Formula", 
-                           command=lambda: self.open_visual_editor(ind_id), 
-                           width=20).pack(pady=5)
+                # 2. Name-based expanded formula
+                expanded_formula = self._get_expanded_formula(f_str)
+                ttk.Label(formula_f, text="Readable:", font=("Helvetica", 9, "bold"), background="#E3F2FD").pack(anchor="w", pady=(5, 0))
+                ttk.Label(formula_f, text=expanded_formula, wraplength=400, font=("Helvetica", 10, "italic"), background="#E3F2FD", foreground="#0056b3").pack(fill="x", pady=(0, 5))
 
+                # 3. Dummy Result
+                preview_val = self._evaluate_formula_preview(spec)
+                preview_f = tk.Frame(formula_f, background="#E3F2FD")
+                preview_f.pack(fill="x", pady=5)
+                ttk.Label(preview_f, text="Preview Result (inputs=10):", font=("Helvetica", 9), background="#E3F2FD").pack(side="left")
+                ttk.Label(preview_f, text=f"{round(preview_val, 4)}", font=("Helvetica", 10, "bold"), background="#E3F2FD", foreground="#28a745").pack(side="left", padx=5)
+
+                ttk.Button(formula_f, text="🛠️ Open Visual Editor", 
+                           command=lambda: self.open_visual_editor(ind_id), 
+                           width=20).pack(pady=10)
+
+        # Actions for the KPI (Always visible)
         btn_f = ttk.Frame(self.detail_content, style="Card.TFrame")
         btn_f.pack(fill="x", pady=20)
         ttk.Button(btn_f, text="Full Edit", command=lambda: self.edit_kpi(ind_id), style="Action.TButton").pack(side="left", padx=5)
         ttk.Button(btn_f, text="Delete KPI", command=lambda: self.delete_kpi(ind_id)).pack(side="left", padx=5)
+
+    def _get_expanded_formula(self, formula_str: str) -> str:
+        if not formula_str: return "None"
+        import re
+        # Find all [ID]
+        pattern = r'\[(\d+)\]'
+        matches = re.findall(pattern, formula_str)
+        
+        # We need a map of KPI Spec ID -> Name. 
+        all_kpis = db_retriever.get_all_kpis_detailed()
+        name_map = {k['id']: k['indicator_name'] for k in all_kpis}
+        
+        expanded = formula_str
+        for mid in set(matches):
+            name = name_map.get(int(mid), f"KPI_{mid}")
+            expanded = expanded.replace(f"[{mid}]", f"'{name}'")
+        
+        return expanded
+
+    def _evaluate_formula_preview(self, spec) -> float:
+        from src.core.node_engine import KpiDAG
+        f_json = spec.get('formula_json')
+        f_str = spec.get('formula_string')
+        
+        try:
+            if f_json:
+                dag = KpiDAG.from_json(f_json)
+                # Resolver that always returns 10.0
+                return dag.evaluate(lambda kid, tn: 10.0)
+            elif f_str:
+                import re
+                # Replace [ID] with 10.0
+                processed = re.sub(r'\[\d+\]', '10.0', f_str)
+                return float(eval(processed, {"__builtins__": None}, {"abs": abs, "min": min, "max": max, "round": round}))
+        except:
+            return 0.0
+        return 0.0
 
     def _show_split_details(self, split_id):
         s = self.split_cache[split_id]
@@ -365,7 +459,8 @@ class KpiManagementTab(ttk.Frame):
         for d_row in defs_raw:
             d = dict(d_row)
             v = "Yes" if d['default_visible'] else "No"
-            self.def_tree.insert("", "end", iid=d['id'], values=(d['indicator_name_in_template'], d['default_calculation_type'], d['default_unit_of_measure'], v))
+            # Ensure iid is string and unique
+            self.def_tree.insert("", "end", iid=str(d['id']), values=(d['indicator_name_in_template'], d['default_calculation_type'], d['default_unit_of_measure'], v))
 
         btn_f = ttk.Frame(self.tpl_detail_content, style="Card.TFrame")
         btn_f.pack(fill="x", pady=10)

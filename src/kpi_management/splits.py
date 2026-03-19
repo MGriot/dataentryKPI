@@ -57,16 +57,50 @@ def update_global_split(split_id: int, **kwargs):
             raise
 
 def delete_global_split(split_id: int):
-    """Deletes a global KPI split template."""
+    """Deletes a global KPI split template and its afflicted indicators."""
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
     with sqlite3.connect(db_templates_path) as conn:
         try:
+            conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.cursor()
             cursor.execute("DELETE FROM global_kpi_splits WHERE id = ?", (split_id,))
             conn.commit()
         except sqlite3.Error as e:
             print(f"ERROR: Database error while deleting global split ID {split_id}. Details: {e}")
             print(traceback.format_exc())
+            raise
+
+def get_indicators_for_global_split(split_id: int) -> list[dict]:
+    """Retrieves all indicators afflicted by a global split."""
+    db_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    with sqlite3.connect(db_templates_path) as conn:
+        conn.row_factory = sqlite3.Row
+        try:
+            return [dict(r) for r in conn.execute("SELECT * FROM global_split_indicators WHERE global_split_id = ?", (split_id,)).fetchall()]
+        except sqlite3.Error as e:
+            print(f"ERROR: {e}")
+            return []
+
+def update_global_split_indicators(split_id: int, indicators_data: list[dict]):
+    """
+    Syncs the list of afflicted indicators for a global split.
+    indicators_data: list of {'indicator_id': int, 'override_distribution_profile': str|None}
+    """
+    db_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    with sqlite3.connect(db_templates_path) as conn:
+        try:
+            cursor = conn.cursor()
+            # Clear existing
+            cursor.execute("DELETE FROM global_split_indicators WHERE global_split_id = ?", (split_id,))
+            # Insert new
+            for ind in indicators_data:
+                cursor.execute(
+                    "INSERT INTO global_split_indicators (global_split_id, indicator_id, override_distribution_profile) VALUES (?, ?, ?)",
+                    (split_id, ind['indicator_id'], ind.get('override_distribution_profile'))
+                )
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"ERROR updating global split indicators: {e}")
             raise
 
 def get_global_split(split_id: int) -> dict:

@@ -23,7 +23,7 @@ class TargetEntryTab(ttk.Frame):
         
         self.plants = []
         # Persistent state for all KPIs loaded for the current year/plant
-        # { kpi_id: { 'target1': val, 'target2': val, 'manual1': bool, 'manual2': bool, 'kpi_info': dict } }
+        # { kpi_id: { 'targets': { tn: {val, manual, hist_y1, hist_y2} }, 'kpi_info': dict } }
         self.all_kpis_data_cache = {}
         # Active UI widgets for currently visible KPIs
         self.kpi_target_entry_widgets = {}
@@ -122,15 +122,29 @@ class TargetEntryTab(ttk.Frame):
             h1_data = hist1.get(tid, {})
             h2_data = hist2.get(tid, {})
             
+            t_values = {}
+            for tv in t_data.get('target_values', []):
+                tn = tv['target_number']
+                t_values[tn] = {
+                    'val': tv['target_value'],
+                    'manual': bool(tv['is_manual']),
+                    'hist_y1': None,
+                    'hist_y2': None
+                }
+            
+            for tn in [1, 2]:
+                if tn not in t_values:
+                    t_values[tn] = {'val': 0.0, 'manual': True, 'hist_y1': None, 'hist_y2': None}
+
+            for h_idx, h_data in enumerate([h1_data, h2_data]):
+                h_key = f'hist_y{h_idx+1}'
+                for tv in h_data.get('target_values', []):
+                    tn = tv['target_number']
+                    if tn in t_values:
+                        t_values[tn][h_key] = tv['target_value']
+
             self.all_kpis_data_cache[tid] = {
-                'target1': t_data.get('annual_target1', 0.0),
-                'target2': t_data.get('annual_target2', 0.0),
-                'manual1': bool(t_data.get('is_target1_manual', False)),
-                'manual2': bool(t_data.get('is_target2_manual', False)),
-                'hist_y1_t1': h1_data.get('annual_target1'),
-                'hist_y1_t2': h1_data.get('annual_target2'),
-                'hist_y2_t1': h2_data.get('annual_target1'),
-                'hist_y2_t2': h2_data.get('annual_target2'),
+                'targets': t_values,
                 'kpi_info': k
             }
 
@@ -141,11 +155,7 @@ class TargetEntryTab(ttk.Frame):
         for item in self.tree.get_children(): self.tree.delete(item)
         self.tree.insert("", "end", iid="ALL", text="🌍 All Indicators", open=True)
         
-        # Organize for tree using hierarchy_path
-        # Map: path_tuple -> tree_iid
         path_map = { (): "ALL" }
-        
-        # Sort paths to build parent levels before children
         all_paths = set()
         for kid, data in self.all_kpis_data_cache.items():
             path_str = data['kpi_info'].get('hierarchy_path', '')
@@ -155,7 +165,6 @@ class TargetEntryTab(ttk.Frame):
                     all_paths.add(parts[:i])
 
         sorted_paths = sorted(list(all_paths), key=len)
-        
         for p in sorted_paths:
             parent_p = p[:-1]
             parent_iid = path_map[parent_p]
@@ -177,30 +186,28 @@ class TargetEntryTab(ttk.Frame):
         sel = self.tree.selection()
         sel_id = sel[0] if sel else "ALL"
 
-        # Filter KPIs
         for kid, data in self.all_kpis_data_cache.items():
             info = data['kpi_info']
-            # Search filter
             if query and query not in info['indicator_name'].lower(): continue
             
-            # Tree filter logic
             if sel_id != "ALL":
-                # sel_id is "P_Part1_Part2..."
                 path_str = info.get('hierarchy_path', '')
-                if not path_str: continue # KPI has no path, but we are in a sub-path
-                
+                if not path_str: continue
                 parts = path_str.split(' > ')
                 current_p_str = "_".join(parts)
-                # Check if current KPI path starts with the selected path
-                target_p_str = sel_id[2:] # Remove "P_"
+                target_p_str = sel_id[2:]
                 if not current_p_str.startswith(target_p_str):
                     continue
             
             self._create_card(kid, data)
 
         self._populating_target_kpi_entries = False
-        self._recalculate_all_formulas_ui(1)
-        self._recalculate_all_formulas_ui(2)
+        
+        all_tns = set()
+        for data in self.all_kpis_data_cache.values():
+            all_tns.update(data['targets'].keys())
+        for tn in sorted(list(all_tns)):
+            self._recalculate_all_formulas_ui(tn)
 
     def _create_card(self, kid, data):
         info = data['kpi_info']
@@ -211,55 +218,62 @@ class TargetEntryTab(ttk.Frame):
         card.pack(fill='x', padx=15, pady=5)
 
         self.kpi_target_entry_widgets[kid] = {'targets': {}}
-        row = ttk.Frame(card, style="Card.TFrame")
-        row.pack(fill='x')
+        grid = ttk.Frame(card, style="Card.TFrame")
+        grid.pack(fill='x')
+        
+        t_values = data['targets']
+        for tn in sorted(t_values.keys()):
+            self._create_input(grid, kid, tn, t_values[tn], is_calc)
 
-        self._create_input(row, kid, 1, data, is_calc)
-        self._create_input(row, kid, 2, data, is_calc)
+        actions = ttk.Frame(card, style="Card.TFrame")
+        actions.pack(fill='x', pady=(5, 0))
+        ttk.Button(actions, text="+ Add Target", command=lambda: self._add_target_to_kpi(kid), width=12).pack(side='right')
 
-    def _create_input(self, parent, kid, tn, data, is_calc):
+    def _add_target_to_kpi(self, kid):
+        t_values = self.all_kpis_data_cache[kid]['targets']
+        new_tn = max(t_values.keys()) + 1 if t_values else 1
+        t_values[new_tn] = {'val': 0.0, 'manual': True, 'hist_y1': None, 'hist_y2': None}
+        self.render_cards()
+
+    def _create_input(self, parent, kid, tn, t_data, is_calc):
         f = ttk.Frame(parent, style="Card.TFrame")
-        f.pack(side='left', fill='x', expand=True, padx=5)
+        f.pack(side='left', fill='x', expand=True, padx=5, pady=2)
         
         ttk.Label(f, text=f"T{tn}:", width=4).pack(side='left')
         
-        var = tk.StringVar(value=str(data[f'target{tn}']))
-        m_var = tk.BooleanVar(value=data[f'manual{tn}'])
+        var = tk.StringVar(value=str(t_data['val']))
+        m_var = tk.BooleanVar(value=t_data['manual'])
         
         state = 'normal' if (not is_calc or m_var.get()) else 'disabled'
-        ent = ttk.Entry(f, textvariable=var, width=12, state=state)
+        ent = ttk.Entry(f, textvariable=var, width=10, state=state)
         ent.pack(side='left', padx=5)
         
-        # Historical info
-        h1 = data.get(f'hist_y1_t{tn}')
-        h2 = data.get(f'hist_y2_t{tn}')
-        h_text = ""
-        if h1 is not None or h2 is not None:
-            parts = []
-            if h1 is not None: parts.append(f"Y-1: {round(h1, 2)}")
-            if h2 is not None: parts.append(f"Y-2: {round(h2, 2)}")
-            h_text = f"({', '.join(parts)})"
+        h1 = t_data.get('hist_y1')
+        h2 = t_data.get('hist_y2')
+        parts = []
+        if h1 is not None: parts.append(f"Y-1: {round(h1, 2)}")
+        if h2 is not None: parts.append(f"Y-2: {round(h2, 2)}")
+        h_text = f"({', '.join(parts)})" if parts else "(No History)"
+        color = "#0056b3" if parts else "#999999"
+        ttk.Label(f, text=h_text, font=("Segoe UI", 8), foreground=color).pack(side='left', padx=2)
         
-        if h_text:
-            ttk.Label(f, text=h_text, font=("Segoe UI", 8, "italic"), foreground="gray").pack(side='left', padx=2)
-        
-        # Prevent immediate trace-driven updates while typing. 
-        # Use FocusOut to sync the cache and trigger global updates.
         ent.bind("<FocusOut>", lambda e, k=kid, t=tn, v=var: self._sync_cache(k, t, v.get()))
         ent.bind("<Return>", lambda e, k=kid, t=tn, v=var: self._sync_cache(k, t, v.get()))
 
-        if is_calc or bool(data['kpi_info'].get('master_kpi_id')):
+        if is_calc or bool(self.all_kpis_data_cache[kid]['kpi_info'].get('master_kpi_id')):
             label = "Override" if is_calc else "M"
             cb = ttk.Checkbutton(f, text=label, variable=m_var, command=lambda: self._sync_and_update(kid, tn))
             cb.pack(side='left')
 
         self.kpi_target_entry_widgets[kid]['targets'][tn] = {
-            'var': var, 'ent': ent, 'm_var': m_var, 'data': data
+            'var': var, 'ent': ent, 'm_var': m_var, 'data': t_data
         }
 
     def _sync_cache(self, kid, tn, val):
         if self._populating_target_kpi_entries: return
-        try: self.all_kpis_data_cache[kid][f'target{tn}'] = float(val or 0)
+        try:
+            val_float = float(val or 0)
+            self.all_kpis_data_cache[kid]['targets'][tn]['val'] = val_float
         except: pass
         
         if not self._recalculating_ui and not self._master_sub_update_active:
@@ -267,10 +281,9 @@ class TargetEntryTab(ttk.Frame):
             self._sync_master_sub(kid, tn)
 
     def _sync_and_update(self, kid, tn):
-        # Toggle state
         w = self.kpi_target_entry_widgets[kid]['targets'][tn]
         m = w['m_var'].get()
-        self.all_kpis_data_cache[kid][f'manual{tn}'] = m
+        self.all_kpis_data_cache[kid]['targets'][tn]['manual'] = m
         w['ent'].config(state='normal' if m else 'disabled')
         
         if not m: self._recalculate_all_formulas_ui(tn)
@@ -283,11 +296,12 @@ class TargetEntryTab(ttk.Frame):
             for _ in range(5):
                 changed = False
                 for kid, data in self.all_kpis_data_cache.items():
-                    if data['kpi_info'].get('is_calculated') and not data[f'manual{tn}']:
+                    if tn not in data['targets']: continue
+                    if data['kpi_info'].get('is_calculated') and not data['targets'][tn]['manual']:
                         calc = self._evaluate_kpi(kid, tn)
-                        if abs(data[f'target{tn}'] - calc) > 1e-9:
-                            data[f'target{tn}'] = calc
-                            if kid in self.kpi_target_entry_widgets:
+                        if abs(data['targets'][tn]['val'] - calc) > 1e-9:
+                            data['targets'][tn]['val'] = calc
+                            if kid in self.kpi_target_entry_widgets and tn in self.kpi_target_entry_widgets[kid]['targets']:
                                 self.kpi_target_entry_widgets[kid]['targets'][tn]['var'].set(str(round(calc, 4)))
                             changed = True
                 if not changed: break
@@ -302,40 +316,46 @@ class TargetEntryTab(ttk.Frame):
             try:
                 dag = KpiDAG.from_json(f_json)
                 def resolver(id, target_num):
-                    return self.all_kpis_data_cache.get(int(id), {}).get(f'target{target_num}', 0.0)
+                    target_num = int(target_num)
+                    k_data = self.all_kpis_data_cache.get(int(id))
+                    if k_data and target_num in k_data['targets']:
+                        return k_data['targets'][target_num]['val']
+                    return 0.0
                 return dag.evaluate(resolver, default_target_num=tn)
             except: return 0.0
         elif f_str:
-            try:
-                # Basic [ID] replacement
-                expr = f_str
-                for match in re.findall(r'\[(\d+)\]', f_str):
-                    val = self.all_kpis_data_cache.get(int(match), {}).get(f'target{tn}', 0.0)
-                    expr = expr.replace(f"[{match}]", str(val))
-                return float(eval(expr, {"__builtins__": None}, {"abs":abs,"min":min,"max":max,"round":round}))
+            processed = f_str
+            for match in re.findall(r'\[(\d+)\]', f_str):
+                mid = int(match)
+                k_data = self.all_kpis_data_cache.get(mid)
+                val = 0.0
+                if k_data and tn in k_data['targets']:
+                    val = k_data['targets'][tn]['val']
+                processed = processed.replace(f"[{match}]", str(val))
+            try: return float(eval(processed, {"__builtins__": None}, {"abs": abs, "min": min, "max": max, "round": round}))
             except: return 0.0
         return 0.0
 
     def _sync_master_sub(self, kid, tn):
         if self._master_sub_update_active: return
         info = self.all_kpis_data_cache[kid]['kpi_info']
-        if info.get('master_kpi_id'): return # Sub can't push up in this simple UI logic
+        if info.get('master_kpi_id'): return
         
-        # If it's a master, distribute
         subs = db_retriever.get_linked_sub_kpis_detailed(kid)
         if not subs: return
         
         self._master_sub_update_active = True
         try:
             total_w = sum(s['distribution_weight'] for s in subs)
-            master_val = self.all_kpis_data_cache[kid][f'target{tn}']
+            master_val = self.all_kpis_data_cache[kid]['targets'][tn]['val']
             for s in subs:
                 sid = s['id']
-                if sid in self.all_kpis_data_cache and not self.all_kpis_data_cache[sid][f'manual{tn}']:
-                    val = (master_val * s['distribution_weight'] / total_w) if total_w > 0 else 0
-                    self.all_kpis_data_cache[sid][f'target{tn}'] = val
-                    if sid in self.kpi_target_entry_widgets:
-                        self.kpi_target_entry_widgets[sid]['targets'][tn]['var'].set(str(round(val, 4)))
+                if sid in self.all_kpis_data_cache and tn in self.all_kpis_data_cache[sid]['targets']:
+                    if not self.all_kpis_data_cache[sid]['targets'][tn]['manual']:
+                        val = (master_val * s['distribution_weight'] / total_w) if total_w > 0 else 0
+                        self.all_kpis_data_cache[sid]['targets'][tn]['val'] = val
+                        if sid in self.kpi_target_entry_widgets and tn in self.kpi_target_entry_widgets[sid]['targets']:
+                            self.kpi_target_entry_widgets[sid]['targets'][tn]['var'].set(str(round(val, 4)))
         finally: self._master_sub_update_active = False
 
     def save_all_targets_entry(self):
@@ -350,19 +370,19 @@ class TargetEntryTab(ttk.Frame):
             target_plant_ids = p_id
             msg = f"Save targets for {p_name}?"
 
-        if not messagebox.askyesno("Confirm Save", msg):
-            return
+        if not messagebox.askyesno("Confirm Save", msg): return
 
         data_map = {}
         for kid, data in self.all_kpis_data_cache.items():
-            data_map[str(kid)] = {
-                'annual_target1': data['target1'],
-                'annual_target2': data['target2'],
-                'is_target1_manual': data['manual1'],
-                'is_target2_manual': data['manual2'],
-                'target1_is_formula_based': bool(data['kpi_info'].get('is_calculated')) and not data['manual1'],
-                'target2_is_formula_based': bool(data['kpi_info'].get('is_calculated')) and not data['manual2'],
-            }
+            targets_list = []
+            for tn, t_data in data['targets'].items():
+                targets_list.append({
+                    'target_number': tn,
+                    'target_value': t_data['val'],
+                    'is_manual': t_data['manual'],
+                    'is_formula_based': bool(data['kpi_info'].get('is_calculated')) and not t_data['manual']
+                })
+            data_map[str(kid)] = {'targets': targets_list}
             
         def run():
             try:

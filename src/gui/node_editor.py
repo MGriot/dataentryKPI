@@ -254,6 +254,15 @@ class NodeEditorDialog(tk.Toplevel):
                 self.dag.add_edge(new_edge)
                 self._draw_edge(new_edge)
                 
+                # Dynamic inputs for + and *
+                target_node = self.dag.nodes[target_node_id]
+                if target_node.type == NodeType.OPERATOR and target_node.data.get("op") in ("+", "*"):
+                    current_num = target_node.data.get("num_inputs", 2)
+                    # If we connected to the last available port, add one more
+                    if handle == f"In {current_num}":
+                        target_node.data["num_inputs"] = current_num + 1
+                        self._redraw_node(target_node_id)
+                
             self.canvas.delete(self.conn_data["line"])
             self.conn_data["active"] = False
             
@@ -313,14 +322,21 @@ class NodeEditorDialog(tk.Toplevel):
         tree.configure(yscrollcommand=vsb.set)
 
         def load_tree(parent_id=None, tree_parent=""):
-            # Folders/Nodes
+            # 1. Folders/Nodes
             nodes = db_retriever.get_hierarchy_nodes(parent_id)
             for n in nodes:
-                node_item = tree.insert(tree_parent, "end", text=f"📁 {n['name']}", values=("folder", n['id']), open=False)
+                icon = "📁"
+                if n.get('node_type') == 'group': icon = "🏢"
+                elif n.get('node_type') == 'subgroup': icon = "📂"
+                
+                node_item = tree.insert(tree_parent, "end", text=f"{icon} {n['name']}", values=(n.get('node_type', 'folder'), n['id']), open=True)
                 load_tree(n['id'], node_item)
             
-            # Indicators
+            # 2. Indicators at this level
             indicators = db_retriever.get_indicators_by_node(parent_id) if parent_id else []
+            # Optionally, if indicators can be at root, add logic here. 
+            # Currently get_indicators_by_node(None) might be empty.
+            
             for ind in indicators:
                 tree.insert(tree_parent, "end", text=f"📊 {ind['name']}", values=("indicator", ind['id']))
 

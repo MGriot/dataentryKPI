@@ -92,6 +92,18 @@ def setup_databases():
                     profile_params TEXT DEFAULT '{{}}'
                 )"""
             )
+
+            # Req 9: Indicators afflicted by a global split
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS global_split_indicators (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    global_split_id INTEGER NOT NULL,
+                    indicator_id INTEGER NOT NULL,
+                    override_distribution_profile TEXT,
+                    FOREIGN KEY (global_split_id) REFERENCES global_kpi_splits(id) ON DELETE CASCADE,
+                    UNIQUE(global_split_id, indicator_id)
+                )"""
+            )
             conn.commit()
         print(f"Table setup in {db_kpi_templates_path} completed.")
     except sqlite3.Error as e:

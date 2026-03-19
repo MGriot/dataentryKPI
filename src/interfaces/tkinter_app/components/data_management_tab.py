@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import traceback
+import datetime
 
 from src import export_manager
 from src import import_manager
