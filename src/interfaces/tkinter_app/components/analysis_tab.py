@@ -70,7 +70,6 @@ class AnalysisTab(ttk.Frame):
         self.year_menu.delete(0, "end")
         for y in all_years:
             if y not in self.selected_years:
-                # Default to current year
                 is_current = (y == str(datetime.datetime.now().year))
                 self.selected_years[y] = tk.BooleanVar(value=is_current)
             self.year_menu.add_checkbutton(label=y, variable=self.selected_years[y], command=self.on_filter_change)
@@ -128,8 +127,14 @@ class AnalysisTab(ttk.Frame):
         detail_f = ttk.Frame(pane, style="Content.TFrame")
         pane.add(detail_f, weight=4)
 
-        self.table = ttk.Treeview(detail_f, columns=("P", "T1", "T2"), show="headings", height=8)
-        self.table.heading("P", text="Period"); self.table.heading("T1", text=self.target1_display_name); self.table.heading("T2", text=self.target2_display_name)
+        # Dynamic columns for table based on targets? 
+        # For UI simplicity we'll use generic Target labels if more than 2
+        self.table = ttk.Treeview(detail_f, columns=("Y", "P", "T1", "T2", "T3+"), show="headings", height=8)
+        self.table.heading("Y", text="Year"); self.table.column("Y", width=60)
+        self.table.heading("P", text="Period")
+        self.table.heading("T1", text=self.target1_display_name)
+        self.table.heading("T2", text=self.target2_display_name)
+        self.table.heading("T3+", text="Other Targets")
         self.table.pack(fill="x", padx=10, pady=5)
 
         self.fig = Figure(figsize=(5, 4), dpi=100)
@@ -178,33 +183,60 @@ class AnalysisTab(ttk.Frame):
         for i in self.table.get_children(): self.table.delete(i)
         
         all_periods = set()
-        data_by_year = {}
+        # structure: {year: {target_num: {period: val}}}
+        data_tree = {}
 
         for year in sorted(years):
-            t1 = db_retriever.get_periodic_targets_for_kpi(year, p_id, kpi_id, period_type, 1)
-            t2 = db_retriever.get_periodic_targets_for_kpi(year, p_id, kpi_id, period_type, 2)
-            m1 = {r["period"]: r["Target"] for r in t1}
-            m2 = {r["period"]: r["Target"] for r in t2}
-            ps = self._sort_periods(list(set(list(m1.keys()) + list(m2.keys()))), period_type)
-            all_periods.update(ps)
-            data_by_year[year] = {"m1": m1, "m2": m2, "ps": ps}
+            data_tree[year] = {}
+            # Find available target numbers for this KPI/Year
+            t_nums = db_retriever.get_available_target_numbers_for_kpi(year, p_id, kpi_id)
+            if not t_nums: t_nums = [1, 2] # Fallback
+            
+            for tn in t_nums:
+                res = db_retriever.get_periodic_targets_for_kpi(year, p_id, kpi_id, period_type, tn)
+                data_tree[year][tn] = {r["period"]: r["Target"] for r in res}
+                all_periods.update(data_tree[year][tn].keys())
 
         sorted_all_ps = self._sort_periods(list(all_periods), period_type)
 
+        # Update Table
         for year in sorted(years, reverse=True):
-            y_data = data_by_year[year]
-            for p in y_data["ps"]:
-                self.table.insert("", "end", values=(f"{year} - {self._format_period(p, period_type)}", f"{y_data['m1'].get(p, 0):,.2f}", f"{y_data['m2'].get(p, 0):,.2f}"))
+            for p in sorted_all_ps:
+                row_vals = [year, self._format_period(p, period_type)]
+                # Add T1, T2, and sum of others
+                t1 = data_tree[year].get(1, {}).get(p, 0)
+                t2 = data_tree[year].get(2, {}).get(p, 0)
+                others = sum(data_tree[year].get(tn, {}).get(p, 0) for tn in data_tree[year].keys() if tn > 2)
+                
+                # Check if any target has data for this year/period
+                has_any = any(p in data_tree[year].get(tn, {}) for tn in data_tree[year].keys())
+                if has_any:
+                    self.table.insert("", "end", values=(year, self._format_period(p, period_type), f"{t1:,.2f}", f"{t2:,.2f}", f"{others:,.2f}"))
 
+        # Update Plot
+        colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
+        c_idx = 0
         for year in sorted(years):
-            y_data = data_by_year[year]
-            y_ps = y_data["ps"]
-            x_indices = [sorted_all_ps.index(p) for p in y_ps]
-            self.ax.plot(x_indices, [y_data["m1"].get(p, 0) for p in y_ps], marker="o", label=f"{year} {self.target1_display_name}")
-            if len(years) == 1:
-                self.ax.plot(x_indices, [y_data["m2"].get(p, 0) for p in y_ps], marker="x", linestyle="--", label=f"{year} {self.target2_display_name}")
+            t_nums = sorted(data_tree[year].keys())
+            for tn in t_nums:
+                y_map = data_tree[year][tn]
+                # Filter periods present for THIS specific target
+                y_ps = [p for p in sorted_all_ps if p in y_map]
+                if not y_ps: continue
+                
+                x_indices = [sorted_all_ps.index(p) for p in y_ps]
+                y_vals = [y_map[p] for p in y_ps]
+                
+                label = f"{year} T{tn}"
+                if tn == 1: label = f"{year} {self.target1_display_name}"
+                elif tn == 2: label = f"{year} {self.target2_display_name}"
+                
+                style = "-" if tn == 1 else "--"
+                marker = "o" if tn == 1 else "x"
+                
+                self.ax.plot(x_indices, y_vals, marker=marker, linestyle=style, label=label, color=colors[c_idx % len(colors)])
+                c_idx += 1
         
-        # Req 11: Improved Day Scale
         if period_type == "Day" and len(sorted_all_ps) > 31:
             step = max(1, len(sorted_all_ps) // 10)
             indices = range(0, len(sorted_all_ps), step)
@@ -214,7 +246,7 @@ class AnalysisTab(ttk.Frame):
             self.ax.set_xticks(range(len(sorted_all_ps)))
             self.ax.set_xticklabels([self._format_period(p, period_type) for p in sorted_all_ps], rotation=45, ha="right")
             
-        self.ax.legend(); self.ax.grid(True, alpha=0.3)
+        self.ax.legend(fontsize=8); self.ax.grid(True, alpha=0.3)
         self.fig.tight_layout()
         self.canvas.draw()
 
@@ -228,6 +260,7 @@ class AnalysisTab(ttk.Frame):
         self.canvas_g.configure(yscrollcommand=sb.set)
         self.scroll_f = ttk.Frame(self.canvas_g, style="Card.TFrame")
         self.win_g = self.canvas_g.create_window((0, 0), window=self.scroll_f, anchor="nw")
+        
         self.scroll_f.bind("<Configure>", lambda e: self.canvas_g.configure(scrollregion=self.canvas_g.bbox("all")))
         container.bind("<Configure>", lambda e: self.canvas_g.itemconfig(self.win_g, width=e.width))
 
@@ -253,16 +286,23 @@ class AnalysisTab(ttk.Frame):
             card = ttk.LabelFrame(self.scroll_f, text=get_kpi_display_name(k), style="Card.TLabelframe", padding=10)
             card.pack(fill="x", padx=10, pady=10)
             fig = Figure(figsize=(8, 3), dpi=90); ax = fig.add_subplot(111)
-            df['label'] = df.apply(lambda x: f"{x['year']}-{self._format_period(x['period'], period_type)}", axis=1)
+            
+            # Segregate by both plant AND target number
+            df['series_label'] = df.apply(lambda x: f"{x['plant_name']} (T{x['target_number']})", axis=1)
+            df['period_label'] = df.apply(lambda x: f"{x['year']}-{self._format_period(x['period'], period_type)}", axis=1)
+            
             df = self._sort_dashboard_df(df, period_type)
-            unique_labels = df['label'].unique()
+            unique_labels = df['period_label'].unique()
             l_map = {l: i for i, l in enumerate(unique_labels)}
-            for p_name in df['plant_name'].unique():
-                pdf = df[df['plant_name'] == p_name]
-                ax.plot([l_map[l] for l in pdf['label']], pdf['target_value'], marker="o", label=p_name)
+            
+            for label in df['series_label'].unique():
+                pdf = df[df['series_label'] == label]
+                ax.plot([l_map[l] for l in pdf['period_label']], pdf['target_value'], marker="o", label=label)
+            
             ax.set_xticks(range(len(unique_labels)))
             ax.set_xticklabels(unique_labels, rotation=45, ha="right", fontsize=8)
-            ax.legend(fontsize=7); ax.grid(True, alpha=0.2)
+            ax.legend(fontsize=7, loc='upper left', bbox_to_anchor=(1, 1)); ax.grid(True, alpha=0.2)
+            fig.tight_layout()
             canvas = FigureCanvasTkAgg(fig, master=card)
             canvas.get_tk_widget().pack(fill="x")
 
@@ -274,7 +314,11 @@ class AnalysisTab(ttk.Frame):
         try:
             if p_type == "Month":
                 m_map = {m: i for i, m in enumerate(list(calendar.month_name)[1:], 1)}
-                return sorted(periods, key=lambda x: m_map.get(x, 0) if not str(x).isdigit() else int(x))
+                # periods could be strings like "January" or integers like 1
+                def get_m_idx(val):
+                    if str(val).isdigit(): return int(val)
+                    return m_map.get(val, 0)
+                return sorted(periods, key=get_m_idx)
             return sorted(periods)
         except: return sorted(periods)
 
