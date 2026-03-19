@@ -254,7 +254,7 @@ def get_available_target_numbers_for_kpi(year, plant_id, kpi_id):
     """Returns a list of distinct target numbers available for this KPI/Year/Plant."""
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        res = conn.execute("SELECT DISTINCT target_number FROM annual_target_values WHERE kpi_id=? AND year=? AND plant_id=?", (kpi_id, year, plant_id)).fetchall()
+        res = conn.execute("SELECT DISTINCT target_number FROM kpi_annual_target_values v JOIN annual_targets t ON v.annual_target_id = t.id WHERE t.kpi_id=? AND t.year=? AND t.plant_id=?", (kpi_id, year, plant_id)).fetchall()
         return sorted([r['target_number'] for r in res])
 
 def get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_number):
