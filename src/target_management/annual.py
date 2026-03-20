@@ -342,8 +342,31 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                             kpis_needing_repartition_update.add(d['id'])
                     conn_s.commit()
 
-    # Phase 4: Repartitions
-    for kid in kpis_needing_repartition_update:
+    # Phase 4: Repartitions (Processed in dependency order)
+    print("  Phase 4: Calculating periodic repartitions...")
+    
+    # Simple dependency sort for the set of kpis needing update
+    sorted_kpis = []
+    visited_kpis = set()
+    
+    def visit_kpi(kid):
+        if kid in visited_kpis: return
+        visited_kpis.add(kid)
+        
+        details = db_retriever.get_kpi_detailed_by_id(kid)
+        if details and details.get('formula_json'):
+            try:
+                dag = KpiDAG.from_json(details['formula_json'])
+                for dep in dag.find_all_kpi_dependencies():
+                    if dep['kpi_id'] in kpis_needing_repartition_update:
+                        visit_kpi(dep['kpi_id'])
+            except: pass
+        sorted_kpis.append(kid)
+
+    for kid in list(kpis_needing_repartition_update):
+        visit_kpi(kid)
+
+    for kid in sorted_kpis:
         entry = get_annual_target_entry(year, plant_id, kid)
         if entry:
             for tv in entry['target_values']:

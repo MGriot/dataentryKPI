@@ -1,111 +1,30 @@
-# Data Entry KPI Documentation Index
+# Data Entry KPI Documentation
 
-## Product Documentation
+Welcome to the documentation for the Data Entry KPI system. This application provides a comprehensive solution for managing, distributing, and analyzing Key Performance Indicators (KPIs) across multiple facilities.
 
-1. [Product Requirements Document (PRD)](product_requirements.md)
-   - Project Goals
-   - User Stories / Features
-   - Technical Requirements
-   - Non-Functional Requirements
+## 🚀 Quick Start
 
-## Core Documentation
+- **Desktop App (Tkinter):** `python main.py tkinter`
+- **Web App (Streamlit):** `python main.py streamlit`
 
-1. [System Architecture](architecture.md)
-   - System overview
-   - Component interactions
-   - Extension points
+## 📚 Documentation Sections
 
-2. [Theoretical Framework](theoretical_framework.md)
-   - Mathematical models
-   - Distribution algorithms
-   - Formula evaluation
+### 🖥️ User Interfaces
+- **[Tkinter Desktop Manual](gui_tkinter.md):** Detailed guide for the desktop application, covering target entry, hierarchy management, and advanced analysis tools.
+- **[Streamlit Web Manual](gui_streamlit.md):** Guide for the web interface, focusing on remote data entry, parity features, and the new predictive analytics dashboard.
 
-3. [Target Generation](target_generation.md)
-   - Distribution profiles
-   - Period hierarchies
-   - Implementation details
+### 🛠️ Technical Reference
+- **[System Architecture](architecture.md):** Overview of the codebase structure, service layers, and data flow.
+- **[Database Schema](database_schema.md):** Detailed reference of the SQLite tables, relationships, and data models.
+- **[Core Features & Logic](features.md):** Explanations of key algorithms including:
+    - **Dynamic Target Distribution:** How annual targets are split into daily/weekly/monthly values.
+    - **Formula Engine:** How "On-the-Fly" calculations and DAG-based formulas work.
+    - **Multivariate Seasonality:** The predictive model for determining split weights.
 
-4. [Database Schema](database_schema.md)
-   - Table structures
-   - Relationships
-   - Optimization
+## 🔑 Key Capabilities
 
-## User Guides
-
-1. [Tkinter Desktop Interface](usage_tkinter.md)
-   - Installation
-   - Basic usage
-   - Advanced features
-
-2. [Streamlit Web Interface](usage_streamlit.md)
-   - Setup
-   - Features
-   - Best practices
-
-## Technical Reference
-
-1. [GUI Logic](GUI's%20logic.txt)
-   - Event handling
-   - State management
-   - Component interactions
-
-2. [Configuration Guide](configuration.md)
-   - Settings overview
-   - Customization options
-   - Environment setup
-
-## Quick Links
-
-### For Users
-- [Quick Start Guide](README.md#quick-start)
-- [Features Overview](README.md#core-features)
-- [Troubleshooting](usage_streamlit.md#troubleshooting)
-
-### For Developers
-- [Architecture Overview](architecture.md#overview)
-- [Database Schema](database_schema.md)
-- [API Reference](api_reference.md)
-- [Extension Points](architecture.md#extension-points)
-
-### For Data Analysts
-- [Mathematical Models](theoretical_framework.md#target-distribution-mathematics)
-- [Distribution Profiles](target_generation.md#distribution-profiles)
-- [Formula Reference](theoretical_framework.md#formula-based-targets)
-
-## Document Relationships
-
-```mermaid
-graph TD
-    README[README.md] --> ARCH[Architecture]
-    README --> USAGE_T[Tkinter Usage]
-    README --> USAGE_S[Streamlit Usage]
-    
-    ARCH --> DB[Database Schema]
-    ARCH --> THEORY[Theoretical Framework]
-    
-    THEORY --> TARGET[Target Generation]
-    THEORY --> GUI[GUI Logic]
-    
-    DB --> TARGET
-    
-    USAGE_T --> GUI
-    USAGE_S --> GUI
-```
-
-## Reading Order
-
-1. New Users
-   - README.md
-   - usage_streamlit.md or usage_tkinter.md
-   - target_generation.md (basic concepts)
-
-2. Developers
-   - architecture.md
-   - database_schema.md
-   - theoretical_framework.md
-   - GUI's logic.txt
-
-3. Data Scientists
-   - theoretical_framework.md
-   - target_generation.md
-   - database_schema.md
+1.  **Unified Management:** Manage KPI hierarchies (Groups > Subgroups > Indicators) centrally.
+2.  **Smart Distribution:** Automatically split annual targets using profiles (Sinusoidal, Progressive, etc.) or predictive models.
+3.  **Dependency Handling:** Define "Master/Sub" relationships where child KPIs automatically inherit portions of a parent target.
+4.  **Flexible Calculation:** Use Python-like formulas or visual Node Editors to create calculated KPIs that update in real-time.
+5.  **Multi-Platform:** Access the same data and features via a native desktop app or a responsive web interface.

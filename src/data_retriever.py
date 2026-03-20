@@ -415,6 +415,18 @@ def get_all_periodic_targets_unified():
             
     return unified_data
 
+def get_daily_targets_for_kpi(year, plant_id, kpi_id, target_number):
+    """Fetches all daily targets for a specific KPI/Year/Plant/TargetNum."""
+    if _handle_db_connection_error("db_kpi_days.db", "get_daily_targets_for_kpi"): return []
+    with sqlite3.connect(app_config.get_database_path("db_kpi_days.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute("""
+            SELECT date_value, target_value 
+            FROM daily_targets 
+            WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=?
+            ORDER BY date_value
+        """, (year, plant_id, kpi_id, target_number)).fetchall()
+
 def get_distinct_years():
     if _handle_db_connection_error("db_kpi_targets.db", "get_distinct_years"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:

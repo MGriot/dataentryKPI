@@ -1,132 +1,86 @@
 # Data Entry KPI Target Manager
 
-An advanced Python-based platform for comprehensive management and analysis of Key Performance Indicators (KPIs). It offers sophisticated target distribution algorithms, flexible KPI definition through templates, and support for master/sub-KPI relationships. The system provides dual user interfaces: a native desktop application built with Tkinter for rich interactive features and offline capability, and a web-based interface using Streamlit for browser accessibility and easy deployment. All data is managed using a SQLite database backend, with robust CSV export/import functionalities.
+An advanced Python-based platform for comprehensive management, distribution, and analysis of Key Performance Indicators (KPIs). The system features a powerful Directed Acyclic Graph (DAG) formula engine, machine-learning-driven seasonality prediction, and dual user interfaces (Tkinter & Streamlit) for maximum flexibility.
 
-## Features
+## 🌟 Core Features
 
-### Advanced Target Distribution
-- **Multiple Mathematical Models:** Supports even, progressive/regressive, sinusoidal (seasonal), and quarterly patterns, including weekly bias adjustments.
-- **Hierarchical Period Management:** Distributes targets across annual, quarterly, monthly, weekly, and daily periods.
-- **Formula-Based Calculations:** Allows for complex calculations with dependencies.
+### 🧮 Advanced Target Engine
+- **"On-the-Fly" Formulas:** Calculated KPIs are evaluated daily, ensuring seasonality is dynamically inherited from dependencies.
+- **Topological Dependency Sort:** Automatic resolution of calculation order for complex KPI chains.
+- **Precision Reconciliation:** Guaranteed mathematical alignment between annual targets and daily distributions, handling rounding errors automatically.
+- **Visual Node Editor:** Design complex logic using a drag-and-drop DAG interface (Tkinter).
 
-### KPI Management
-- **Template-Based Definitions:** Define KPIs using customizable templates.
-- **Master/Sub KPI Relationships:** Establishes hierarchical links between KPIs.
-- **Weighted Distributions:** Apply weights for precise target allocation.
-- **Custom Calculation Rules & Unit Conversion:** Define specific rules and handle diverse unit conversions.
+### 📈 Predictive Analytics
+- **Multivariate Seasonality Predictor:** Uses Ordinary Least Squares (OLS) regression to calculate seasonal weights based on historical data and external drivers (e.g., weather, market trends).
+- **Interactive Dashboards:** Sequential chronological timelines for multi-year analysis, preventing data overlap and ensuring clear trend visualization.
 
-### Multi-Interface Support
-- **Desktop Application (Tkinter):**
-    - Native performance and rich interactive features.
-    - Offline capability.
-- **Web Interface (Streamlit):**
-    - Browser-based access with a modern web interface.
-    - Easy deployment and accessibility.
+### 📁 KPI & Plant Management
+- **Hierarchical Organization:** Manage deep trees of Groups, Subgroups, and Folders.
+- **Template System:** Standardize indicators across different facilities using reusable prototypes.
+- **Weighted Master/Sub Links:** Automatically distribute high-level targets to granular sub-metrics.
+- **Granular Visibility:** Control KPI availability on a per-plant basis.
 
-### Robust Data Management
-- **SQLite Database Backend:** Stores all KPI structures, targets, and historical data.
-- **CSV Export/Import:** Facilitates data exchange with external systems.
-- **Historical Tracking & Analysis:** Enables target vs. actual analysis over time.
+### 📦 Robust Data Operations
+- **Optimized Export:** Enriched CSV exports with human-readable metadata and unified periodic targets.
+- **Integrated Backup:** Full system state packaging into encrypted or standard ZIP archives.
 
-## Project Structure
-
-This project follows a modular, layered architecture within the `src` directory.
+## 📂 Project Structure
 
 ```
 dataentryKPI/
 │
 ├── src/
-│   ├── config/           # Centralized configuration (settings.py)
-│   ├── core/             # Domain logic and models (Future home of business rules)
-│   ├── data_access/      # Database setup and access (Replaces db_core)
-│   ├── interfaces/       # User Interfaces
-│   │   ├── tkinter_app/  # Tkinter desktop application
-│   │   ├── streamlit_app/# Streamlit web application
-│   │   └── common_ui/    # Shared UI constants and helpers
-│   ├── services/         # Application orchestration services (Future expansion)
-│   ├── kpi_management/   # Feature module: KPI definitions (Groups, Indicators, Templates)
-│   ├── plants_management/# Feature module: Plants (Stabilimenti)
-│   ├── target_management/# Feature module: Annual Targets and Repartition
-│   ├── data_retriever.py # Read-only data access layer
-│   ├── export_manager.py # Data export logic
-│   ├── import_manager.py # Data import logic
-│   ├── main.py           # Internal entry point
-│   └── utils/            # General utilities
+│   ├── core/             # DAG Engine, Calculation logic
+│   ├── services/         # ML Predictors, Seasonality Analysis
+│   ├── interfaces/       # GUIs (Tkinter & Streamlit)
+│   ├── data_access/      # DB Setup and Repository pattern
+│   ├── kpi_management/   # Structural CRUD (Hierarchy, Templates)
+│   ├── target_management/# Annual entry, Repartition logic
+│   ├── data_retriever.py # Read-only Data Facade
+│   └── export_manager.py # Optimized CSV/ZIP logic
 │
-├── docs/                 # Comprehensive documentation
-├── scripts/              # Utility and maintenance scripts
-├── requirements.txt      # Python dependencies
-├── config.ini            # Centralized application configuration
-├── main.py               # Main Launcher
-└── README.md             # This file
+├── docs/                 # Comprehensive Technical & User Documentation
+├── databases/            # SQLite storage partitioned by domain
+├── multivariate_test_data.csv # Sample data for ML predictor
+├── main.py               # Unified Launcher
+└── requirements.txt      # Project dependencies
 ```
 
-## Getting Started
+## 🚀 Getting Started
 
-### Prerequisites
-Ensure you have Python 3.x installed.
-
-### 1. Clone the repository
-```bash
-git clone <repository_url>
-cd dataentryKPI
-```
-
-### 2. Install Dependencies
-Install all required Python packages:
+### 1. Installation
+Ensure you have Python 3.10+ installed.
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Run the Application
-You can run either the Tkinter desktop application or the Streamlit web application using the unified entry point at the project root.
+### 2. Run the Application
+You can launch either interface from the root entry point:
 
-#### Tkinter Desktop Application (Default)
+**Desktop Interface (Tkinter):**
 ```bash
-python main.py
-# OR explicitly:
 python main.py tkinter
 ```
-The application window will open, providing access to all features through a tabbed interface.
 
-#### Streamlit Web Application
+**Web Interface (Streamlit):**
 ```bash
 python main.py streamlit
 ```
-The application will launch in your web browser (usually at `http://localhost:8501`).
 
-## Documentation
+## 📚 Documentation
 
-For complete documentation, please see our [Documentation Index](docs/index.md), which includes:
+For a deep dive into the system logic, please refer to the **[Documentation Index](docs/index.md)**:
 
-### User Guides
-- [Tkinter Desktop Guide](docs/usage_tkinter.md)
-- [Streamlit Web Guide](docs/usage_streamlit.md)
+- **[System Architecture](docs/architecture.md)**: Layered design and data flow.
+- **[Database Schema](docs/database_schema.md)**: Partitioned SQLite reference.
+- **[Tkinter Manual](docs/gui_tkinter.md)**: Desktop-specific workflows.
+- **[Streamlit Manual](docs/gui_streamlit.md)**: Web-specific features.
+- **[Core Logic & Algorithms](docs/features.md)**: Details on the Formula Engine and ML Predictor.
 
-### Technical Documentation
-- [Architecture Overview](docs/architecture.md)
-- [Target Generation Logic](docs/target_generation.md)
-- [Theoretical Framework](docs/theoretical_framework.md)
-- [Database Schema](docs/database_schema.md)
-- [Configuration Guide](docs/configuration.md)
-- [Reorganization Guide](REORGANIZATION_GUIDE.md)
+## ⚖️ License & History
 
-## Customization
+- This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- For a detailed history of changes, see the [CHANGELOG](CHANGELOG.md).
 
-The application can be customized by modifying the Python code within the `src` directory. Refer to the [Architecture Overview](docs/architecture.md) for guidance on extending or adapting the system.
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-1.  Fork the repository.
-2.  Create a new branch for your feature or bug fix.
-3.  Implement your changes and ensure tests are added/updated.
-4.  Submit a pull request with a clear description of your changes.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
-## Contact
-
-For questions or feedback, please contact Matteo Griot at matteo.griot@gmail.com.
+---
+*Developed with precision for advanced performance monitoring.*
