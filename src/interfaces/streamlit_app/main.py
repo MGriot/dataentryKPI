@@ -12,10 +12,15 @@ from src.config.settings import load_settings
 
 # Import page modules
 from src.interfaces.streamlit_app.pages import target_entry
-from src.interfaces.streamlit_app.components import kpi_explorer, plants, kpi_templates, master_sub_link, export, analysis, settings, global_splits
+from src.interfaces.streamlit_app.components import (
+    kpi_explorer, plants, kpi_templates, 
+    master_sub_link, export, analysis, 
+    settings, global_splits
+)
 
 st.set_page_config(
     page_title="KPI Target Management",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -28,36 +33,29 @@ if 'db_setup_done' not in st.session_state:
     try:
         setup_databases()
         st.session_state.db_setup_done = True
-        st.success("Database check and setup completed.")
     except Exception as e:
         st.error(f"Error during database setup: {e}")
         st.session_state.db_setup_done = False
 
-# --- Page Navigation ---
-st.sidebar.title("Navigation")
+# --- Modern Navigation ---
+# We provide unique url_path because all functions are named 'app'
+pages = [
+    st.Page(target_entry.app, title="Target Entry", icon="🎯", url_path="target_entry", default=True),
+    st.Page(kpi_explorer.app, title="KPI Explorer", icon="📁", url_path="explorer"),
+    st.Page(kpi_templates.app, title="Templates", icon="📋", url_path="templates"),
+    st.Page(global_splits.app, title="Global Splits", icon="✂️", url_path="splits"),
+    st.Page(master_sub_link.app, title="Master/Sub Links", icon="🔗", url_path="links"),
+    st.Page(plants.app, title="Plant Management", icon="🏭", url_path="plants"),
+    st.Page(analysis.app, title="Analysis & Results", icon="📈", url_path="analysis"),
+    st.Page(export.app, title="Data Center", icon="📦", url_path="export"),
+    st.Page(settings.app, title="Settings", icon="⚙️", url_path="settings"),
+]
 
-# Define pages (mirroring Tkinter tabs)
-pages = {
-    "🎯 Target Entry": target_entry,
-    "📁 KPI Explorer": kpi_explorer,
-    "📋 Indicator Template Management": kpi_templates,
-    "✂️ Global Splits": global_splits,
-    "🔗 Master/Sub Link Management": master_sub_link,
-    "🏭 Plant Management": plants,
-    "📦 Data Export": export,
-    "📈 Results Analysis": analysis,
-    "⚙️ Settings": settings,
-}
+# Create navigation
+pg = st.navigation(pages)
 
-
-selected_page_name = st.sidebar.radio("Go to:", list(pages.keys()))
-selected_page_module = pages[selected_page_name]
-
-# Dynamically import and run the selected page
-if st.session_state.db_setup_done:
-    if selected_page_module:
-        selected_page_module.app()
-    else:
-        st.info("Page under construction.")
+# Run the selected page
+if st.session_state.get('db_setup_done', False):
+    pg.run()
 else:
-    st.warning("Database not configured correctly. Some features may not be available.")
+    st.warning("Database not configured correctly. Please check system logs.")

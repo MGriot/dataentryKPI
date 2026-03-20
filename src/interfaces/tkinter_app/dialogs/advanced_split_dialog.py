@@ -130,7 +130,7 @@ class AdvancedSplitDialog(tk.Toplevel):
 
         try:
             # Call new regression-based service
-            weights, coefficients, r_squared = split_analyzer.analyze_seasonality_from_file(
+            weights, coefficients, r_squared, _plot_df = split_analyzer.analyze_seasonality_from_file(
                 self.file_path.get(),
                 selected_targets,
                 selected_features,

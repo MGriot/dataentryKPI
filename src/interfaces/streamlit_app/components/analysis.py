@@ -7,7 +7,7 @@ from src import data_retriever as db_retriever
 from src.interfaces.common_ui.helpers import get_kpi_display_name
 
 def app():
-    st.title("📈 Results Analysis Dashboard")
+    st.title("📈 Analysis & Results")
 
     # --- Mode Selection ---
     view_mode = st.radio("View Mode:", ["Single KPI Focus", "Global Comparison"], horizontal=True)
@@ -61,32 +61,54 @@ def app():
                 for tn in t_nums:
                     res = db_retriever.get_periodic_targets_for_kpi(int(y), plant_id, selected_kpi['id'], selected_period, tn)
                     if res:
-                        df = pd.DataFrame(res)
-                        label = f"Target {tn}"
-                        if tn == 1: label = target1_name
-                        elif tn == 2: label = target2_name
-                        
-                        df['Series'] = f"{y} - {label}"
-                        df['Year'] = y
-                        all_data.append(df)
+                        df = pd.DataFrame([dict(row) for row in res])
+                        if not df.empty and 'period' in df.columns:
+                            label = f"Target {tn}"
+                            if tn == 1: label = target1_name
+                            elif tn == 2: label = target2_name
+                            
+                            df['Series'] = label # No year in legend for continuous line
+                            df['Year'] = int(y)
+                            all_data.append(df)
             
             if not all_data:
                 st.info("No target data found for this selection.")
             else:
                 combined_df = pd.concat(all_data)
                 
+                # --- Convert Period to Real Datetime for Correct Sorting ---
+                def to_actual_date(row):
+                    y = int(row['Year'])
+                    p = str(row['period'])
+                    try:
+                        if selected_period == "Day":
+                            return pd.to_datetime(p)
+                        elif selected_period == "Month":
+                            return pd.to_datetime(f"{y} {p} 01")
+                        elif selected_period == "Week":
+                            # p is usually 'YYYY-Www'
+                            return pd.to_datetime(p + '-1', format='%G-W%V-%u')
+                        elif selected_period == "Quarter":
+                            q_num = int(p[1])
+                            month = (q_num - 1) * 3 + 1
+                            return pd.to_datetime(f"{y}-{month:02d}-01")
+                    except:
+                        return p # Fallback to string if parsing fails
+                    return p
+
+                combined_df['DateAxis'] = combined_df.apply(to_actual_date, axis=1)
+                combined_df = combined_df.sort_values('DateAxis')
+
                 with st.expander("📄 View Data Table"):
-                    pivot_df = combined_df.pivot(index='period', columns='Series', values='Target').reset_index()
+                    pivot_df = combined_df.pivot(index='DateAxis', columns='Series', values='Target').reset_index()
                     st.dataframe(pivot_df, use_container_width=True)
                 
-                fig = px.line(combined_df, x='period', y='Target', color='Series', markers=True, 
-                              title=f"Trend for {selected_kpi['indicator_name']} - Plant: {selected_plant_name}")
+                fig = px.line(combined_df, x='DateAxis', y='Target', color='Series', markers=True, 
+                              title=f"Timeline Trend: {selected_kpi['indicator_name']} - Plant: {selected_plant_name}")
                 
-                if selected_period == "Day":
-                    fig.update_xaxes(tickformat="%d %b")
-                
+                fig.update_xaxes(title="Timeline")
                 fig.update_layout(hovermode="x unified")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"chart_single_{selected_kpi['id']}")
 
     else:
         st.subheader("🌎 Global KPI Overview")
@@ -105,20 +127,37 @@ def app():
                     df = pd.DataFrame([dict(row) for row in data])
                     if plant_id: df = df[df['plant_id'] == plant_id]
                     if not df.empty:
-                        df['Year'] = y
+                        df['Year'] = int(y)
                         k_data.append(df)
             
             if not k_data: continue
             
             with st.expander(f"📉 {k['indicator_name']} - {k['hierarchy_path']}", expanded=True):
                 combined_k_df = pd.concat(k_data)
-                # Ensure segregation by both plant AND target_number in labels
-                combined_k_df['Label'] = combined_k_df.apply(lambda x: f"{x['plant_name']} (T{x['target_number']} - {x['Year']})", axis=1)
                 
-                fig = px.line(combined_k_df, x='period', y='target_value', color='Label', markers=True, height=350)
+                # --- Convert Period to Real Datetime ---
+                def to_actual_date_global(row):
+                    y = int(row['Year'])
+                    p = str(row['period'])
+                    try:
+                        if selected_period == "Day": return pd.to_datetime(p)
+                        elif selected_period == "Month": return pd.to_datetime(f"{y} {p} 01")
+                        elif selected_period == "Week": return pd.to_datetime(p + '-1', format='%G-W%V-%u')
+                        elif selected_period == "Quarter":
+                            q_num = int(p[1]); month = (q_num - 1) * 3 + 1
+                            return pd.to_datetime(f"{y}-{month:02d}-01")
+                    except: return p
+                    return p
+
+                combined_k_df['DateAxis'] = combined_k_df.apply(to_actual_date_global, axis=1)
+                combined_k_df = combined_k_df.sort_values(['DateAxis', 'plant_name'])
+
+                # Legend label: Plant + Target No (No year, since it's on timeline)
+                combined_k_df['Label'] = combined_k_df.apply(lambda x: f"{x['plant_name']} (T{x['target_number']})", axis=1)
                 
-                if selected_period == "Day":
-                    fig.update_xaxes(tickformat="%d %b")
+                fig = px.line(combined_k_df, x='DateAxis', y='target_value', color='Label', markers=True, height=350,
+                              title=f"{k['indicator_name']} - Sequential Timeline")
                 
+                fig.update_xaxes(title="Timeline")
                 fig.update_layout(margin=dict(l=20, r=20, t=30, b=20), hovermode="closest")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"global_chart_{k['id']}")

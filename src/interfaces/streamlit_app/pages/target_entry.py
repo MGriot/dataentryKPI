@@ -204,138 +204,130 @@ def app():
         st.session_state.hist1_map_for_entry = {}
     if 'hist2_map_for_entry' not in st.session_state:
         st.session_state.hist2_map_for_entry = {}
+    if 'target_search_query' not in st.session_state:
+        st.session_state.target_search_query = ""
 
-    # --- Filters ---
-    col1, col2 = st.columns([1, 2])
+    # --- Top Bar Filters ---
+    with st.container(border=True):
+        col1, col2, col3 = st.columns([1, 2, 1])
 
-    with col1:
-        current_year = datetime.datetime.now().year
-        years = [str(y) for y in range(current_year - 5, current_year + 5)]
-        st.session_state.selected_year_target = st.selectbox(
-            "Year:",
-            years,
-            index=years.index(st.session_state.selected_year_target) if st.session_state.selected_year_target in years else 0,
-            key="year_select_target",
-            on_change=load_kpi_targets_for_entry_target # Trigger data load on change
-        )
-
-    with col2:
-        plants_all = db_retriever.get_all_plants(visible_only=True)
-        st.session_state.plants_map_target = {s['name']: s['id'] for s in plants_all}
-        plant_names = list(st.session_state.plants_map_target.keys())
-
-        if not plant_names:
-            st.warning("No plants available. Please configure plants in the 'Plant Management' section.")
-            st.session_state.selected_plant_name_target = None
-        else:
-            if st.session_state.selected_plant_name_target not in plant_names:
-                st.session_state.selected_plant_name_target = plant_names[0]
-            
-            st.session_state.selected_plant_name_target = st.selectbox(
-                "Plant:",
-                plant_names,
-                index=plant_names.index(st.session_state.selected_plant_name_target),
-                key="plant_select_target",
-                on_change=load_kpi_targets_for_entry_target # Trigger data load on change
+        with col1:
+            current_year = datetime.datetime.now().year
+            years = [str(y) for y in range(current_year - 5, current_year + 5)]
+            st.session_state.selected_year_target = st.selectbox(
+                "📅 Year:",
+                years,
+                index=years.index(st.session_state.selected_year_target) if st.session_state.selected_year_target in years else 0,
+                key="year_select_target",
+                on_change=load_kpi_targets_for_entry_target
             )
 
-    # Initial load of data when page loads or filters change
+        with col2:
+            plants_all = db_retriever.get_all_plants(visible_only=True)
+            st.session_state.plants_map_target = {s['name']: s['id'] for s in plants_all}
+            plant_names = list(st.session_state.plants_map_target.keys())
+
+            if not plant_names:
+                st.warning("No plants available.")
+                st.session_state.selected_plant_name_target = None
+            else:
+                if st.session_state.selected_plant_name_target not in plant_names:
+                    st.session_state.selected_plant_name_target = plant_names[0]
+                
+                st.session_state.selected_plant_name_target = st.selectbox(
+                    "🏭 Plant:",
+                    plant_names,
+                    index=plant_names.index(st.session_state.selected_plant_name_target),
+                    key="plant_select_target",
+                    on_change=load_kpi_targets_for_entry_target
+                )
+        
+        with col3:
+            st.markdown("<br>", unsafe_allow_html=True) # Spacer
+            if st.button("💾 SAVE ALL", use_container_width=True, type="primary"):
+                save_all_targets_entry()
+
+    # Initial load of data
     if st.session_state.selected_plant_name_target is not None and not st.session_state.kpis_for_entry:
         load_kpi_targets_for_entry_target()
 
-    # --- KPI Input Boxes ---
-    st.markdown("### KPI Target Entry")
-    target1_display_name, target2_display_name = _get_target_display_names()
-    repartition_profiles = _get_repartition_profiles()
-    repartition_logics = _get_repartition_logics()
+    # --- Main Layout with Sidebar Navigation ---
+    main_col, side_col = st.columns([3, 1])
 
-    if not st.session_state.kpis_for_entry:
-        st.info("No visible KPIs found for target entry.")
-    else:
-        for kpi in st.session_state.kpis_for_entry:
+    with side_col:
+        st.subheader("🔍 Quick Find")
+        st.session_state.target_search_query = st.text_input("Search KPI:", value=st.session_state.target_search_query, placeholder="e.g. OEE, Yield...")
+        
+        st.subheader("🌲 KPI List")
+        filtered_kpis = [k for k in st.session_state.kpis_for_entry if st.session_state.target_search_query.lower() in get_kpi_display_name(k).lower()]
+        
+        for kpi in filtered_kpis:
             kpi_id = kpi['id']
-            kpi_display_name = get_kpi_display_name(kpi)
-            is_sub_kpi = kpi.get('master_kpi_id') is not None
-            
-            with st.container(border=True):
-                st.markdown(f"**{kpi_display_name}**")
+            if st.button(f"📍 {get_kpi_display_name(kpi)}", key=f"nav_{kpi_id}", use_container_width=True):
+                # Anchor scrolling is hard in basic Streamlit, but we can at least show it first or filter it
+                pass
+
+    with main_col:
+        target1_display_name, target2_display_name = _get_target_display_names()
+        repartition_profiles = _get_repartition_profiles()
+        repartition_logics = _get_repartition_logics()
+
+        if not filtered_kpis:
+            st.info("No visible KPIs found matching your criteria.")
+        else:
+            for kpi in filtered_kpis:
+                kpi_id = kpi['id']
+                kpi_display_name = get_kpi_display_name(kpi)
+                is_sub_kpi = kpi.get('master_kpi_id') is not None
                 
-                # Historical Context (Simplified for dynamic)
-                hist1_map = st.session_state.hist1_map_for_entry.get(kpi_id, {})
-                hist2_map = st.session_state.hist2_map_for_entry.get(kpi_id, {})
-                cur_year = int(st.session_state.selected_year_target)
-                
-                # Render all active targets for this KPI
-                target_nums = st.session_state.get(f'target_numbers_{kpi_id}', [1, 2])
-                for tn in target_nums:
-                    t_label = f"Target {tn}"
-                    if tn == 1: t_label = target1_display_name
-                    if tn == 2: t_label = target2_display_name
+                with st.expander(f"📊 {kpi_display_name}", expanded=True):
+                    # History Context Row
+                    hist1_map = st.session_state.hist1_map_for_entry.get(kpi_id, {})
+                    hist2_map = st.session_state.hist2_map_for_entry.get(kpi_id, {})
+                    cur_year = int(st.session_state.selected_year_target)
                     
-                    # History for this specific target number
-                    h1_val = hist1_map.get(f'annual_target{tn}', '-')
-                    h2_val = hist2_map.get(f'annual_target{tn}', '-')
-                    st.caption(f"📅 **History {t_label}**: {cur_year-1}: `{h1_val}` | {cur_year-2}: `{h2_val}`")
+                    st.info(f"💡 {kpi.get('description', 'No description available.')}")
 
-                    cols_t = st.columns([0.3, 0.1, 0.2, 0.3, 0.1])
-                    with cols_t[0]:
-                        st.number_input(
-                            f"{t_label}:",
-                            key=f'target_{kpi_id}_{tn}',
-                            format="%.2f",
-                            disabled=st.session_state.get(f'formula_based_{kpi_id}_{tn}', False) or (is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_{tn}', True))
-                        )
-                    with cols_t[1]:
-                        if is_sub_kpi:
-                            st.checkbox("Man.", key=f'manual_{kpi_id}_{tn}', on_change=_on_manual_toggle, args=(kpi_id, tn))
-                    with cols_t[2]:
-                        st.checkbox("Formula", key=f'formula_based_{kpi_id}_{tn}', on_change=_on_formula_toggle, args=(kpi_id, tn))
-                    with cols_t[3]:
-                        st.text_input("Formula:", key=f'formula_str_{kpi_id}_{tn}', disabled=not st.session_state.get(f'formula_based_{kpi_id}_{tn}', False))
-                    with cols_t[4]:
-                        if tn > 2:
-                            if st.button("🗑️", key=f"rm_t_{kpi_id}_{tn}", help="Remove this target"):
-                                st.session_state[f'target_numbers_{kpi_id}'].remove(tn)
-                                st.rerun()
+                    # Render all active targets for this KPI
+                    target_nums = st.session_state.get(f'target_numbers_{kpi_id}', [1, 2])
+                    for tn in target_nums:
+                        t_label = f"Target {tn}"
+                        if tn == 1: t_label = target1_display_name
+                        if tn == 2: t_label = target2_display_name
+                        
+                        h1_val = hist1_map.get(f'annual_target{tn}', '-')
+                        h2_val = hist2_map.get(f'annual_target{tn}', '-')
+                        
+                        cols_t = st.columns([0.4, 0.3, 0.3])
+                        with cols_t[0]:
+                            st.number_input(
+                                f"{t_label}:",
+                                key=f'target_{kpi_id}_{tn}',
+                                format="%.2f",
+                                disabled=st.session_state.get(f'formula_based_{kpi_id}_{tn}', False) or (is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_{tn}', True))
+                            )
+                        with cols_t[1]:
+                            st.caption(f"📅 **History**")
+                            st.caption(f"{cur_year-1}: `{h1_val}`")
+                            st.caption(f"{cur_year-2}: `{h2_val}`")
+                        with cols_t[2]:
+                            # Logic toggles in a small area
+                            if is_sub_kpi:
+                                st.checkbox("Manual", key=f'manual_{kpi_id}_{tn}', on_change=_on_manual_toggle, args=(kpi_id, tn))
+                            st.checkbox("Formula", key=f'formula_based_{kpi_id}_{tn}', on_change=_on_formula_toggle, args=(kpi_id, tn))
+                            if st.session_state.get(f'formula_based_{kpi_id}_{tn}', False):
+                                st.text_input("Expr:", key=f'formula_str_{kpi_id}_{tn}', placeholder="e.g. [A]*1.1")
 
-                # Add Target Button
-                if st.button(f"➕ Add Target to {kpi.get('indicator_name', 'KPI')}", key=f"add_t_{kpi_id}"):
-                    new_tn = max(target_nums) + 1
-                    st.session_state[f'target_numbers_{kpi_id}'].append(new_tn)
-                    # Init state for new target
-                    st.session_state[f'target_{kpi_id}_{new_tn}'] = 0.0
-                    st.session_state[f'manual_{kpi_id}_{new_tn}'] = True
-                    st.session_state[f'formula_based_{kpi_id}_{new_tn}'] = False
-                    st.session_state[f'formula_str_{kpi_id}_{new_tn}'] = ""
-                    st.rerun()
-
-                # Repartition Profile
-                st.markdown("**Distribution Profile**")
-                cols_repart = st.columns([0.5, 0.5])
-                with cols_repart[0]:
-                    st.selectbox(
-                        "Repartition Logic:",
-                        repartition_logics,
-                        key=f'repartition_logic_{kpi_id}',
-                        index=repartition_logics.index(st.session_state.get(f'repartition_logic_{kpi_id}', REPARTITION_LOGIC_YEAR)),
-                        on_change=_update_repartition_input_area_streamlit, args=(kpi_id,),
-                        help="Select the annual repartition logic (e.g., by month, quarter)."
-                    )
-                with cols_repart[1]:
-                    st.selectbox(
-                        "Distribution Profile:",
-                        repartition_profiles,
-                        key=f'distribution_profile_{kpi_id}',
-                        index=repartition_profiles.index(st.session_state.get(f'distribution_profile_{kpi_id}', PROFILE_EVEN)),
-                        on_change=_update_repartition_input_area_streamlit, args=(kpi_id,),
-                        help="Select the target distribution profile."
-                    )
-
-                # Dynamic Repartition Input Area
-                _render_repartition_input_area(kpi_id)
-
-    # --- Save Button ---
-    st.button("SAVE ALL TARGETS", key="save_all_targets_button", on_click=save_all_targets_entry)
+                    # Distribution Settings
+                    with st.container(border=True):
+                        st.markdown("**⚙️ Distribution & Split Settings**")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.selectbox("Logic:", repartition_logics, key=f'repartition_logic_{kpi_id}')
+                        with c2:
+                            st.selectbox("Profile:", repartition_profiles, key=f'distribution_profile_{kpi_id}')
+                        
+                        _render_repartition_input_area(kpi_id)
 
 
 # --- Dynamic Repartition Input Area Rendering ---

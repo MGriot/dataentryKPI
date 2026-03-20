@@ -4,7 +4,7 @@ from src import export_manager
 from src.config.settings import CSV_EXPORT_BASE_PATH
 
 def app():
-    st.title("📦 Data Export")
+    st.title("📊 Data Center")
 
     st.write(f"CSV files will be exported to: `{CSV_EXPORT_BASE_PATH}`")
 

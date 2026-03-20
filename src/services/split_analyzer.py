@@ -9,7 +9,7 @@ def analyze_seasonality_from_file(
     feature_cols: List[str], 
     date_col: str, 
     period_type: str
-) -> Tuple[Dict[str, float], Dict[str, float], float]:
+) -> Tuple[Dict[str, float], Dict[str, float], float, pd.DataFrame]:
     """
     Performs multivariate seasonality analysis using Multiple Linear Regression (OLS).
     
@@ -17,6 +17,7 @@ def analyze_seasonality_from_file(
         - weights: {period_idx: weight} (sum = 1.0)
         - coefficients: {feature_name: coefficient} (Driver Influence)
         - r_squared: Model accuracy score (0-1)
+        - plot_df: Dataframe with normalized values for visualization
     """
     # Load data
     df = pd.read_csv(file_path) if file_path.endswith('.csv') else pd.read_excel(file_path)
@@ -53,6 +54,16 @@ def analyze_seasonality_from_file(
     
     y = normalized_targets.mean(axis=1).values
 
+    # Start building plot_df
+    plot_df = pd.DataFrame({'period_idx': grouped['period_idx'], 'Actual_Target': y})
+
+    # Prepare X (Features): Drivers + Intercept
+    X_raw = pd.DataFrame()
+    for col in feature_cols:
+        norm_feat = normalize(grouped[col])
+        X_raw[col] = norm_feat
+        plot_df[f"Driver_{col}"] = norm_feat
+    
     # Base case: No features -> Use historical average directly
     if not feature_cols:
         final_sum = y.sum()
@@ -60,44 +71,36 @@ def analyze_seasonality_from_file(
             weights = {str(int(p)): 1.0/len(grouped) for p in grouped['period_idx']}
         else:
             weights = {str(int(p)): float(val/final_sum) for p, val in zip(grouped['period_idx'], y)}
-        return weights, {}, 1.0
+        plot_df['Predicted_Fit'] = y
+        return weights, {}, 1.0, plot_df
 
-    # Prepare X (Features): Drivers + Intercept
-    X_raw = pd.DataFrame()
-    for col in feature_cols:
-        X_raw[col] = normalize(grouped[col])
-    
     # Add intercept column
     X = np.c_[np.ones(X_raw.shape[0]), X_raw.values] 
 
     # Fit OLS Model: y = X*beta
-    # beta = (X^T X)^-1 X^T y
-    # using lstsq for stability
     beta, residuals, rank, s = np.linalg.lstsq(X, y, rcond=None)
 
     # Predict
     y_pred = X @ beta
+    plot_df['Predicted_Fit'] = y_pred
     
     # Ensure non-negative predictions for seasonality weights
-    y_pred = np.maximum(y_pred, 0)
+    y_pred_clipped = np.maximum(y_pred, 0)
 
     # Normalize prediction to sum to 1.0
-    total_pred = y_pred.sum()
+    total_pred = y_pred_clipped.sum()
     if total_pred == 0:
         final_weights = {str(int(p)): 1.0/len(grouped) for p in grouped['period_idx']}
     else:
-        final_weights = {str(int(p)): float(val/total_pred) for p, val in zip(grouped['period_idx'], y_pred)}
+        final_weights = {str(int(p)): float(val/total_pred) for p, val in zip(grouped['period_idx'], y_pred_clipped)}
 
     # Calculate Metrics
-    # R^2 = 1 - (SS_res / SS_tot)
     ss_res = np.sum((y - y_pred)**2)
     ss_tot = np.sum((y - np.mean(y))**2)
     r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
-    # Map coefficients to feature names
-    # beta[0] is intercept, beta[1:] are features
     coefficients = {"Intercept": float(beta[0])}
     for idx, col in enumerate(feature_cols):
         coefficients[col] = float(beta[idx+1])
 
-    return final_weights, coefficients, float(r_squared)
+    return final_weights, coefficients, float(r_squared), plot_df

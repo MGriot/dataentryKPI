@@ -5,8 +5,7 @@ import io
 import traceback
 from pathlib import Path
 import json
-
-import traceback
+import datetime
 
 # Configuration import
 try:
@@ -18,53 +17,42 @@ except ImportError:
 # Data retrieval import
 try:
     from src.data_retriever import (
-        get_all_annual_target_entries_for_export,
-        get_all_periodic_targets_for_export,
         get_all_plants,
         get_all_kpi_nodes,
-        get_all_kpi_indicators,
-        get_all_kpis,
+        get_all_kpi_definitions_for_export,
         get_all_kpi_master_sub_links,
         get_all_kpi_plant_visibility,
-        get_kpi_groups,
-        get_all_kpi_subgroups,
+        get_all_annual_targets_enriched,
+        get_all_periodic_targets_unified,
     )
     _data_retriever_available = True
 except ImportError as e:
     print(f"CRITICAL WARNING: data_retriever.py or its functions not found. Export will fail. Error: {e}")
-    traceback.print_exc() # Print full traceback
+    traceback.print_exc()
     _data_retriever_available = False
 
-# Define the names for the global CSV files, matching the database tables
+# Optimized CSV File Set
 GLOBAL_CSV_FILES = {
     "plants": "dict_plants.csv",
-    "kpi_nodes": "dict_kpi_nodes.csv",
-    "kpi_groups": "dict_kpi_groups.csv",
-    "kpi_subgroups": "dict_kpi_subgroups.csv",
-    "kpi_indicators": "dict_kpi_indicators.csv",
-    "kpis": "dict_kpis.csv",
+    "kpi_nodes": "dict_kpi_hierarchy.csv",
+    "kpi_definitions": "dict_kpi_definitions.csv",
     "kpi_master_sub_links": "dict_kpi_master_sub_links.csv",
     "kpi_plant_visibility": "dict_kpi_plant_visibility.csv",
-    "annual": "all_annual_kpi_master_targets.csv",
-    "days": "all_daily_kpi_targets.csv",
-    "weeks": "all_weekly_kpi_targets.csv",
-    "months": "all_monthly_kpi_targets.csv",
-    "quarters": "all_quarterly_kpi_targets.csv",
-    "settings": "dict_settings.csv",
+    "annual": "all_annual_targets.csv",
+    "periodic": "all_periodic_targets.csv",
+    "manifest": "export_manifest.json"
 }
 
 _CSV_EXPORT_BASE_PATH_OBJ = Path(CSV_EXPORT_BASE_PATH)
 
-def _export_to_csv(output_filepath: Path, data: list[dict], header: list[str]):
+def _export_to_csv(output_filepath: Path, data: list, header: list[str]):
     """Generic and safe function to export a list of dictionaries to a CSV file."""
     if not data:
         print(f"INFO: No data provided for {output_filepath.name}, skipping file creation.")
         return
     try:
-        # Convert sqlite3.Row to dict if necessary
         dict_data = [dict(row) if not isinstance(row, dict) else row for row in data]
         with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
-            # extrasaction='ignore' prevents errors if data dicts have extra keys not in the header.
             writer = csv.DictWriter(csvfile, fieldnames=header, extrasaction='ignore')
             writer.writeheader()
             writer.writerows(dict_data)
@@ -82,32 +70,50 @@ def export_all_data_to_global_csvs(base_export_path_str: str = None):
     target_export_path.mkdir(parents=True, exist_ok=True)
     print(f"INFO: Starting global CSV export to: {target_export_path}")
 
-    # KPI Structure (Normalized)
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_nodes"], get_all_kpi_nodes(), ["id", "name", "parent_id", "node_type"])
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_groups"], get_kpi_groups(), ["id", "name"])
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_subgroups"], get_all_kpi_subgroups(), ["id", "name", "group_id", "indicator_template_id"])
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_indicators"], get_all_kpi_indicators(), ["id", "name", "node_id", "subgroup_id"])
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpis"], get_all_kpis(), ["id", "indicator_id", "description", "calculation_type", "unit_of_measure", "visible"])
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_master_sub_links"], get_all_kpi_master_sub_links(), ["master_kpi_spec_id", "sub_kpi_spec_id", "distribution_weight"])
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_plant_visibility"], get_all_kpi_plant_visibility(), ["kpi_id", "plant_id", "is_enabled"])
+    # 1. Plants
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["plants"], 
+                   get_all_plants(visible_only=False), 
+                   ["id", "name", "description", "visible", "color"])
 
-    # Plants
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["plants"], get_all_plants(visible_only=False), ["id", "name", "description", "visible", "color"])
+    # 2. KPI Hierarchy (Nodes)
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_nodes"], 
+                   get_all_kpi_nodes(), 
+                   ["id", "name", "parent_id", "node_type"])
 
-    # Annual Targets
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["annual"], get_all_annual_target_entries_for_export(), [
-        "id", "year", "plant_id", "kpi_id", "annual_target1", "annual_target2", "repartition_logic",
-        "repartition_values", "distribution_profile", "profile_params", "is_target1_manual", "is_target2_manual",
-        "target1_is_formula_based", "target1_formula", "target1_formula_inputs", "target2_is_formula_based",
-        "target2_formula", "target2_formula_inputs"
-    ])
+    # 3. KPI Definitions (Merged & Enriched)
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_definitions"], 
+                   get_all_kpi_definitions_for_export(), 
+                   ["kpi_id", "indicator_name", "hierarchy_path", "description", "calculation_type", "unit_of_measure", "visible"])
 
-    # Periodic Targets
-    periodic_map = {"days": "date_value", "weeks": "week_value", "months": "month_value", "quarters": "quarter_value"}
-    for period_type, period_col in periodic_map.items():
-        data = get_all_periodic_targets_for_export(period_type)
-        header = ["year", "plant_id", "kpi_id", "target_number", period_col, "target_value"]
-        _export_to_csv(target_export_path / GLOBAL_CSV_FILES[period_type], data, header)
+    # 4. Master/Sub Links
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_master_sub_links"], 
+                   get_all_kpi_master_sub_links(), 
+                   ["master_kpi_spec_id", "sub_kpi_spec_id", "distribution_weight"])
+
+    # 5. Plant Visibility
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_plant_visibility"], 
+                   get_all_kpi_plant_visibility(), 
+                   ["kpi_id", "plant_id", "is_enabled"])
+
+    # 6. Annual Targets (Enriched)
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["annual"], 
+                   get_all_annual_targets_enriched(), 
+                   ["id", "year", "plant_id", "plant_name", "kpi_id", "indicator_name", "annual_target1", "annual_target2", "repartition_logic"])
+
+    # 7. Periodic Targets (Unified)
+    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["periodic"], 
+                   get_all_periodic_targets_unified(), 
+                   ["year", "plant_id", "kpi_id", "target_number", "period_type", "period_value", "target_value"])
+
+    # 8. Manifest
+    manifest = {
+        "export_date": datetime.datetime.now().isoformat(),
+        "files": list(GLOBAL_CSV_FILES.values()),
+        "schema_version": "2.0",
+        "system": "dataentryKPI"
+    }
+    with open(target_export_path / GLOBAL_CSV_FILES["manifest"], "w") as f:
+        json.dump(manifest, f, indent=4)
 
     print("INFO: Global CSV export finished.")
 
@@ -134,4 +140,3 @@ def package_all_csvs_as_zip(csv_base_path_str: str = None, output_zip_filepath_s
     except Exception as e:
         traceback.print_exc()
         return False, f"Failed to create ZIP file: {e}"
-
