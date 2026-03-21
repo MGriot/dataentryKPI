@@ -63,7 +63,7 @@ def _render_multivariate_section(context_id):
                         st.warning("Select target columns.")
                     else:
                         with st.spinner("Analyzing..."):
-                            weights, coefficients, r_squared, plot_df = split_analyzer.analyze_seasonality_from_file(
+                            weights, coefficients, r_squared, plot_df, model_name = split_analyzer.analyze_seasonality_from_file(
                                 tmp_path, target_cols, feature_cols, date_col, p_type
                             )
                             final_vals = {k: round(v * 100, 4) for k, v in weights.items()}
@@ -72,6 +72,7 @@ def _render_multivariate_section(context_id):
 
                             st.session_state[f"suggested_{context_id}"] = final_vals
                             st.session_state[f"model_stats_{context_id}"] = {
+                                "model_name": model_name,
                                 "r2": r_squared, 
                                 "coefs": coefficients,
                                 "plot_data": plot_df.to_json()
@@ -79,13 +80,29 @@ def _render_multivariate_section(context_id):
                 
                 if f"suggested_{context_id}" in st.session_state:
                     stats = st.session_state[f"model_stats_{context_id}"]
-                    st.success(f"**Fit Accuracy (R²):** `{stats['r2']:.4f}`")
+                    st.success(f"**Winning Model:** `{stats['model_name']}` | **Fit Accuracy (R²):** `{stats['r2']:.4f}`")
                     
                     st.markdown("#### 📈 Model Fit Visualization")
                     plot_df = pd.read_json(stats['plot_data'])
-                    melted_df = plot_df.melt(id_vars=['period_idx'], var_name='Variable', value_name='Normalized Value')
-                    fig = px.line(melted_df, x='period_idx', y='Normalized Value', color='Variable', markers=True)
-                    fig.update_layout(height=350, margin=dict(l=0, r=0, t=20, b=0))
+                    
+                    # Plotly chart with Shaded CI
+                    fig = px.line(plot_df, x='period_idx', y=['Actual_Target', 'Predicted_Fit'], markers=True, 
+                                 labels={'value': 'Normalized Value', 'period_idx': 'Period Index'},
+                                 title=f"Seasonality Fit ({stats['model_name']})")
+                    
+                    # Add Shaded CI
+                    fig.add_scatter(
+                        x=plot_df['period_idx'].tolist() + plot_df['period_idx'].tolist()[::-1],
+                        y=plot_df['CI_Upper'].tolist() + plot_df['CI_Lower'].tolist()[::-1],
+                        fill='toself',
+                        fillcolor='rgba(255, 0, 0, 0.1)',
+                        line=dict(color='rgba(255, 255, 255, 0)'),
+                        hoverinfo="skip",
+                        showlegend=True,
+                        name='90% Confidence Interval'
+                    )
+                    
+                    fig.update_layout(height=400, margin=dict(l=0, r=0, t=30, b=0), hovermode="x unified")
                     st.plotly_chart(fig, use_container_width=True, key=f"plot_{context_id}")
 
                     res_c1, res_c2 = st.columns([1, 1.2])

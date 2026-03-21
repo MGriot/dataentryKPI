@@ -152,7 +152,7 @@ class AdvancedSplitDialog(tk.Toplevel):
             return
 
         try:
-            weights, coefficients, r_squared, plot_df = split_analyzer.analyze_seasonality_from_file(
+            weights, coefficients, r_squared, plot_df, model_name = split_analyzer.analyze_seasonality_from_file(
                 self.file_path.get(),
                 selected_targets,
                 selected_features,
@@ -165,10 +165,11 @@ class AdvancedSplitDialog(tk.Toplevel):
             self.res_text.config(state="normal")
             self.res_text.delete("1.0", "end")
             self.res_text.insert("1.0", f"=== Results ===\n")
+            self.res_text.insert("end", f"Winning Model: {model_name}\n")
             self.res_text.insert("end", f"R² Score: {r_squared:.4f}\n\n")
             
             if coefficients:
-                self.res_text.insert("end", "Influence (Coefficients):\n")
+                self.res_text.insert("end", "Influence:\n")
                 for feat, coef in coefficients.items():
                     if feat != "Intercept":
                         self.res_text.insert("end", f" - {feat}: {coef:.3f}\n")
@@ -186,8 +187,11 @@ class AdvancedSplitDialog(tk.Toplevel):
 
             # Update Plot
             self.ax.clear()
-            self.ax.plot(plot_df['period_idx'], plot_df['Actual_Target'], 'bo-', label="Actual (Normalized Avg)")
-            self.ax.plot(plot_df['period_idx'], plot_df['Predicted_Fit'], 'r--', label="Predicted Fit")
+            # Shaded Confidence Interval (Monte Carlo)
+            self.ax.fill_between(plot_df['period_idx'], plot_df['CI_Lower'], plot_df['CI_Upper'], color='red', alpha=0.1, label="90% Confidence Interval")
+            
+            self.ax.plot(plot_df['period_idx'], plot_df['Actual_Target'], 'bo-', label="Actual (Avg)")
+            self.ax.plot(plot_df['period_idx'], plot_df['Predicted_Fit'], 'r--', label=f"Predicted ({model_name})")
             
             self.ax.set_title(f"Model Seasonality Fit (R²={r_squared:.2f})")
             self.ax.set_xlabel(f"{p_type} Index")
