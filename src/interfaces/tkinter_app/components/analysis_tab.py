@@ -182,69 +182,82 @@ class AnalysisTab(ttk.Frame):
         self.ax.clear()
         for i in self.table.get_children(): self.table.delete(i)
         
-        all_periods = set()
+        # We need (year, period) to avoid overlap when plotting multiple years
+        all_year_periods = []
         # structure: {year: {target_num: {period: val}}}
         data_tree = {}
 
         for year in sorted(years):
             data_tree[year] = {}
-            # Find available target numbers for this KPI/Year
             t_nums = db_retriever.get_available_target_numbers_for_kpi(year, p_id, kpi_id)
-            if not t_nums: t_nums = [1, 2] # Fallback
+            if not t_nums: t_nums = [1, 2]
             
             for tn in t_nums:
                 res = db_retriever.get_periodic_targets_for_kpi(year, p_id, kpi_id, period_type, tn)
                 data_tree[year][tn] = {r["period"]: r["Target"] for r in res}
-                all_periods.update(data_tree[year][tn].keys())
+                for p in data_tree[year][tn].keys():
+                    if (year, p) not in all_year_periods:
+                        all_year_periods.append((year, p))
 
-        sorted_all_ps = self._sort_periods(list(all_periods), period_type)
+        # Sort all_year_periods based on year then period value
+        sorted_all_ps = self._sort_year_periods(all_year_periods, period_type)
 
         # Update Table
         for year in sorted(years, reverse=True):
-            for p in sorted_all_ps:
-                row_vals = [year, self._format_period(p, period_type)]
-                # Add T1, T2, and sum of others
+            # For the table, we might still want to show them grouped by year or just the full list
+            # Let's find periods for THIS year and show them
+            year_ps = [yp for yp in sorted_all_ps if yp[0] == year]
+            for yp in year_ps:
+                p = yp[1]
                 t1 = data_tree[year].get(1, {}).get(p, 0)
                 t2 = data_tree[year].get(2, {}).get(p, 0)
                 others = sum(data_tree[year].get(tn, {}).get(p, 0) for tn in data_tree[year].keys() if tn > 2)
                 
-                # Check if any target has data for this year/period
                 has_any = any(p in data_tree[year].get(tn, {}) for tn in data_tree[year].keys())
                 if has_any:
                     self.table.insert("", "end", values=(year, self._format_period(p, period_type), f"{t1:,.2f}", f"{t2:,.2f}", f"{others:,.2f}"))
 
-        # Update Plot
+        # Update Plot - Group by Target Number for continuous lines across years
         colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
-        c_idx = 0
-        for year in sorted(years):
-            t_nums = sorted(data_tree[year].keys())
-            for tn in t_nums:
-                y_map = data_tree[year][tn]
-                # Filter periods present for THIS specific target
-                y_ps = [p for p in sorted_all_ps if p in y_map]
-                if not y_ps: continue
-                
-                x_indices = [sorted_all_ps.index(p) for p in y_ps]
-                y_vals = [y_map[p] for p in y_ps]
-                
-                label = f"{year} T{tn}"
-                if tn == 1: label = f"{year} {self.target1_display_name}"
-                elif tn == 2: label = f"{year} {self.target2_display_name}"
-                
-                style = "-" if tn == 1 else "--"
-                marker = "o" if tn == 1 else "x"
-                
-                self.ax.plot(x_indices, y_vals, marker=marker, linestyle=style, label=label, color=colors[c_idx % len(colors)])
-                c_idx += 1
         
-        if period_type == "Day" and len(sorted_all_ps) > 31:
+        # Get unique target numbers across all years
+        all_t_nums = set()
+        for y in years:
+            all_t_nums.update(data_tree[y].keys())
+            
+        for tn in sorted(all_t_nums):
+            # Collect all (year, period) where this target number exists
+            tn_ps = []
+            tn_vals = []
+            for yp in sorted_all_ps:
+                y, p = yp
+                if tn in data_tree[y] and p in data_tree[y][tn]:
+                    tn_ps.append(yp)
+                    tn_vals.append(data_tree[y][tn][p])
+            
+            if not tn_ps: continue
+            
+            # Sort values based on the global period order to ensure the line connects correctly
+            x_indices = [sorted_all_ps.index(yp) for yp in tn_ps]
+            
+            label = f"T{tn}"
+            if tn == 1: label = self.target1_display_name
+            elif tn == 2: label = self.target2_display_name
+            
+            style = "-" if tn == 1 else "--"
+            marker = "o" if tn == 1 else "x"
+            color = colors[(tn-1) % len(colors)]
+            
+            self.ax.plot(x_indices, tn_vals, marker=marker, linestyle=style, label=label, color=color)
+        
+        if len(sorted_all_ps) > 20:
             step = max(1, len(sorted_all_ps) // 10)
             indices = range(0, len(sorted_all_ps), step)
             self.ax.set_xticks(indices)
-            self.ax.set_xticklabels([self._format_period(sorted_all_ps[i], period_type) for i in indices], rotation=45, ha="right")
+            self.ax.set_xticklabels([f"{yp[0]}-{self._format_period(yp[1], period_type)}" for i, yp in enumerate(sorted_all_ps) if i in indices], rotation=45, ha="right")
         else:
             self.ax.set_xticks(range(len(sorted_all_ps)))
-            self.ax.set_xticklabels([self._format_period(p, period_type) for p in sorted_all_ps], rotation=45, ha="right")
+            self.ax.set_xticklabels([f"{yp[0]}-{self._format_period(yp[1], period_type)}" for yp in sorted_all_ps], rotation=45, ha="right")
             
         self.ax.legend(fontsize=8); self.ax.grid(True, alpha=0.3)
         self.fig.tight_layout()
@@ -299,8 +312,15 @@ class AnalysisTab(ttk.Frame):
                 pdf = df[df['series_label'] == label]
                 ax.plot([l_map[l] for l in pdf['period_label']], pdf['target_value'], marker="o", label=label)
             
-            ax.set_xticks(range(len(unique_labels)))
-            ax.set_xticklabels(unique_labels, rotation=45, ha="right", fontsize=8)
+            if len(unique_labels) > 20:
+                step = max(1, len(unique_labels) // 10)
+                indices = range(0, len(unique_labels), step)
+                ax.set_xticks(indices)
+                ax.set_xticklabels([unique_labels[i] for i in indices], rotation=45, ha="right", fontsize=8)
+            else:
+                ax.set_xticks(range(len(unique_labels)))
+                ax.set_xticklabels(unique_labels, rotation=45, ha="right", fontsize=8)
+                
             ax.legend(fontsize=7, loc='upper left', bbox_to_anchor=(1, 1)); ax.grid(True, alpha=0.2)
             fig.tight_layout()
             canvas = FigureCanvasTkAgg(fig, master=card)
@@ -308,23 +328,30 @@ class AnalysisTab(ttk.Frame):
 
     def _format_period(self, p, p_type):
         if p_type == "Month": return calendar.month_name[int(p)] if str(p).isdigit() else p
+        if p_type == "Year": return "Annual"
         return str(p)
 
-    def _sort_periods(self, periods, p_type):
+    def _sort_year_periods(self, year_periods, p_type):
+        """Sorts a list of (year, period) tuples."""
         try:
             if p_type == "Month":
                 m_map = {m: i for i, m in enumerate(list(calendar.month_name)[1:], 1)}
-                # periods could be strings like "January" or integers like 1
                 def get_m_idx(val):
                     if str(val).isdigit(): return int(val)
                     return m_map.get(val, 0)
-                return sorted(periods, key=get_m_idx)
-            return sorted(periods)
-        except: return sorted(periods)
+                return sorted(year_periods, key=lambda x: (x[0], get_m_idx(x[1])))
+            elif p_type == "Quarter":
+                return sorted(year_periods, key=lambda x: (x[0], str(x[1])))
+            return sorted(year_periods)
+        except: return sorted(year_periods)
 
     def _sort_dashboard_df(self, df, p_type):
         if p_type == "Month":
             m_map = {m: i for i, m in enumerate(list(calendar.month_name)[1:], 1)}
             df['s'] = df['period'].apply(lambda x: m_map.get(x, 0) if not str(x).isdigit() else int(x))
-            return df.sort_values(['year', 's']).drop('s', axis=1)
+            res = df.sort_values(['year', 's']).drop('s', axis=1)
+            return res
+        if p_type == "Quarter":
+            return df.sort_values(['year', 'period'])
         return df.sort_values(['year', 'period'])
+

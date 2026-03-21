@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import datetime
-import data_retriever as db_retriever
+import calendar
+from src import data_retriever as db_retriever
 from src.interfaces.common_ui.helpers import get_kpi_display_name
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -47,25 +48,37 @@ class DashboardTab(ttk.Frame):
         self.main_canvas.configure(yscrollcommand=self.scrollbar.set)
         self.scrollable_frame = ttk.Frame(self.main_canvas)
 
-        self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.main_win = self.main_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
 
         self.scrollable_frame.bind("<Configure>", lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all")))
+        self.main_canvas.bind("<Configure>", lambda e: self.main_canvas.itemconfig(self.main_win, width=e.width))
 
     def populate_dashboard_comboboxes(self):
-        years = [str(y["year"]) for y in db_retriever.get_distinct_years()]
+        years = [str(y["year"]) for y in db_retriever.get_distinct_years() if y["year"] is not None]
         self.dashboard_year_cb["values"] = ["All"] + years
         self.dashboard_year_var.set("All")
         self.load_dashboard_data()
 
     def get_plant_color(self, plant_name):
-        # Use color from settings if available, otherwise fall back to default list
         if plant_name in self.app.settings.get('plant_colors', {}):
             return self.app.settings['plant_colors'][plant_name]
         else:
-            # Fallback to internal color_list if not in settings
             if plant_name not in self.plant_colors:
                 self.plant_colors[plant_name] = self.color_list[len(self.plant_colors) % len(self.color_list)]
             return self.plant_colors[plant_name]
+
+    def _format_period(self, p, p_type):
+        if p_type == "Month": return calendar.month_name[int(p)] if str(p).isdigit() else p
+        if p_type == "Year": return "Annual"
+        return str(p)
+
+    def _sort_dashboard_df(self, df, p_type):
+        if p_type == "Month":
+            m_map = {m: i for i, m in enumerate(list(calendar.month_name)[1:], 1)}
+            df['s'] = df['period'].apply(lambda x: m_map.get(x, 0) if not str(x).isdigit() else int(x))
+            res = df.sort_values(['year', 's']).drop('s', axis=1)
+            return res
+        return df.sort_values(['year', 'period'])
 
     def load_dashboard_data(self, event=None):
         for widget in self.scrollable_frame.winfo_children():
@@ -89,30 +102,49 @@ class DashboardTab(ttk.Frame):
                 if not kpi_data:
                     continue
 
-                # Convert list of sqlite3.Row objects to a list of dictionaries, then to DataFrame
                 df = pd.DataFrame([dict(row) for row in kpi_data])
+                
+                # Apply Year-Period formatting and sorting
+                df['period_label'] = df.apply(lambda x: f"{x['year']}-{self._format_period(x['period'], period_type)}", axis=1)
+                df = self._sort_dashboard_df(df, period_type)
+                
+                unique_labels = df['period_label'].unique()
+                l_map = {l: i for i, l in enumerate(unique_labels)}
 
                 chart_frame = ttk.LabelFrame(self.scrollable_frame, text=kpi_display_name, padding=10)
                 chart_frame.pack(fill="x", expand=True, padx=10, pady=10)
 
-                fig = Figure(figsize=(12, 6), dpi=100)
+                fig = Figure(figsize=(10, 4), dpi=100)
                 ax = fig.add_subplot(111)
 
                 for plant_name, plant_data in df.groupby('plant_name'):
                     color = self.get_plant_color(plant_name)
+                    # We need to ensure chronological order for each plant's line
+                    plant_data = plant_data.copy()
+                    plant_data['x_idx'] = plant_data['period_label'].map(l_map)
+                    plant_data = plant_data.sort_values('x_idx')
+
                     target1_data = plant_data[plant_data['target_number'] == 1]
                     target2_data = plant_data[plant_data['target_number'] == 2]
 
                     if not target1_data.empty:
-                        ax.plot(target1_data['period'], target1_data['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
+                        ax.plot(target1_data['x_idx'], target1_data['target_value'], marker='o', linestyle='-', label=f'{plant_name} - {self.target1_display_name}', color=color)
                     if not target2_data.empty:
-                        ax.plot(target2_data['period'], target2_data['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
+                        ax.plot(target2_data['x_idx'], target2_data['target_value'], marker='x', linestyle='--', label=f'{plant_name} - {self.target2_display_name}', color=color)
 
                 ax.set_title(f"{period_type} Trend - {kpi_display_name}")
-                ax.set_xlabel(period_type)
+                ax.set_xticks(range(len(unique_labels)))
+                if len(unique_labels) > 20:
+                    step = max(1, len(unique_labels) // 10)
+                    indices = range(0, len(unique_labels), step)
+                    ax.set_xticks(indices)
+                    ax.set_xticklabels([unique_labels[i] for i in indices], rotation=45, ha="right", fontsize=8)
+                else:
+                    ax.set_xticklabels(unique_labels, rotation=45, ha="right", fontsize=8)
+                
                 ax.set_ylabel("Value")
-                ax.legend()
-                ax.grid(True)
+                ax.legend(fontsize=7, loc='upper left', bbox_to_anchor=(1, 1))
+                ax.grid(True, alpha=0.3)
                 fig.tight_layout()
 
                 canvas = FigureCanvasTkAgg(fig, master=chart_frame)
@@ -120,4 +152,6 @@ class DashboardTab(ttk.Frame):
                 canvas.draw()
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("Data Loading Error", f"Could not load dashboard data: {e}")

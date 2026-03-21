@@ -258,21 +258,57 @@ def get_available_target_numbers_for_kpi(year, plant_id, kpi_id):
         return sorted([r['target_number'] for r in res])
 
 def get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_number):
+    if period_type == "Year":
+        # Year targets are in db_kpi_targets.db, in kpi_annual_target_values
+        db_name = "db_kpi_targets.db"
+        if _handle_db_connection_error(db_name, "get_periodic_targets_for_kpi"): return []
+        with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
+            conn.row_factory = sqlite3.Row
+            # Join with annual_targets to filter by year/plant/kpi
+            return conn.execute("""
+                SELECT 'Year' as period, v.target_value as Target 
+                FROM kpi_annual_target_values v
+                JOIN annual_targets t ON v.annual_target_id = t.id
+                WHERE t.year=? AND t.plant_id=? AND t.kpi_id=? AND v.target_number=?
+            """, (year, plant_id, kpi_id, target_number)).fetchall()
+
     db_map = { "Day": "days", "Week": "weeks", "Month": "months", "Quarter": "quarters" }
     col_map = { "Day": "date_value", "Week": "week_value", "Month": "month_value", "Quarter": "quarter_value" }
-    
+
     db_name = f"db_kpi_{db_map.get(period_type)}.db"
     table_name = "daily_targets" if period_type == "Day" else f"{period_type.lower()}ly_targets"
     col_name = col_map.get(period_type, "period")
-    
+
     if not db_name or _handle_db_connection_error(db_name, "get_periodic_targets_for_kpi"): return []
-    
+
     with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
         conn.row_factory = sqlite3.Row
         return conn.execute(f"SELECT {col_name} as period, target_value as Target FROM {table_name} WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=?", (year, plant_id, kpi_id, target_number)).fetchall()
 
 def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, year: int = None):
     """Fetches periodic targets for a specific KPI across all plants, including plant names."""
+    if period_type == "Year":
+        db_name = "db_kpi_targets.db"
+        plants_db_path = app_config.get_database_path("db_plants.db")
+        if _handle_db_connection_error(db_name, "get_periodic_targets_for_kpi_all_plants"): return []
+
+        query = """
+            SELECT t.year, t.plant_id, p.name as plant_name, t.kpi_id, v.target_number, 'Year' as period, v.target_value 
+            FROM kpi_annual_target_values v
+            JOIN annual_targets t ON v.annual_target_id = t.id
+            LEFT JOIN plants_db.plants p ON t.plant_id = p.id
+            WHERE t.kpi_id = ?
+        """
+        params = [kpi_spec_id]
+        if year:
+            query += " AND t.year = ?"
+            params.append(year)
+
+        with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute(f"ATTACH DATABASE '{plants_db_path}' AS plants_db")
+            return conn.execute(query, params).fetchall()
+
     db_map = { "Day": "days", "Week": "weeks", "Month": "months", "Quarter": "quarters" }
     col_map = { "Day": "date_value", "Week": "week_value", "Month": "month_value", "Quarter": "quarter_value" }
     

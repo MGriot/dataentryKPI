@@ -12,15 +12,19 @@ def analyze_seasonality_from_file(
 ) -> Tuple[Dict[str, float], Dict[str, float], float, pd.DataFrame]:
     """
     Performs multivariate seasonality analysis using Multiple Linear Regression (OLS).
-    
-    Returns:
-        - weights: {period_idx: weight} (sum = 1.0)
-        - coefficients: {feature_name: coefficient} (Driver Influence)
-        - r_squared: Model accuracy score (0-1)
-        - plot_df: Dataframe with normalized values for visualization
     """
     # Load data
-    df = pd.read_csv(file_path) if file_path.endswith('.csv') else pd.read_excel(file_path)
+    if file_path.endswith('.csv'):
+        # Try different separators
+        try:
+            df = pd.read_csv(file_path)
+            # Simple check if it actually parsed columns
+            if len(df.columns) <= 1:
+                df = pd.read_csv(file_path, sep=';')
+        except:
+            df = pd.read_csv(file_path, sep=';')
+    else:
+        df = pd.read_excel(file_path)
     
     # Ensure date column is datetime
     df[date_col] = pd.to_datetime(df[date_col])

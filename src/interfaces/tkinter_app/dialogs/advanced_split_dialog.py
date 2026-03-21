@@ -2,6 +2,9 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import pandas as pd
+import calendar
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from src.services import split_analyzer
 from src import data_retriever
 
@@ -9,7 +12,7 @@ class AdvancedSplitDialog(tk.Toplevel):
     def __init__(self, parent, title="Advanced Multivariate Seasonality Analysis"):
         super().__init__(parent)
         self.title(title)
-        self.geometry("900x800")
+        self.geometry("1100x900")
         self.result_weights = None
         self.result_target_kpi_ids = []
         
@@ -33,7 +36,7 @@ class AdvancedSplitDialog(tk.Toplevel):
         
         # 2. Mapping & Features
         map_cols = ttk.Frame(main)
-        map_cols.pack(fill="both", expand=True, pady=10)
+        map_cols.pack(fill="both", expand=False, pady=10)
         
         # 2a. Mapping (Left)
         left_f = ttk.LabelFrame(map_cols, text="2. Mapping & Targets", padding=10)
@@ -49,36 +52,48 @@ class AdvancedSplitDialog(tk.Toplevel):
         ttk.Combobox(left_f, textvariable=self.period_var, values=["Month", "Quarter", "Week", "Day"], state="readonly").pack(fill="x")
         
         ttk.Label(left_f, text="Historical Target Columns (Average):", font=("Helvetica", 9, "bold")).pack(anchor="w", pady=(10, 0))
-        self.target_cols_lb = tk.Listbox(left_f, selectmode="multiple", height=6)
+        # exportselection=False is CRITICAL for keeping multi-select focus
+        self.target_cols_lb = tk.Listbox(left_f, selectmode="multiple", height=6, exportselection=False)
         self.target_cols_lb.pack(fill="both", expand=True, pady=2)
-        ttk.Label(left_f, text="💡 Select multiple (e.g. 2023 and 2024 results)\nto average the baseline trend.", font=("Helvetica", 8, "italic"), foreground="#666").pack(anchor="w")
+        ttk.Label(left_f, text="💡 Ctrl+Click for multiple selection.", font=("Helvetica", 8, "italic"), foreground="#666").pack(anchor="w")
 
         # 2b. Features (Right)
         right_f = ttk.LabelFrame(map_cols, text="3. Multivariate Features (Drivers)", padding=10)
         right_f.pack(side="left", fill="both", expand=True, padx=(5, 0))
         
         ttk.Label(right_f, text="Select feature columns to correlate:").pack(anchor="w")
-        self.features_lb = tk.Listbox(right_f, selectmode="multiple", height=10)
+        self.features_lb = tk.Listbox(right_f, selectmode="multiple", height=10, exportselection=False)
         self.features_lb.pack(fill="both", expand=True, pady=5)
         
-        # 3. Target KPIs (Bottom)
-        target_f = ttk.LabelFrame(main, text="4. Apply split to which KPIs in system?", padding=10)
-        target_f.pack(fill="both", expand=True, pady=10)
+        # 3. Middle Area: Targets & Run
+        mid_f = ttk.Frame(main)
+        mid_f.pack(fill="x", pady=5)
         
-        self.kpi_lb = tk.Listbox(target_f, selectmode="multiple", height=6)
+        target_f = ttk.LabelFrame(mid_f, text="4. Apply split to which KPIs in system?", padding=10)
+        target_f.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        self.kpi_lb = tk.Listbox(target_f, selectmode="multiple", height=6, exportselection=False)
         self.kpi_lb.pack(fill="both", expand=True, pady=5)
         self._populate_kpis()
         
-        # 4. Preview/Run
-        btn_f = ttk.Frame(main)
-        btn_f.pack(fill="x", pady=10)
+        run_f = ttk.Frame(mid_f)
+        run_f.pack(side="right", fill="both", expand=True, padx=(5, 0))
+        ttk.Button(run_f, text="🚀 Run Analysis & Plot", command=self._run_analysis, style="Action.TButton").pack(pady=20, fill="x")
+
+        # 4. Results & Plot (Paned Horizontal)
+        res_pane = ttk.PanedWindow(main, orient="horizontal")
+        res_pane.pack(fill="both", expand=True, pady=10)
         
-        ttk.Button(btn_f, text="🚀 Run Multivariate Seasonality Analysis", command=self._run_analysis, style="Action.TButton").pack(side="top", fill="x")
+        self.res_text = tk.Text(res_pane, width=40, font=("Courier", 9), state="disabled", background="#F8F9FA")
+        res_pane.add(self.res_text, weight=1)
         
-        # Results area
-        self.res_text = tk.Text(main, height=12, font=("Courier", 9), state="disabled", background="#F8F9FA")
-        self.res_text.pack(fill="x", pady=10)
+        self.plot_frame = ttk.Frame(res_pane)
+        res_pane.add(self.plot_frame, weight=3)
         
+        self.fig = Figure(figsize=(5, 3), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.plot_frame)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+
         # Footer
         footer = ttk.Frame(main)
         footer.pack(fill="x")
@@ -90,9 +105,17 @@ class AdvancedSplitDialog(tk.Toplevel):
         if path:
             self.file_path.set(path)
             try:
-                df = pd.read_csv(path) if path.endswith('.csv') else pd.read_excel(path)
-                self.columns = list(df.columns)
+                # Same detection as service
+                if path.endswith('.csv'):
+                    try:
+                        df = pd.read_csv(path)
+                        if len(df.columns) <= 1: df = pd.read_csv(path, sep=';')
+                    except:
+                        df = pd.read_csv(path, sep=';')
+                else:
+                    df = pd.read_excel(path)
                 
+                self.columns = list(df.columns)
                 self.date_col_cb["values"] = self.columns
                 self.target_cols_lb.delete(0, "end")
                 self.features_lb.delete(0, "end")
@@ -129,8 +152,7 @@ class AdvancedSplitDialog(tk.Toplevel):
             return
 
         try:
-            # Call new regression-based service
-            weights, coefficients, r_squared, _plot_df = split_analyzer.analyze_seasonality_from_file(
+            weights, coefficients, r_squared, plot_df = split_analyzer.analyze_seasonality_from_file(
                 self.file_path.get(),
                 selected_targets,
                 selected_features,
@@ -139,34 +161,50 @@ class AdvancedSplitDialog(tk.Toplevel):
             )
             self.result_weights = weights
             
+            # Update Text Results
             self.res_text.config(state="normal")
             self.res_text.delete("1.0", "end")
-            
-            # Show Model Details
-            self.res_text.insert("1.0", f"=== Analysis Results ===\n")
-            self.res_text.insert("end", f"Model: Multiple Linear Regression (OLS)\n")
-            self.res_text.insert("end", f"R² Score: {r_squared:.4f} (Accuracy of fit)\n\n")
+            self.res_text.insert("1.0", f"=== Results ===\n")
+            self.res_text.insert("end", f"R² Score: {r_squared:.4f}\n\n")
             
             if coefficients:
-                self.res_text.insert("end", "Driver Influence (Coefficients):\n")
+                self.res_text.insert("end", "Influence (Coefficients):\n")
                 for feat, coef in coefficients.items():
-                    self.res_text.insert("end", f"  - {feat}: {coef:.4f}\n")
+                    if feat != "Intercept":
+                        self.res_text.insert("end", f" - {feat}: {coef:.3f}\n")
                 self.res_text.insert("end", "\n")
             
-            self.res_text.insert("end", "Predicted Seasonal Weights:\n")
-            for p, w in sorted(weights.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0]):
-                label = p
-                if self.period_var.get() == "Month":
-                    import calendar
+            p_type = self.period_var.get()
+            self.res_text.insert("end", f"Calculated Seasonal Weights:\n")
+            for p, w in sorted(weights.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else x[0]):
+                label = str(p)
+                if p_type == "Month":
                     try: label = calendar.month_name[int(p)]
                     except: pass
-                self.res_text.insert("end", f"{label}: {w*100:.2f}%\n")
-            
+                self.res_text.insert("end", f"{label}: {w*100:.1f}%\n")
             self.res_text.config(state="disabled")
+
+            # Update Plot
+            self.ax.clear()
+            self.ax.plot(plot_df['period_idx'], plot_df['Actual_Target'], 'bo-', label="Actual (Normalized Avg)")
+            self.ax.plot(plot_df['period_idx'], plot_df['Predicted_Fit'], 'r--', label="Predicted Fit")
+            
+            self.ax.set_title(f"Model Seasonality Fit (R²={r_squared:.2f})")
+            self.ax.set_xlabel(f"{p_type} Index")
+            self.ax.set_ylabel("Normalized Value")
+            self.ax.legend(fontsize=8)
+            self.ax.grid(True, alpha=0.3)
+            
+            if p_type == "Month":
+                self.ax.set_xticks(range(1, 13))
+                self.ax.set_xticklabels([calendar.month_abbr[i] for i in range(1, 13)])
+
+            self.fig.tight_layout()
+            self.canvas.draw()
             
         except Exception as e:
             import traceback
-            print(traceback.format_exc())
+            traceback.print_exc()
             messagebox.showerror("Analysis Error", str(e))
 
     def _on_apply(self):
@@ -175,6 +213,10 @@ class AdvancedSplitDialog(tk.Toplevel):
             return
             
         kpi_indices = self.kpi_lb.curselection()
+        if not kpi_indices:
+            if not messagebox.askyesno("Confirm", "No system KPIs selected. Apply only to the current split?"):
+                return
+
         self.result_target_kpi_ids = []
         for idx in kpi_indices:
             text = self.kpi_lb.get(idx)

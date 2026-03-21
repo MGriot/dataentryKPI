@@ -92,6 +92,8 @@ def app():
                             q_num = int(p[1])
                             month = (q_num - 1) * 3 + 1
                             return pd.to_datetime(f"{y}-{month:02d}-01")
+                        elif selected_period == "Year":
+                            return pd.to_datetime(f"{y}-01-01")
                     except:
                         return p # Fallback to string if parsing fails
                     return p
@@ -103,7 +105,10 @@ def app():
                     pivot_df = combined_df.pivot(index='DateAxis', columns='Series', values='Target').reset_index()
                     st.dataframe(pivot_df, use_container_width=True)
                 
+                # Use line_group to ensure continuity if color is not enough, 
+                # though sorting by DateAxis should already connect them.
                 fig = px.line(combined_df, x='DateAxis', y='Target', color='Series', markers=True, 
+                              line_group='Series',
                               title=f"Timeline Trend: {selected_kpi['indicator_name']} - Plant: {selected_plant_name}")
                 
                 fig.update_xaxes(title="Timeline")
@@ -146,16 +151,18 @@ def app():
                         elif selected_period == "Quarter":
                             q_num = int(p[1]); month = (q_num - 1) * 3 + 1
                             return pd.to_datetime(f"{y}-{month:02d}-01")
+                        elif selected_period == "Year": return pd.to_datetime(f"{y}-01-01")
                     except: return p
                     return p
 
                 combined_k_df['DateAxis'] = combined_k_df.apply(to_actual_date_global, axis=1)
                 combined_k_df = combined_k_df.sort_values(['DateAxis', 'plant_name'])
 
-                # Legend label: Plant + Target No (No year, since it's on timeline)
+                # Legend label: Plant + Target No
                 combined_k_df['Label'] = combined_k_df.apply(lambda x: f"{x['plant_name']} (T{x['target_number']})", axis=1)
                 
                 fig = px.line(combined_k_df, x='DateAxis', y='target_value', color='Label', markers=True, height=350,
+                              line_group='Label',
                               title=f"{k['indicator_name']} - Sequential Timeline")
                 
                 fig.update_xaxes(title="Timeline")
