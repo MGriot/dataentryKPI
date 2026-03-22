@@ -335,10 +335,11 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                         val = (remaining * d['weight'] / total_w) if total_w > 0 else (remaining / len(distributable))
                         at_row = conn_s.execute("SELECT id FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?", (year, plant_id, d['id'])).fetchone()
                         if at_row:
+                            # Formula based is set to 0 for Sub-KPIs being distributed
                             conn_s.execute("INSERT OR REPLACE INTO kpi_annual_target_values (annual_target_id, target_number, target_value, is_manual, is_formula_based) VALUES (?, ?, ?, 0, 0)",
                                            (at_row[0], tn, val))
                             if tn in [1, 2]:
-                                conn_s.execute(f"UPDATE annual_targets SET annual_target{tn}=?, is_target{tn}_manual=0 WHERE id=?", (val, at_row[0]))
+                                conn_s.execute(f"UPDATE annual_targets SET annual_target{tn}=?, is_target{tn}_manual=0, target{tn}_is_formula_based=0 WHERE id=?", (val, at_row[0]))
                             kpis_needing_repartition_update.add(d['id'])
                     conn_s.commit()
 

@@ -322,9 +322,10 @@ def app():
                             # Logic toggles in a small area
                             if is_sub_kpi:
                                 st.checkbox("Manual", key=f'manual_{kpi_id}_{tn}', on_change=_on_manual_toggle, args=(kpi_id, tn))
-                            st.checkbox("Formula", key=f'formula_based_{kpi_id}_{tn}', on_change=_on_formula_toggle, args=(kpi_id, tn))
-                            if st.session_state.get(f'formula_based_{kpi_id}_{tn}', False):
-                                st.text_input("Expr:", key=f'formula_str_{kpi_id}_{tn}', placeholder="e.g. [A]*1.1")
+                            else:
+                                st.checkbox("Formula", key=f'formula_based_{kpi_id}_{tn}', on_change=_on_formula_toggle, args=(kpi_id, tn))
+                                if st.session_state.get(f'formula_based_{kpi_id}_{tn}', False):
+                                    st.text_input("Expr:", key=f'formula_str_{kpi_id}_{tn}', placeholder="e.g. [A]*1.1")
 
                     # Distribution Settings
                     with st.container(border=True):

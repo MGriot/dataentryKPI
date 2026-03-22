@@ -286,7 +286,8 @@ class TargetEntryTab(ttk.Frame):
         ent.bind("<FocusOut>", lambda e, k=kid, t=tn, v=var: self._sync_cache(k, t, v.get()))
         ent.bind("<Return>", lambda e, k=kid, t=tn, v=var: self._sync_cache(k, t, v.get()))
 
-        if is_calc or bool(self.all_kpis_data_cache[kid]['kpi_info'].get('master_kpi_id')):
+        is_sub = bool(self.all_kpis_data_cache[kid]['kpi_info'].get('master_kpi_id'))
+        if is_calc or is_sub:
             label = "Override" if is_calc else "M"
             cb = ttk.Checkbutton(f, text=label, variable=m_var, command=lambda: self._sync_and_update(kid, tn))
             cb.pack(side='left')
