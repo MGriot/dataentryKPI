@@ -31,6 +31,11 @@ class TargetEntryTab(ttk.Frame):
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *args: self._on_filter_change())
 
+        # Load Global Splits for selector
+        splits_raw = db_retriever.get_all_global_splits()
+        self.gs_map = {f"{s['year']} - {s['name']}": s['id'] for s in splits_raw}
+        self.gs_names = ["None (Custom)"] + list(self.gs_map.keys())
+
         self.create_widgets()
 
     def create_widgets(self):
@@ -145,7 +150,8 @@ class TargetEntryTab(ttk.Frame):
 
             self.all_kpis_data_cache[tid] = {
                 'targets': t_values,
-                'kpi_info': k
+                'kpi_info': k,
+                'global_split_id': t_data.get('global_split_id')
             }
 
         self._build_tree()
@@ -218,6 +224,21 @@ class TargetEntryTab(ttk.Frame):
         card.pack(fill='x', padx=15, pady=5)
 
         self.kpi_target_entry_widgets[kid] = {'targets': {}}
+        
+        # Split Template Selector
+        gs_frame = ttk.Frame(card, style="Card.TFrame")
+        gs_frame.pack(fill='x', pady=(0, 10))
+        ttk.Label(gs_frame, text="Standardized Split:", font=("Helvetica", 9, "bold")).pack(side='left', padx=5)
+        
+        gs_var = tk.StringVar()
+        cur_gs_id = data.get('global_split_id')
+        cur_gs_name = next((name for name, sid in self.gs_map.items() if sid == cur_gs_id), "None (Custom)")
+        gs_var.set(cur_gs_name)
+        
+        gs_cb = ttk.Combobox(gs_frame, textvariable=gs_var, values=self.gs_names, state='readonly', width=30)
+        gs_cb.pack(side='left', padx=5)
+        gs_cb.bind("<<ComboboxSelected>>", lambda e, k=kid, v=gs_var: self._on_gs_change(k, v.get()))
+
         grid = ttk.Frame(card, style="Card.TFrame")
         grid.pack(fill='x')
         
@@ -228,6 +249,11 @@ class TargetEntryTab(ttk.Frame):
         actions = ttk.Frame(card, style="Card.TFrame")
         actions.pack(fill='x', pady=(5, 0))
         ttk.Button(actions, text="+ Add Target", command=lambda: self._add_target_to_kpi(kid), width=12).pack(side='right')
+
+    def _on_gs_change(self, kid, selected_name):
+        gs_id = self.gs_map.get(selected_name)
+        self.all_kpis_data_cache[kid]['global_split_id'] = gs_id
+
 
     def _add_target_to_kpi(self, kid):
         t_values = self.all_kpis_data_cache[kid]['targets']
@@ -382,7 +408,10 @@ class TargetEntryTab(ttk.Frame):
                     'is_manual': t_data['manual'],
                     'is_formula_based': bool(data['kpi_info'].get('is_calculated')) and not t_data['manual']
                 })
-            data_map[str(kid)] = {'targets': targets_list}
+            data_map[str(kid)] = {
+                'targets': targets_list,
+                'global_split_id': data.get('global_split_id')
+            }
             
         def run():
             try:

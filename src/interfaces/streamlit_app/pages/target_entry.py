@@ -108,6 +108,7 @@ def load_kpi_targets_for_entry_target():
         st.session_state[f'repartition_logic_{kpi_id}'] = target_data.get('repartition_logic', REPARTITION_LOGIC_YEAR)
         st.session_state[f'repartition_values_{kpi_id}'] = json.loads(target_data.get('repartition_values', '{}') or '{}')
         st.session_state[f'profile_params_{kpi_id}'] = json.loads(target_data.get('profile_params', '{}') or '{}')
+        st.session_state[f'global_split_id_{kpi_id}'] = target_data.get('global_split_id')
 
 def save_all_targets_entry():
     year_str = st.session_state.selected_year_target
@@ -149,13 +150,15 @@ def save_all_targets_entry():
         repartition_logic = st.session_state.get(f'repartition_logic_{kpi_id}', REPARTITION_LOGIC_YEAR)
         repartition_values = st.session_state.get(f'repartition_values_{kpi_id}', {})
         profile_params = st.session_state.get(f'profile_params_{kpi_id}', {})
+        global_split_id = st.session_state.get(f'global_split_id_{kpi_id}')
 
         targets_data = {
             'targets': target_list_to_save,
             'distribution_profile': distribution_profile,
             'repartition_logic': repartition_logic,
             'repartition_values': json.dumps(repartition_values),
-            'profile_params': json.dumps(profile_params)
+            'profile_params': json.dumps(profile_params),
+            'global_split_id': global_split_id
         }
         targets_data_map[str(kpi_id)] = targets_data
 
@@ -188,6 +191,11 @@ def _update_repartition_input_area_streamlit(kpi_id):
 
 def app():
     st.title("🎯 Target Entry")
+
+    # Fetch Global Splits for the selector
+    global_splits = db_retriever.get_all_global_splits()
+    gs_options = {f"{s['year']} - {s['name']}": s['id'] for s in global_splits}
+    gs_names = ["None (Custom)"] + list(gs_options.keys())
 
     # Initialize session state variables if they don't exist
     if 'selected_year_target' not in st.session_state:
@@ -321,13 +329,31 @@ def app():
                     # Distribution Settings
                     with st.container(border=True):
                         st.markdown("**⚙️ Distribution & Split Settings**")
+                        
+                        # Global Split Template Link
+                        cur_gs_id = st.session_state.get(f'global_split_id_{kpi_id}')
+                        cur_gs_name = next((name for name, sid in gs_options.items() if sid == cur_gs_id), "None (Custom)")
+                        
+                        selected_gs_name = st.selectbox(
+                            "Standardized Split Template:",
+                            gs_names,
+                            index=gs_names.index(cur_gs_name) if cur_gs_name in gs_names else 0,
+                            key=f"gs_select_{kpi_id}"
+                        )
+                        st.session_state[f'global_split_id_{kpi_id}'] = gs_options.get(selected_gs_name)
+                        
+                        is_using_template = selected_gs_name != "None (Custom)"
+                        
                         c1, c2 = st.columns(2)
                         with c1:
-                            st.selectbox("Logic:", repartition_logics, key=f'repartition_logic_{kpi_id}')
+                            st.selectbox("Logic:", repartition_logics, key=f'repartition_logic_{kpi_id}', disabled=is_using_template)
                         with c2:
-                            st.selectbox("Profile:", repartition_profiles, key=f'distribution_profile_{kpi_id}')
+                            st.selectbox("Profile:", repartition_profiles, key=f'distribution_profile_{kpi_id}', disabled=is_using_template)
                         
-                        _render_repartition_input_area(kpi_id)
+                        if is_using_template:
+                            st.caption("ℹ️ Settings are controlled by the selected template.")
+                        else:
+                            _render_repartition_input_area(kpi_id)
 
 
 # --- Dynamic Repartition Input Area Rendering ---

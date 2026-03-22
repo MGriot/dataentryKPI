@@ -18,51 +18,53 @@ def app():
     for k in all_kpis_detailed:
         kpi_roles[k['id']] = db_retriever.get_kpi_role_details(k['id'])
 
-    # --- Sidebar: Hierarchical Selector ---
-    st.sidebar.subheader("Select KPI to Manage")
-    
-    def get_role_icon(kpi_id):
-        role_info = kpi_roles.get(kpi_id, {})
-        role = role_info.get('role')
-        if role == 'master': return "Ⓜ️"
-        if role == 'sub': return "Ⓢ"
-        return "📄"
+    # --- Sidebar: Hierarchical Selector (Aligned with KPI Explorer) ---
+    with st.sidebar:
+        st.markdown("### 🧭 Hierarchy Navigator")
+        st.caption("Select a KPI to manage its links")
+        
+        def get_role_icon(kpi_id):
+            role_info = kpi_roles.get(kpi_id, {})
+            role = role_info.get('role')
+            if role == 'master': return "Ⓜ️"
+            if role == 'sub': return "Ⓢ"
+            return "📄"
 
-    # Get full paths for hierarchical display
-    def get_all_paths():
-        paths = []
-        def walk(parent_id=None, current_path=""):
-            nodes = db_retriever.get_hierarchy_nodes(parent_id)
-            for n in nodes:
-                p = f"{current_path}/{n['name']}" if current_path else n['name']
-                paths.append({"id": n['id'], "path": f"📁 {p}", "type": "folder"})
-                walk(n['id'], p)
+        def render_navigator(parent_id=None):
+            nodes_raw = db_retriever.get_hierarchy_nodes(parent_id)
+            nodes = [dict(n) for n in nodes_raw]
             
-            inds = db_retriever.get_indicators_by_node(parent_id) if parent_id else []
-            for i in inds:
-                # Find the KPI spec ID for this indicator
-                spec = next((k for k in all_kpis_detailed if k['indicator_id'] == i['id']), None)
-                if spec:
-                    icon = get_role_icon(spec['id'])
-                    p = f"{current_path}/{i['name']}" if current_path else i['name']
-                    paths.append({"id": spec['id'], "path": f"{icon} {p}", "type": "kpi"})
-        walk()
-        return paths
+            for n in nodes:
+                icon = "🏢" if n['node_type'] == 'group' else "📂" if n['node_type'] == 'subgroup' else "📁"
+                with st.expander(f"{icon} {n['name']}", expanded=False):
+                    # Recurse
+                    render_navigator(n['id'])
+                    
+                    # List KPIs
+                    indicators = db_retriever.get_indicators_by_node(n['id'])
+                    if indicators:
+                        st.markdown("---")
+                        for i in indicators:
+                            spec = next((k for k in all_kpis_detailed if k['indicator_id'] == i['id']), None)
+                            if spec:
+                                icon = get_role_icon(spec['id'])
+                                if st.button(f"{icon} {i['name']}", key=f"ms_nav_i_{spec['id']}", use_container_width=True):
+                                    st.session_state.ms_selected_kpi_id = spec['id']
 
-    hierarchy_paths = get_all_paths()
-    path_names = [p['path'] for p in hierarchy_paths]
-    
-    selected_path = st.sidebar.selectbox("Navigate Hierarchy:", path_names)
-    selected_item = next(p for p in hierarchy_paths if p['path'] == selected_path)
-
-    if selected_item['type'] == 'folder':
-        st.info("Please select a KPI from the hierarchy to manage its links. Folders are indicated with 📁.")
-        return
+        render_navigator()
 
     # --- Main Content: Linkage Editor ---
-    selected_kpi_id = selected_item['id']
+    if 'ms_selected_kpi_id' not in st.session_state:
+        st.info("👈 Please select a KPI from the hierarchy in the sidebar to manage its links.")
+        return
+
+    selected_kpi_id = st.session_state.ms_selected_kpi_id
+    if selected_kpi_id not in kpi_map:
+        st.error("Selected KPI not found.")
+        return
+
     kpi = kpi_map[selected_kpi_id]
-    role_info = kpi_roles[selected_kpi_id]
+    role_info = kpi_roles.get(selected_kpi_id, {'role': None})
     
     st.subheader(f"KPI: {get_kpi_display_name(kpi)}")
     

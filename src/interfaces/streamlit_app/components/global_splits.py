@@ -47,7 +47,9 @@ def _render_multivariate_section(context_id):
 
             try:
                 df = pd.read_csv(tmp_path) if up.name.endswith('.csv') else pd.read_excel(tmp_path)
-                st.dataframe(df.head(3), use_container_width=True)
+                
+                with st.expander("🔍 Data Preview (First 100 rows)", expanded=True):
+                    st.dataframe(df.head(100), use_container_width=True)
                 
                 cols = df.columns.tolist()
                 c1, c2 = st.columns(2)
