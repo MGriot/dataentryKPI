@@ -463,18 +463,14 @@ def get_daily_targets_for_kpi(year, plant_id, kpi_id, target_number):
             ORDER BY date_value
         """, (year, plant_id, kpi_id, target_number)).fetchall()
 
-def get_available_years():
-    if _handle_db_connection_error("db_kpi_targets.db", "get_available_years"): return []
+def get_distinct_years():
+    if _handle_db_connection_error("db_kpi_targets.db", "get_distinct_years"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
         return conn.execute("SELECT DISTINCT year FROM annual_targets ORDER BY year DESC").fetchall()
 
 def get_all_global_splits(year: int = None) -> list[dict]:
     """Retrieves all global KPI split templates, optionally filtered by year."""
-    from src.kpi_management.splits import get_all_global_splits as gas
-    return get_all_global_splits_logic(year)
-
-def get_all_global_splits_logic(year: int = None) -> list[dict]:
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
     query = "SELECT * FROM global_kpi_splits"
     params = []
