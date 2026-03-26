@@ -23,7 +23,6 @@ def import_from_zip(zip_path: str):
                 'dict_kpi_subgroups.csv': ('kpi_subgroups', get_database_path('db_kpis.db')),
                 'dict_kpi_indicators.csv': ('kpi_indicators', get_database_path('db_kpis.db')),
                 'dict_kpis.csv': ('kpis', get_database_path('db_kpis.db')),
-                'dict_kpi_master_sub_links.csv': ('kpi_master_sub_links', get_database_path('db_kpis.db')),
                 'dict_kpi_plant_visibility.csv': ('kpi_plant_visibility', get_database_path('db_kpis.db')),
                 'all_annual_kpi_master_targets.csv': ('annual_targets', get_database_path('db_kpi_targets.db')),
                 'all_daily_kpi_targets.csv': ('daily_targets', get_database_path('db_kpi_days.db')),

@@ -145,15 +145,6 @@ def get_kpi_spec_by_indicator_id(indicator_id: int) -> dict | None:
         except sqlite3.Error as e:
             print(f"ERROR: Database error while retrieving KPI Spec: {e}")
             raise
-            row = cursor.fetchone()
-            if row:
-                spec_data = dict(row)
-                spec_data["visible"] = bool(spec_data["visible"])
-                return spec_data
-            return None
-        except sqlite3.Error as e:
-            print(f"ERROR: Database error while retrieving KPI Spec: {e}")
-            raise
 
 
 # Note: Deletion of a KPI Specification (kpis record) is typically handled

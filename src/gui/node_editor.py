@@ -334,9 +334,6 @@ class NodeEditorDialog(tk.Toplevel):
             
             # 2. Indicators at this level
             indicators = db_retriever.get_indicators_by_node(parent_id) if parent_id else []
-            # Optionally, if indicators can be at root, add logic here. 
-            # Currently get_indicators_by_node(None) might be empty.
-            
             for ind in indicators:
                 tree.insert(tree_parent, "end", text=f"📊 {ind['name']}", values=("indicator", ind['id']))
 

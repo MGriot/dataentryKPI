@@ -15,21 +15,18 @@ The primary workspace for data entry.
 Each visible KPI is rendered as a "Card" containing:
 - **Target Inputs**: Fields for `Target 1` and `Target 2`.
 - **History**: Small blue labels showing values from `Y-1` and `Y-2` for context.
-- **Manual Override**: A checkbox (labeled "M") allows you to break a "Master/Sub" link and enter a value manually.
-- **Formula Indicator**: Calculated KPIs have a distinct visual style and locked input fields (unless "Override" is checked).
 
 ### 3. Actions
-- **Save All Changes**: Commits all modified targets to the database. This triggers a background thread to calculate formulas and distribute daily values.
+- **Save All Changes**: Commits all modified targets to the database. This triggers a background thread to distribute daily values based on the selected split profile.
 - **Apply to All Plants**: A checkbox to broadcast the current values to every active facility.
 
 ## 🗂️ KPI Management Tab
 
-A comprehensive "Control Panel" split into four sub-tabs:
+A comprehensive "Control Panel" split into three sub-tabs:
 
 ### 1. 📁 KPI Explorer
 - **Tree View**: Manage the folder structure. Right-click or use toolbar buttons to add Groups, Folders, or KPIs.
 - **Inspector**: Selecting a node shows its properties on the right panel.
-- **Visual Formula Editor**: For calculated KPIs, clicking "🛠️ Open Visual Editor" launches a node-based graph editor to visually design dependencies.
 
 ### 2. 📋 Templates
 Create reusable KPI "prototypes". Indicators added here can be instantiated in bulk across multiple subgroups.
@@ -37,10 +34,6 @@ Create reusable KPI "prototypes". Indicators added here can be instantiated in b
 ### 3. ✂️ Global Splits
 Manage seasonal distribution profiles.
 - **Predictor**: Use the "Multivariate Seasonality Predictor" (if available) to upload historical CSVs and generate weight curves automatically.
-
-### 4. 🔗 Master/Sub Links
-Define parent-child relationships.
-- **Weighting**: Assign percentage weights (0.0 - 1.0) to determine how a Master's target is distributed to its children.
 
 ## 📈 Analysis Tab
 

@@ -22,18 +22,11 @@ The central definition table for metrics.
 - `unit_of_measure`: e.g., "kg", "%", "hours".
 - `visible`: Global visibility flag.
 
-#### `kpi_master_sub_links`
-Defines hierarchical dependency for target distribution.
-- `master_kpi_spec_id`: Parent KPI.
-- `sub_kpi_spec_id`: Child KPI.
-- `distribution_weight`: Floating point weight (default 1.0).
-
 ### 2. Targets (`db_kpi_targets.db`)
 
 #### `annual_targets`
 The primary table for user input.
 - `year`, `plant_id`, `kpi_id`: Composite unique key.
-- `annual_target1`, `annual_target2`: The numeric target values.
 - `repartition_logic`: Enum ('Year', 'Month', 'Quarter', 'Week').
 - `distribution_profile`: Enum ('Even', 'Sinusoidal', 'Progressive', etc.).
 - `repartition_values`: JSON string storing custom weights (e.g., `{"January": 10.5, "February": 12...}`).
@@ -44,7 +37,6 @@ Normalized storage for dynamic targets (allows scaling beyond 2 targets).
 - `annual_target_id` (FK): Link to parent record.
 - `target_number`: Integer (1, 2, 3...).
 - `target_value`: The calculated or entered value.
-- `formula`: Stored formula string or DAG JSON.
 - `is_manual`: Boolean override flag.
 
 ### 3. Periodic Data (`db_kpi_*.db`)
@@ -66,7 +58,4 @@ erDiagram
     
     ANNUAL_TARGETS ||--o{ KPI_ANNUAL_TARGET_VALUES : "contains"
     ANNUAL_TARGETS ||--o{ DAILY_TARGETS : "distributes_to"
-    
-    KPIS ||--o{ KPI_MASTER_SUB_LINKS : "parent"
-    KPIS ||--o{ KPI_MASTER_SUB_LINKS : "child"
 ```

@@ -99,9 +99,6 @@ def load_kpi_targets_for_entry_target():
             
             st.session_state[f'target_{kpi_id}_{tn}'] = tv_rec.get('target_value')
             st.session_state[f'manual_{kpi_id}_{tn}'] = bool(tv_rec.get('is_manual', True))
-            st.session_state[f'formula_based_{kpi_id}_{tn}'] = bool(tv_rec.get('is_formula_based', False))
-            st.session_state[f'formula_str_{kpi_id}_{tn}'] = tv_rec.get('formula', '')
-            st.session_state[f'formula_inputs_{kpi_id}_{tn}'] = json.loads(tv_rec.get('formula_inputs', '[]') or '[]')
 
         # Repartition profile and values (shared for all targets of this KPI)
         st.session_state[f'distribution_profile_{kpi_id}'] = target_data.get('distribution_profile', PROFILE_EVEN)
@@ -141,9 +138,6 @@ def save_all_targets_entry():
                 'target_number': tn,
                 'target_value': t_val,
                 'is_manual': st.session_state.get(f'manual_{kpi_id}_{tn}', True),
-                'is_formula_based': st.session_state.get(f'formula_based_{kpi_id}_{tn}', False),
-                'formula': st.session_state.get(f'formula_str_{kpi_id}_{tn}', ''),
-                'formula_inputs': st.session_state.get(f'formula_inputs_{kpi_id}_{tn}', [])
             })
 
         distribution_profile = st.session_state.get(f'distribution_profile_{kpi_id}', PROFILE_EVEN)
@@ -174,16 +168,8 @@ def save_all_targets_entry():
         st.error(f"Error saving targets: {e}")
         st.exception(e)
 
-# --- Callbacks for dynamic behavior ---
 def _on_manual_toggle(kpi_id, target_num):
-    # If manual is checked, uncheck formula and disable formula inputs
-    if st.session_state[f'manual_{kpi_id}_{target_num}']:
-        st.session_state[f'formula_based_{kpi_id}_{target_num}'] = False
-
-def _on_formula_toggle(kpi_id, target_num):
-    # If formula is checked, uncheck manual
-    if st.session_state[f'formula_based_{kpi_id}_{target_num}']:
-        st.session_state[f'manual_{kpi_id}_{target_num}'] = False
+    pass
 
 def _update_repartition_input_area_streamlit(kpi_id):
     # This function will be called on profile/logic change to re-render the dynamic inputs
@@ -312,7 +298,7 @@ def app():
                                 f"{t_label}:",
                                 key=f'target_{kpi_id}_{tn}',
                                 format="%.2f",
-                                disabled=st.session_state.get(f'formula_based_{kpi_id}_{tn}', False) or (is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_{tn}', True))
+                                disabled=(is_sub_kpi and not st.session_state.get(f'manual_{kpi_id}_{tn}', True))
                             )
                         with cols_t[1]:
                             st.caption(f"📅 **History**")
@@ -322,10 +308,6 @@ def app():
                             # Logic toggles in a small area
                             if is_sub_kpi:
                                 st.checkbox("Manual", key=f'manual_{kpi_id}_{tn}', on_change=_on_manual_toggle, args=(kpi_id, tn))
-                            else:
-                                st.checkbox("Formula", key=f'formula_based_{kpi_id}_{tn}', on_change=_on_formula_toggle, args=(kpi_id, tn))
-                                if st.session_state.get(f'formula_based_{kpi_id}_{tn}', False):
-                                    st.text_input("Expr:", key=f'formula_str_{kpi_id}_{tn}', placeholder="e.g. [A]*1.1")
 
                     # Distribution Settings
                     with st.container(border=True):

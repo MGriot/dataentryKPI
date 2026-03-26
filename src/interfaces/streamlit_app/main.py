@@ -14,7 +14,7 @@ from src.config.settings import load_settings
 from src.interfaces.streamlit_app.pages import target_entry
 from src.interfaces.streamlit_app.components import (
     kpi_explorer, plants, kpi_templates, 
-    master_sub_link, export, analysis, 
+    export, analysis, 
     settings, global_splits
 )
 
@@ -44,7 +44,6 @@ pages = [
     st.Page(kpi_explorer.app, title="KPI Explorer", icon="📁", url_path="explorer"),
     st.Page(kpi_templates.app, title="Templates", icon="📋", url_path="templates"),
     st.Page(global_splits.app, title="Global Splits", icon="✂️", url_path="splits"),
-    st.Page(master_sub_link.app, title="Master/Sub Links", icon="🔗", url_path="links"),
     st.Page(plants.app, title="Plant Management", icon="🏭", url_path="plants"),
     st.Page(analysis.app, title="Analysis & Results", icon="📈", url_path="analysis"),
     st.Page(export.app, title="Data Center", icon="📦", url_path="export"),

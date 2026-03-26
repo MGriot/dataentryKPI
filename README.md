@@ -1,14 +1,8 @@
 # Data Entry KPI Target Manager
 
-An advanced Python-based platform for comprehensive management, distribution, and analysis of Key Performance Indicators (KPIs). The system features a powerful Directed Acyclic Graph (DAG) formula engine, machine-learning-driven seasonality prediction, and dual user interfaces (Tkinter & Streamlit) for maximum flexibility.
+An advanced Python-based platform for comprehensive management, distribution, and analysis of Key Performance Indicators (KPIs). The system features machine-learning-driven seasonality prediction and dual user interfaces (Tkinter & Streamlit) for maximum flexibility.
 
 ## 🌟 Core Features
-
-### 🧮 Advanced Target Engine
-- **"On-the-Fly" Formulas:** Calculated KPIs are evaluated daily, ensuring seasonality is dynamically inherited from dependencies.
-- **Topological Dependency Sort:** Automatic resolution of calculation order for complex KPI chains.
-- **Precision Reconciliation:** Guaranteed mathematical alignment between annual targets and daily distributions, handling rounding errors automatically.
-- **Visual Node Editor:** Design complex logic using a drag-and-drop DAG interface (Tkinter).
 
 ### 📈 Predictive Analytics
 - **Multivariate Seasonality Predictor:** Uses Ordinary Least Squares (OLS) regression to calculate seasonal weights based on historical data and external drivers (e.g., weather, market trends).
@@ -17,7 +11,6 @@ An advanced Python-based platform for comprehensive management, distribution, an
 ### 📁 KPI & Plant Management
 - **Hierarchical Organization:** Manage deep trees of Groups, Subgroups, and Folders.
 - **Template System:** Standardize indicators across different facilities using reusable prototypes.
-- **Weighted Master/Sub Links:** Automatically distribute high-level targets to granular sub-metrics.
 - **Granular Visibility:** Control KPI availability on a per-plant basis.
 
 ### 📦 Robust Data Operations

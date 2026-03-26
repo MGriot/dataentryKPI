@@ -20,7 +20,6 @@ try:
         get_all_plants,
         get_all_kpi_nodes,
         get_all_kpi_definitions_for_export,
-        get_all_kpi_master_sub_links,
         get_all_kpi_plant_visibility,
         get_all_annual_targets_enriched,
         get_all_periodic_targets_unified,
@@ -36,7 +35,6 @@ GLOBAL_CSV_FILES = {
     "plants": "dict_plants.csv",
     "kpi_nodes": "dict_kpi_hierarchy.csv",
     "kpi_definitions": "dict_kpi_definitions.csv",
-    "kpi_master_sub_links": "dict_kpi_master_sub_links.csv",
     "kpi_plant_visibility": "dict_kpi_plant_visibility.csv",
     "annual": "all_annual_targets.csv",
     "periodic": "all_periodic_targets.csv",
@@ -84,11 +82,6 @@ def export_all_data_to_global_csvs(base_export_path_str: str = None):
     _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_definitions"], 
                    get_all_kpi_definitions_for_export(), 
                    ["kpi_id", "indicator_name", "hierarchy_path", "description", "calculation_type", "unit_of_measure", "visible"])
-
-    # 4. Master/Sub Links
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_master_sub_links"], 
-                   get_all_kpi_master_sub_links(), 
-                   ["master_kpi_spec_id", "sub_kpi_spec_id", "distribution_weight"])
 
     # 5. Plant Visibility
     _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_plant_visibility"], 

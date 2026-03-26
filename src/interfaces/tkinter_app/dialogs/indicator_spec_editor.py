@@ -64,13 +64,12 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         self.formula_type_frame.grid(row=6, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
         
         ttk.Label(self.formula_type_frame, text="Formula Type:").pack(side="left", padx=5)
-        # We determine mode based on whether formula_string exists or formula_json
         initial_mode = "string" if self.initial_spec_data.get("formula_string") else "nodes"
         self.formula_mode_var = tk.StringVar(value=initial_mode)
         ttk.Radiobutton(self.formula_type_frame, text="Visual Nodes", variable=self.formula_mode_var, value="nodes", command=self._toggle_formula_ui).pack(side="left", padx=5)
         ttk.Radiobutton(self.formula_type_frame, text="Expression String", variable=self.formula_mode_var, value="string", command=self._toggle_formula_ui).pack(side="left", padx=5)
 
-        # --- Formula Editors (Conditional) ---
+        # --- Formula Editors ---
         self.editor_container = ttk.Frame(master)
         self.editor_container.grid(row=7, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
@@ -117,24 +116,20 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         is_calc = self.is_calculated_var.get()
         mode = self.formula_mode_var.get()
         
-        # Req 6: Bidirectional conversion when switching mode
         if is_calc:
             if mode == "string" and self.formula_json_var.get():
-                # Convert Nodes -> String
                 try:
                     dag = KpiDAG.from_json(self.formula_json_var.get())
                     formula = dag.to_formula()
                     if formula: self.formula_string_var.set(formula)
                 except: pass
             elif mode == "nodes" and self.formula_string_var.get():
-                # Convert String -> Nodes
                 try:
                     dag = KpiDAG.from_formula(self.formula_string_var.get())
                     self.formula_json_var.set(dag.to_json())
                     self.formula_display_var.set("Defined (Converted)")
                 except: pass
 
-        # Show/Hide Type selection
         if is_calc:
             self.formula_type_frame.grid()
             self.nodes_frame.pack_forget()
@@ -160,7 +155,6 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
             self.formula_display_var.set("Defined")
 
     def _on_kpi_picker(self):
-        # Open a simple listbox selection window to pick a KPI ID
         picker = tk.Toplevel(self)
         picker.title("Select KPI Reference")
         picker.geometry("400x500")
@@ -190,7 +184,6 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
 
         per_plant_visibility_data = [{"plant_id": pid, "is_enabled": var.get()} for pid, var in self.plant_visibility_vars.items()]
 
-        # Clean up formula based on mode
         is_calc = self.is_calculated_var.get()
         mode = self.formula_mode_var.get()
         

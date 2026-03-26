@@ -124,62 +124,6 @@ def get_all_plants(visible_only=False):
         conn.row_factory = sqlite3.Row
         return conn.execute("SELECT * FROM plants" + (" WHERE visible = 1" if visible_only else "") + " ORDER BY name").fetchall()
 
-# --- Links & Roles ---
-def get_linked_sub_kpis_detailed(master_id):
-    if _handle_db_connection_error("db_kpis.db", "get_linked_sub_kpis_detailed"): return []
-    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute("""
-            SELECT 
-                k.id, 
-                i.name as indicator_name, 
-                l.distribution_weight,
-                (SELECT n.path FROM (
-                    WITH RECURSIVE NodePaths(id, path) AS (
-                        SELECT id, name FROM kpi_nodes WHERE parent_id IS NULL
-                        UNION ALL
-                        SELECT n.id, np.path || ' > ' || n.name FROM kpi_nodes n JOIN NodePaths np ON n.parent_id = np.id
-                    ) SELECT * FROM NodePaths
-                ) n WHERE n.id = i.node_id) as hierarchy_path
-            FROM kpi_master_sub_links l 
-            JOIN kpis k ON l.sub_kpi_spec_id = k.id 
-            JOIN kpi_indicators i ON k.indicator_id = i.id 
-            WHERE l.master_kpi_spec_id = ?
-        """, (master_id,)).fetchall()
-
-def get_sub_kpis_for_master(master_kpi_spec_id: int) -> list:
-    """Returns a list of sub_kpi_spec_id linked to a master_kpi_spec_id."""
-    if _handle_db_connection_error("db_kpis.db", "get_sub_kpis_for_master"): return []
-    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT sub_kpi_spec_id FROM kpi_master_sub_links WHERE master_kpi_spec_id = ?", (master_kpi_spec_id,)).fetchall()
-        return [row['sub_kpi_spec_id'] for row in rows]
-
-def get_kpi_role_details(kpi_spec_id: int):
-    """Determines if a KPI is a master, a sub, or neither."""
-    is_master = False
-    master_id = None
-    
-    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
-        conn.row_factory = sqlite3.Row
-        # Check if it's a master
-        master_check = conn.execute("SELECT 1 FROM kpi_master_sub_links WHERE master_kpi_spec_id = ? LIMIT 1", (kpi_spec_id,)).fetchone()
-        if master_check:
-            is_master = True
-        
-        # Check if it's a sub
-        sub_check = conn.execute("SELECT master_kpi_spec_id FROM kpi_master_sub_links WHERE sub_kpi_spec_id = ? LIMIT 1", (kpi_spec_id,)).fetchone()
-        if sub_check:
-            master_id = sub_check['master_kpi_spec_id']
-
-    role = "none"
-    if is_master:
-        role = "master"
-    elif master_id is not None:
-        role = "sub"
-        
-    return {"role": role, "master_id": master_id}
-
 # --- Templates ---
 def get_kpi_indicator_templates():
     if _handle_db_connection_error("db_kpi_templates.db", "get_kpi_indicator_templates"): return []
@@ -367,13 +311,6 @@ def get_all_kpi_nodes():
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
         return conn.execute("SELECT * FROM kpi_nodes").fetchall()
-
-def get_all_kpi_master_sub_links():
-    """Returns all records from the kpi_master_sub_links table."""
-    if _handle_db_connection_error("db_kpis.db", "get_all_kpi_master_sub_links"): return []
-    with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
-        conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_master_sub_links").fetchall()
 
 def get_all_kpi_plant_visibility():
     """Returns all records from the kpi_plant_visibility table."""

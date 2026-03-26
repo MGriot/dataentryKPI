@@ -13,11 +13,9 @@ from src import data_retriever as db_retriever
 from src.interfaces.tkinter_app.dialogs.indicator_spec_editor import IndicatorSpecEditorDialog
 from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
 from src.interfaces.common_ui.helpers import get_kpi_display_name
-from src.kpi_management import links as kpi_links_manager
 
 from src.kpi_management import splits as kpi_splits_manager
 from src.interfaces.tkinter_app.dialogs.split_editor import SplitEditorDialog
-from src.gui.node_editor import NodeEditorDialog
 
 class KpiManagementTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -26,7 +24,6 @@ class KpiManagementTab(ttk.Frame):
         self.node_cache = {} # id -> row
         self.indicator_cache = {} # id -> row
         self.template_cache = {} # id -> row
-        self.link_cache = {} # id -> row
         self.split_cache = {} # id -> row
         self.create_widgets()
 
@@ -41,17 +38,14 @@ class KpiManagementTab(ttk.Frame):
         self.hierarchy_frame = ttk.Frame(self.notebook, style="Card.TFrame")
         self.templates_frame = ttk.Frame(self.notebook, style="Card.TFrame")
         self.splits_frame = ttk.Frame(self.notebook, style="Card.TFrame")
-        self.links_frame = ttk.Frame(self.notebook, style="Card.TFrame")
 
         self.notebook.add(self.hierarchy_frame, text="📁 KPI Explorer")
         self.notebook.add(self.templates_frame, text="📋 Templates")
         self.notebook.add(self.splits_frame, text="✂️ Global Splits")
-        self.notebook.add(self.links_frame, text="🔗 Master/Sub Links")
 
         self._create_hierarchy_ui(self.hierarchy_frame)
         self._create_templates_ui(self.templates_frame)
         self._create_splits_ui(self.splits_frame)
-        self._create_links_ui(self.links_frame)
 
         self.notebook.bind("<<NotebookTabChanged>>", lambda e: self.refresh_all())
 
@@ -105,26 +99,6 @@ class KpiManagementTab(ttk.Frame):
         self.tpl_detail_content = ttk.Frame(self.tpl_detail_f, style="Card.TFrame")
         self.tpl_detail_content.pack(fill="both", expand=True)
 
-    def _create_links_ui(self, parent):
-        pane = ttk.PanedWindow(parent, orient="horizontal")
-        pane.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Left: Master Selection
-        m_f = ttk.Frame(pane, style="Card.TFrame")
-        pane.add(m_f, weight=1)
-        
-        ttk.Label(m_f, text="Select Master KPI:", font=("Helvetica", 10, "bold")).pack(anchor="w", pady=5)
-        self.master_list = tk.Listbox(m_f, font=("Helvetica", 10))
-        self.master_list.pack(fill="both", expand=True)
-        self.master_list.bind("<<ListboxSelect>>", self.on_master_select)
-
-        # Right: Sub Links
-        self.link_detail_f = ttk.LabelFrame(pane, text="Linked Sub-KPIs", style="Card.TLabelframe", padding=15)
-        pane.add(self.link_detail_f, weight=2)
-        
-        self.link_detail_content = ttk.Frame(self.link_detail_f, style="Card.TFrame")
-        self.link_detail_content.pack(fill="both", expand=True)
-
     def _create_splits_ui(self, parent):
         pane = ttk.PanedWindow(parent, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10, pady=10)
@@ -153,32 +127,11 @@ class KpiManagementTab(ttk.Frame):
         if tab_idx == 0: self.refresh_tree()
         elif tab_idx == 1: self.refresh_templates()
         elif tab_idx == 2: self.refresh_splits()
-        elif tab_idx == 3: self.refresh_links()
 
     def refresh_tree(self):
         for i in self.tree.get_children(): self.tree.delete(i)
         self.node_cache = {}
         self.indicator_cache = {}
-        self.ind_to_spec_map = {} # Map indicator_id -> kpi_spec_id
-        
-        # Cache links for visualization
-        try:
-            # 1. Fetch Links
-            all_links = db_retriever.get_all_kpi_master_sub_links()
-            self.master_ids = set(l['master_kpi_spec_id'] for l in all_links)
-            self.sub_ids = set(l['sub_kpi_spec_id'] for l in all_links)
-            
-            # 2. Fetch KPI Specs to map Indicator ID -> Spec ID
-            all_specs = db_retriever.get_all_kpis()
-            for s in all_specs:
-                self.ind_to_spec_map[s['indicator_id']] = s['id']
-                
-        except Exception as e:
-            print(f"Error refreshing tree cache: {e}")
-            self.master_ids = set()
-            self.sub_ids = set()
-            self.ind_to_spec_map = {}
-
         self._load_level(None, "")
 
     def _load_level(self, parent_id, tree_parent):
@@ -206,26 +159,7 @@ class KpiManagementTab(ttk.Frame):
             for i_row in inds_raw:
                 i = dict(i_row)
                 iid = f"I_{i['id']}"
-                
-                # Check link status via Specs
-                # To map indicator_id -> kpi_spec_id efficiently, we ideally need a cache or join.
-                # But get_indicators_by_node returns INDICATORS table rows. Links use KPI_SPEC_ID (from KPIS table).
-                # This requires resolving Indicator ID -> KPI Spec ID.
-                # db_retriever.get_all_kpis() returns kpis table.
-                # Let's verify spec existence.
-                # For performance in a loop, this is bad. But let's check kpi_specs_manager cache?
-                # No cache there.
-                # Optimization: Fetch all KPIs once in refresh_tree.
-                
-                suffix = ""
-                # We need spec_id for this indicator.
-                # Since we don't have it readily available without query, let's use a cached map.
-                spec_id = self.ind_to_spec_map.get(i['id'])
-                if spec_id:
-                    if spec_id in self.master_ids: suffix += " 🔗(M)"
-                    if spec_id in self.sub_ids: suffix += " 🔗(S)"
-                
-                self.tree.insert(tree_parent, "end", iid=iid, text=f"📊 {i['name']}{suffix}")
+                self.tree.insert(tree_parent, "end", iid=iid, text=f"📊 {i['name']}")
                 self.indicator_cache[i['id']] = i
 
     def refresh_templates(self):
@@ -244,13 +178,6 @@ class KpiManagementTab(ttk.Frame):
         for s in splits_raw:
             self.split_cache[s['id']] = s
             self.split_list.insert(tk.END, f"{s['year']} - {s['name']}")
-
-    def refresh_links(self):
-        self.master_list.delete(0, tk.END)
-        kpis_raw = db_retriever.get_all_kpis_detailed(only_visible=True)
-        self.master_kpis = sorted([dict(k) for k in kpis_raw], key=lambda x: x['indicator_name'] or "")
-        for k in self.master_kpis:
-            self.master_list.insert(tk.END, k['indicator_name'] or "N/A")
 
     def on_tree_select(self, event):
         sel = self.tree.selection()
@@ -273,14 +200,6 @@ class KpiManagementTab(ttk.Frame):
         tpl_name = self.tpl_list.get(sel[0])
         tpl_id = next(tid for tid, t in self.template_cache.items() if t['name'] == tpl_name)
         self._show_template_details(tpl_id)
-
-    def on_master_select(self, event):
-        sel = self.master_list.curselection()
-        for c in self.link_detail_content.winfo_children(): c.destroy()
-        if not sel: return
-
-        master_kpi = self.master_kpis[sel[0]]
-        self._show_link_details(master_kpi['id'])
 
     def _show_node_details(self, node_id):
         node = self.node_cache[node_id]
@@ -365,11 +284,9 @@ class KpiManagementTab(ttk.Frame):
     def _get_expanded_formula(self, formula_str: str) -> str:
         if not formula_str: return "None"
         import re
-        # Find all [ID]
         pattern = r'\[(\d+)\]'
         matches = re.findall(pattern, formula_str)
         
-        # We need a map of KPI Spec ID -> Name. 
         all_kpis = db_retriever.get_all_kpis_detailed()
         name_map = {k['id']: k['indicator_name'] for k in all_kpis}
         
@@ -388,16 +305,30 @@ class KpiManagementTab(ttk.Frame):
         try:
             if f_json:
                 dag = KpiDAG.from_json(f_json)
-                # Resolver that always returns 10.0
                 return dag.evaluate(lambda kid, tn: 10.0)
             elif f_str:
                 import re
-                # Replace [ID] with 10.0
                 processed = re.sub(r'\[\d+\]', '10.0', f_str)
                 return float(eval(processed, {"__builtins__": None}, {"abs": abs, "min": min, "max": max, "round": round}))
         except:
             return 0.0
         return 0.0
+
+    def open_visual_editor(self, ind_id):
+        from src.gui.node_editor import NodeEditorDialog
+        spec_row = kpi_specs_manager.get_kpi_spec_by_indicator_id(ind_id)
+        if not spec_row: return
+        spec = dict(spec_row)
+        
+        all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
+        kpi_list = [{"id": k['id'], "name": k['indicator_name']} for k in all_kpis if k['indicator_id'] != ind_id]
+
+        dialog = NodeEditorDialog(self.app, initial_json=spec.get('formula_json'), kpi_list=kpi_list)
+        if dialog.get_result():
+            new_json = dialog.get_result()
+            kpi_specs_manager.update_kpi_spec(spec['id'], formula_json=new_json)
+            messagebox.showinfo("Success", "Formula updated.")
+            self.refresh_tree()
 
     def _show_split_details(self, split_id):
         s = self.split_cache[split_id]
@@ -418,25 +349,6 @@ class KpiManagementTab(ttk.Frame):
         btn_f.pack(fill="x", pady=10)
         ttk.Button(btn_f, text="Edit Split", command=lambda: self.edit_split(split_id), style="Action.TButton").pack(side="left", padx=5)
         ttk.Button(btn_f, text="Delete Split", command=lambda: self.delete_split(split_id)).pack(side="left", padx=5)
-
-    def open_visual_editor(self, ind_id):
-        spec_row = kpi_specs_manager.get_kpi_spec_by_indicator_id(ind_id)
-        if not spec_row: return
-        spec = dict(spec_row)
-        
-        # Get all visible KPIs for the input selector
-        all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
-        kpi_list = [{"id": k['id'], "name": k['indicator_name']} for k in all_kpis if k['indicator_id'] != ind_id]
-
-        dialog = NodeEditorDialog(self.app, initial_json=spec.get('formula_json'), kpi_list=kpi_list)
-        if dialog.get_result():
-            new_json = dialog.get_result()
-            # Simple expression generation (placeholder logic, usually handled by a generator)
-            dag_obj = json.loads(new_json)
-            # update spec
-            kpi_specs_manager.update_kpi_spec(spec['id'], formula_json=new_json)
-            messagebox.showinfo("Success", "Formula updated.")
-            self.refresh_tree()
 
     def _show_template_details(self, tpl_id):
         for c in self.tpl_detail_content.winfo_children(): c.destroy()
@@ -466,30 +378,6 @@ class KpiManagementTab(ttk.Frame):
         btn_f.pack(fill="x", pady=10)
         ttk.Button(btn_f, text="Edit Selected", command=lambda: self.edit_template_indicator(tpl_id)).pack(side="left", padx=5)
         ttk.Button(btn_f, text="Remove Selected", command=self.remove_template_indicator).pack(side="left", padx=5)
-
-    def _show_link_details(self, master_id):
-        master = next(k for k in self.master_kpis if k['id'] == master_id)
-        ttk.Label(self.link_detail_content, text=f"Master: {master['indicator_name']}", font=("Helvetica", 12, "bold"), background="#FFFFFF").pack(anchor="w", pady=(0, 10))
-
-        toolbar = ttk.Frame(self.link_detail_content, style="Card.TFrame")
-        toolbar.pack(fill="x", pady=5)
-        ttk.Button(toolbar, text="+ Link Sub-KPI", command=lambda: self.add_sub_link(master_id), style="Action.TButton").pack(side="left", padx=2)
-
-        # Treeview for links
-        cols = ("Sub-KPI", "Weight")
-        self.link_tree = ttk.Treeview(self.link_detail_content, columns=cols, show="headings", height=10)
-        for col in cols: self.link_tree.heading(col, text=col)
-        self.link_tree.pack(fill="both", expand=True)
-
-        links_raw = db_retriever.get_linked_sub_kpis_detailed(master_id)
-        for l_row in links_raw:
-            l = dict(l_row)
-            self.link_tree.insert("", "end", iid=l['id'], values=(l['indicator_name'], l['distribution_weight']))
-
-        btn_f = ttk.Frame(self.link_detail_content, style="Card.TFrame")
-        btn_f.pack(fill="x", pady=10)
-        ttk.Button(btn_f, text="Update Weight", command=lambda: self.update_link_weight(master_id)).pack(side="left", padx=5)
-        ttk.Button(btn_f, text="Unlink", command=lambda: self.unlink_sub(master_id)).pack(side="left", padx=5)
 
     # --- Actions: Hierarchy ---
 
@@ -599,34 +487,6 @@ class KpiManagementTab(ttk.Frame):
                 tpl_name = self.tpl_list.get(sel_list[0])
                 tpl_id = next(tid for tid, t in self.template_cache.items() if t['name'] == tpl_name)
                 self._show_template_details(tpl_id)
-
-    # --- Actions: Links ---
-
-    def add_sub_link(self, master_id):
-        from src.interfaces.tkinter_app.dialogs.link_sub_kpi_dialog import LinkSubKpiDialog
-        dialog = LinkSubKpiDialog(self.app, title="Link Sub-KPI", master_kpi_id=master_id)
-        if dialog.result_data:
-            kpi_links_manager.link_sub_kpi(master_id, dialog.result_data['sub_kpi_id'], dialog.result_data['weight'])
-            self._show_link_details(master_id)
-
-    def update_link_weight(self, master_id):
-        sel = self.link_tree.selection()
-        if not sel: return
-        sub_spec_id = int(sel[0]) 
-        links_raw = db_retriever.get_linked_sub_kpis_detailed(master_id)
-        link_row = next(dict(l) for l in links_raw if l['id'] == sub_spec_id)
-        
-        new_w = simpledialog.askfloat("Weight", "New distribution weight:", initialvalue=link_row['distribution_weight'])
-        if new_w is not None:
-            kpi_links_manager.update_link_weight(master_id, sub_spec_id, new_w)
-            self._show_link_details(master_id)
-
-    def unlink_sub(self, master_id):
-        sel = self.link_tree.selection()
-        if not sel: return
-        if messagebox.askyesno("Confirm", "Unlink this KPI?"):
-            kpi_links_manager.unlink_sub_kpi(master_id, int(sel[0]))
-            self._show_link_details(master_id)
 
     # --- Actions: Splits ---
 

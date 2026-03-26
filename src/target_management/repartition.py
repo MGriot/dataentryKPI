@@ -36,7 +36,6 @@ def _evaluate_daily_formula(formula_to_use, context_vars, is_node_dag=False, kpi
         pattern = r'\[(\d+)\]'
         def replacer(match):
             kpi_id = match.group(1)
-            # Find in context_vars (which should have keys like 'kpi_101')
             val = context_vars.get(f"kpi_{kpi_id}", 0.0)
             return str(val)
         processed = re.sub(pattern, replacer, formula_to_use)
@@ -345,11 +344,9 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
                 if "nodes" in dj: is_dag = True
         except: pass
         
-        # Build dependency map: {kpi_id: [daily_values_array]}
         dag = KpiDAG.from_json(formula_json) if is_dag else None
         deps = dag.find_all_kpi_dependencies() if is_dag else []
         
-        # For legacy string formulas, we'd need to parse [ID] but let's assume we can detect them
         if not is_dag and formula_str:
             import re
             dep_ids = list(set(re.findall(r'\[(\d+)\]', formula_str)))
@@ -358,14 +355,12 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
         dep_daily_data = {}
         for d in deps:
             rows = get_daily_targets_for_kpi(year, plant_id, d['kpi_id'], d['target_num'])
-            # Create array of 365/366 values
             arr = np.zeros(len(all_dates))
             date_map = {r['date_value']: r['target_value'] for r in rows}
             for idx, dt in enumerate(all_dates):
                 arr[idx] = date_map.get(dt.isoformat(), 0.0)
             dep_daily_data[d['kpi_id']] = arr
 
-        # Calculate for each day
         calculated_days = np.zeros(len(all_dates))
         for idx in range(len(all_dates)):
             if is_dag:
@@ -376,7 +371,6 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
                 ctx = {f"kpi_{kid}": arr[idx] for kid, arr in dep_daily_data.items()}
                 calculated_days[idx] = _evaluate_daily_formula(formula_str, ctx)
         
-        # FINAL RECONCILIATION: Ensure sum/mean matches annual target
         final_daily_values = _reconcile_and_adjust_daily_values(calculated_days, annual_target_to_use, kpi_calc_type)
 
     # --- FALLBACK: RULE-BASED SPLIT ---
@@ -387,6 +381,9 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
         if gs:
             logic, profile, vals, params = gs['repartition_logic'], gs['distribution_profile'], gs['repartition_values'], gs['profile_params']
         else:
+            REPARTITION_LOGIC_YEAR = app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"]
+            PROFILE_ANNUAL_PROGRESSIVE = app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"]
+            
             logic = target_info.get("repartition_logic", REPARTITION_LOGIC_YEAR)
             profile = target_info.get("distribution_profile") or kpi_details.get("default_distribution_profile") or PROFILE_ANNUAL_PROGRESSIVE
             vals = json.loads(target_info.get("repartition_values", "{}") or "{}")
@@ -397,7 +394,6 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
         
         events = params.get("events", [])
         final_daily_values = _apply_event_adjustments_to_daily_values(raw_days, events, kpi_calc_type, annual_target_to_use, all_dates)
-        # Check rule-based as well for rounding
         final_daily_values = _reconcile_and_adjust_daily_values(final_daily_values, annual_target_to_use, kpi_calc_type)
 
     # --- Save ---

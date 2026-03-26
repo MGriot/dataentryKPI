@@ -15,7 +15,6 @@ class TargetEntryTab(ttk.Frame):
         super().__init__(parent)
         self.app = app
         self._populating_target_kpi_entries = False
-        self._master_sub_update_active = False
         self._recalculating_ui = False
         
         self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
@@ -286,9 +285,8 @@ class TargetEntryTab(ttk.Frame):
         ent.bind("<FocusOut>", lambda e, k=kid, t=tn, v=var: self._sync_cache(k, t, v.get()))
         ent.bind("<Return>", lambda e, k=kid, t=tn, v=var: self._sync_cache(k, t, v.get()))
 
-        is_sub = bool(self.all_kpis_data_cache[kid]['kpi_info'].get('master_kpi_id'))
-        if is_calc or is_sub:
-            label = "Override" if is_calc else "M"
+        if is_calc:
+            label = "Override"
             cb = ttk.Checkbutton(f, text=label, variable=m_var, command=lambda: self._sync_and_update(kid, tn))
             cb.pack(side='left')
 
@@ -303,9 +301,8 @@ class TargetEntryTab(ttk.Frame):
             self.all_kpis_data_cache[kid]['targets'][tn]['val'] = val_float
         except: pass
         
-        if not self._recalculating_ui and not self._master_sub_update_active:
+        if not self._recalculating_ui:
             self._recalculate_all_formulas_ui(tn)
-            self._sync_master_sub(kid, tn)
 
     def _sync_and_update(self, kid, tn):
         w = self.kpi_target_entry_widgets[kid]['targets'][tn]
@@ -314,7 +311,6 @@ class TargetEntryTab(ttk.Frame):
         w['ent'].config(state='normal' if m else 'disabled')
         
         if not m: self._recalculate_all_formulas_ui(tn)
-        self._sync_master_sub(kid, tn)
 
     def _recalculate_all_formulas_ui(self, tn):
         if self._populating_target_kpi_entries or self._recalculating_ui: return
@@ -362,28 +358,6 @@ class TargetEntryTab(ttk.Frame):
             try: return float(eval(processed, {"__builtins__": None}, {"abs": abs, "min": min, "max": max, "round": round}))
             except: return 0.0
         return 0.0
-
-    def _sync_master_sub(self, kid, tn):
-        if self._master_sub_update_active: return
-        info = self.all_kpis_data_cache[kid]['kpi_info']
-        if info.get('master_kpi_id'): return
-        
-        subs = db_retriever.get_linked_sub_kpis_detailed(kid)
-        if not subs: return
-        
-        self._master_sub_update_active = True
-        try:
-            total_w = sum(s['distribution_weight'] for s in subs)
-            master_val = self.all_kpis_data_cache[kid]['targets'][tn]['val']
-            for s in subs:
-                sid = s['id']
-                if sid in self.all_kpis_data_cache and tn in self.all_kpis_data_cache[sid]['targets']:
-                    if not self.all_kpis_data_cache[sid]['targets'][tn]['manual']:
-                        val = (master_val * s['distribution_weight'] / total_w) if total_w > 0 else 0
-                        self.all_kpis_data_cache[sid]['targets'][tn]['val'] = val
-                        if sid in self.kpi_target_entry_widgets and tn in self.kpi_target_entry_widgets[sid]['targets']:
-                            self.kpi_target_entry_widgets[sid]['targets'][tn]['var'].set(str(round(val, 4)))
-        finally: self._master_sub_update_active = False
 
     def save_all_targets_entry(self):
         year = int(self.year_cb_target.get())

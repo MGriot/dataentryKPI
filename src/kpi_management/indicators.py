@@ -48,7 +48,6 @@ def delete_kpi_indicator(indicator_id: int):
     Deletes a KPI indicator. This is a critical operation that also triggers:
     1. Deletion of the corresponding kpis record (KPI specification) via ON DELETE CASCADE.
     2. Before (or as part of) kpis record deletion, associated data must be cleaned:
-        - kpi_master_sub_links related to the kpis.id (handled by ON DELETE CASCADE from kpis table).
         - annual_targets for the kpis.id from DB_TARGETS (MANUAL DELETE REQUIRED).
         - periodic_targets (daily, weekly, monthly, quarterly) for the kpis.id
           from their respective databases (MANUAL DELETE REQUIRED).
@@ -135,16 +134,11 @@ def delete_kpi_indicator(indicator_id: int):
                 print(traceback.format_exc())
                 raise Exception(f"Error deleting from {table_name_del} for kpi_spec_id {kpi_spec_id_to_delete}.") from e
         
-        # Note: kpi_master_sub_links cleanup is handled by ON DELETE CASCADE
-        # when the 'kpis' record (kpi_spec_id_to_delete) is deleted.
-        # This cascade happens when 'kpi_indicators' record (indicator_id) is deleted,
-        # which in turn cascades to 'kpis'.
         print(f"  Data cleanup for KPI Spec ID {kpi_spec_id_to_delete} completed.")
 
 
     # Step 3: Delete the kpi_indicator itself.
-    # This will also trigger ON DELETE CASCADE for the associated kpis record (if any was left or found),
-    # which in turn triggers ON DELETE CASCADE for kpi_master_sub_links.
+    # This will also trigger ON DELETE CASCADE for the associated kpis record (if any was left or found).
     print(f"  Proceeding to delete kpi_indicators entry for ID {indicator_id}.")
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn_kpis_delete:
         try:

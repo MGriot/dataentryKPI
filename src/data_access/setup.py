@@ -236,32 +236,6 @@ def setup_databases():
                         f"WARN: Could not add 'unit_of_measure' to 'kpis', it might already exist or another issue occurred: {e}"
                     )
 
-            cursor.execute(
-                """CREATE TABLE IF NOT EXISTS kpi_master_sub_links (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    master_kpi_spec_id INTEGER NOT NULL,
-                    sub_kpi_spec_id INTEGER NOT NULL,
-                    distribution_weight REAL NOT NULL DEFAULT 1.0,
-                    FOREIGN KEY (master_kpi_spec_id) REFERENCES kpis(id) ON DELETE CASCADE,
-                    FOREIGN KEY (sub_kpi_spec_id) REFERENCES kpis(id) ON DELETE CASCADE,
-                    UNIQUE (master_kpi_spec_id, sub_kpi_spec_id)
-                )"""
-            )
-            # Check and add 'distribution_weight' to 'kpi_master_sub_links' if missing
-            cursor.execute("PRAGMA table_info(kpi_master_sub_links)")
-            link_columns = {col[1] for col in cursor.fetchall()}
-            if "distribution_weight" not in link_columns:
-                try:
-                    cursor.execute(
-                        "ALTER TABLE kpi_master_sub_links ADD COLUMN distribution_weight REAL NOT NULL DEFAULT 1.0"
-                    )
-                    print(
-                        "Added column 'distribution_weight' to 'kpi_master_sub_links'."
-                    )
-                except sqlite3.OperationalError as e:
-                    print(
-                        f"WARN: Could not add 'distribution_weight' to 'kpi_master_sub_links', it might already exist or another issue occurred: {e}"
-                    )
             conn.commit()
 
             # --- New table for KPI-Plant Visibility ---
