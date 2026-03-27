@@ -116,19 +116,27 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         is_calc = self.is_calculated_var.get()
         mode = self.formula_mode_var.get()
         
+        # Bidirectional conversion
         if is_calc:
             if mode == "string" and self.formula_json_var.get():
+                # Convert Nodes -> String
                 try:
+                    from src.core.node_engine import KpiDAG
                     dag = KpiDAG.from_json(self.formula_json_var.get())
                     formula = dag.to_formula()
                     if formula: self.formula_string_var.set(formula)
-                except: pass
+                except Exception as e:
+                    print(f"Error converting nodes to string: {e}")
             elif mode == "nodes" and self.formula_string_var.get():
+                # Convert String -> Nodes
                 try:
+                    from src.core.node_engine import KpiDAG
                     dag = KpiDAG.from_formula(self.formula_string_var.get())
+                    # Redraw names from DB if possible
                     self.formula_json_var.set(dag.to_json())
                     self.formula_display_var.set("Defined (Converted)")
-                except: pass
+                except Exception as e:
+                    print(f"Error converting string to nodes: {e}")
 
         if is_calc:
             self.formula_type_frame.grid()

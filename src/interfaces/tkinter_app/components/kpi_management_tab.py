@@ -256,7 +256,15 @@ class KpiManagementTab(ttk.Frame):
                 formula_f.pack(fill="x", pady=10)
                 
                 # 1. Raw ID-based formula
-                f_str = spec.get('formula_string', 'No expression defined.')
+                f_str = spec.get('formula_string')
+                if not f_str and spec.get('formula_json'):
+                    try:
+                        from src.core.node_engine import KpiDAG
+                        dag = KpiDAG.from_json(spec['formula_json'])
+                        f_str = dag.to_formula()
+                    except: pass
+                
+                f_str = f_str or 'No expression defined.'
                 ttk.Label(formula_f, text=f"Expression: {f_str}", wraplength=400, font=("Courier", 9), background="#E3F2FD", foreground="#666").pack(fill="x")
                 
                 # 2. Name-based expanded formula
@@ -405,6 +413,11 @@ class KpiManagementTab(ttk.Frame):
                 if "per_plant_visibility" in dialog.result_data:
                     kpi_visibility.update_plant_visibility(spec_id, dialog.result_data["per_plant_visibility"])
                 self.refresh_tree()
+                # Auto-select the newly added KPI
+                iid = f"I_{new_id}"
+                self.tree.selection_set(iid)
+                self.tree.see(iid)
+                self._show_indicator_details(new_id)
             except Exception as e: messagebox.showerror("Error", str(e))
 
     def rename_node(self, node_id):
@@ -435,6 +448,11 @@ class KpiManagementTab(ttk.Frame):
             if "per_plant_visibility" in dialog.result_data:
                 kpi_visibility.update_plant_visibility(spec_id, dialog.result_data["per_plant_visibility"])
             self.refresh_tree()
+            # Restore selection and refresh details
+            iid = f"I_{ind_id}"
+            self.tree.selection_set(iid)
+            self.tree.see(iid)
+            self._show_indicator_details(ind_id)
 
     def delete_kpi(self, ind_id):
         if messagebox.askyesno("Confirm", "Delete this KPI?"):

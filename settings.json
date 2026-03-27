@@ -1,9 +1,15 @@
 {
-    "display_names": {
-        "target1": "Target",
-        "target2": "Stretched"
-    },
-    "database_base_dir": "C:\\Users\\Admin\\Documents\\Coding\\dataentryKPI\\databases",
+    "targets": [
+        {
+            "id": 1,
+            "name": "Target"
+        },
+        {
+            "id": 2,
+            "name": "Stretched"
+        }
+    ],
+    "database_base_dir": "C:\\Users\\Admin\\Documents\Coding\\dataentryKPI\\databases",
     "csv_export_base_dir": "C:\\Users\\Admin\\Documents\\Coding\\dataentryKPI\\csv_exports",
     "database_path": "C:/Users/Admin/Documents/Coding/dataentryKPI/databases"
 }

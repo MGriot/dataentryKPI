@@ -21,12 +21,6 @@ from src.interfaces.common_ui.constants import (
 )
 
 # --- Helper Functions ---
-def _get_target_display_names():
-    # Access settings from session_state
-    settings = st.session_state.settings
-    return settings.get('display_names', {}).get('target1', 'Target 1'), \
-           settings.get('display_names', {}).get('target2', 'Target 2')
-
 def _get_repartition_profiles():
     return [
         PROFILE_EVEN,
@@ -80,21 +74,18 @@ def load_kpi_targets_for_entry_target():
     st.session_state.hist2_map_for_entry = {t['kpi_id']: t for t in hist2}
 
     # Initialize input values in session state for each KPI
+    target_config = st.session_state.settings.get('targets', [{"id": 1, "name": "Target"}])
+    
     for kpi in st.session_state.kpis_for_entry:
         kpi_id = kpi['id']
         target_data = st.session_state.targets_map_for_entry.get(kpi_id, {})
-        
-        # Get actual target values from enriched data
         target_values = target_data.get('target_values', [])
-        target_nums = [tv['target_number'] for tv in target_values]
-        if not target_nums:
-            target_nums = [1, 2] # Default to 2 targets if new
         
-        st.session_state[f'target_numbers_{kpi_id}'] = sorted(list(set(target_nums)))
+        # We always use the global config for targets
+        st.session_state[f'target_numbers_{kpi_id}'] = [t['id'] for t in target_config]
 
         # Initialize each target
         for tn in st.session_state[f'target_numbers_{kpi_id}']:
-            # Find specific target data
             tv_rec = next((tv for tv in target_values if tv['target_number'] == tn), {})
             
             st.session_state[f'target_{kpi_id}_{tn}'] = tv_rec.get('target_value')
@@ -262,7 +253,7 @@ def app():
                 pass
 
     with main_col:
-        target1_display_name, target2_display_name = _get_target_display_names()
+        target_config = st.session_state.settings.get('targets', [{"id": 1, "name": "Target"}])
         repartition_profiles = _get_repartition_profiles()
         repartition_logics = _get_repartition_logics()
 
@@ -282,12 +273,10 @@ def app():
                     
                     st.info(f"💡 {kpi.get('description', 'No description available.')}")
 
-                    # Render all active targets for this KPI
-                    target_nums = st.session_state.get(f'target_numbers_{kpi_id}', [1, 2])
-                    for tn in target_nums:
-                        t_label = f"Target {tn}"
-                        if tn == 1: t_label = target1_display_name
-                        if tn == 2: t_label = target2_display_name
+                    # Render all active targets for this KPI from config
+                    for t_cfg in target_config:
+                        tn = t_cfg['id']
+                        t_label = t_cfg['name']
                         
                         h1_val = hist1_map.get(f'annual_target{tn}', '-')
                         h2_val = hist2_map.get(f'annual_target{tn}', '-')

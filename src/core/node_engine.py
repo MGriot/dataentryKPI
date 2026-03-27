@@ -131,7 +131,7 @@ class KpiDAG:
     def from_formula(cls, formula_str: str):
         """
         Advanced parser to convert a formula string back to a DAG.
-        Supports: [ID], numeric constants, +, -, *, /, and parentheses.
+        Supports: [ID], numeric constants, +, -, *, /, powers, and functions (min, max, abs, avg).
         """
         dag = cls()
         out_node = KpiNode("OUTPUT_NODE", NodeType.OUTPUT, {}, {"x": 900, "y": 350})
@@ -152,23 +152,54 @@ class KpiDAG:
                 left_id = walk(node.left, depth + 1)
                 right_id = walk(node.right, depth + 1)
                 
-                op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/"}
+                op_map = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.Pow: "pow"}
                 op_char = op_map.get(type(node.op), "+")
                 
                 op_node_id = str(uuid.uuid4())
-                pos = {"x": 700 - (depth * 150), "y": 100 + (len(dag.nodes) * 40)}
+                pos = {"x": 750 - (depth * 180), "y": 100 + (len(dag.nodes) * 45)}
                 
                 op_node = KpiNode(op_node_id, NodeType.OPERATOR, {"op": op_char, "num_inputs": 2}, pos)
                 dag.add_node(op_node)
                 
-                dag.add_edge(KpiEdge(str(uuid.uuid4()), left_id, op_node_id, "A"))
-                dag.add_edge(KpiEdge(str(uuid.uuid4()), right_id, op_node_id, "B"))
+                dag.add_edge(KpiEdge(str(uuid.uuid4()), left_id, op_node_id, "A" if op_char in ("/","pow") else "In 1"))
+                dag.add_edge(KpiEdge(str(uuid.uuid4()), right_id, op_node_id, "B" if op_char in ("/","pow") else "In 2"))
                 return op_node_id
+
+            elif isinstance(node, ast.UnaryOp):
+                operand_id = walk(node.operand, depth + 1)
+                if isinstance(node.op, ast.USub):
+                    # Convert -X to 0 - X or an operator node with 1 input?
+                    # Let's use a constant 0
+                    const_zero_id = f"node_const_zero_{uuid.uuid4().hex[:4]}"
+                    dag.add_node(KpiNode(const_zero_id, NodeType.CONSTANT, {"value": 0.0}, {"x": 50, "y": 100}))
+                    
+                    op_node_id = str(uuid.uuid4())
+                    op_node = KpiNode(op_node_id, NodeType.OPERATOR, {"op": "-", "num_inputs": 2}, {"x": 750 - (depth * 180), "y": 100})
+                    dag.add_node(op_node)
+                    dag.add_edge(KpiEdge(str(uuid.uuid4()), const_zero_id, op_node_id, "A"))
+                    dag.add_edge(KpiEdge(str(uuid.uuid4()), operand_id, op_node_id, "B"))
+                    return op_node_id
+                return operand_id
+
+            elif isinstance(node, ast.Call):
+                func_name = ""
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                
+                if func_name in ("min", "max", "avg", "abs"):
+                    inputs = [walk(arg, depth + 1) for arg in node.args]
+                    op_node_id = str(uuid.uuid4())
+                    op_node = KpiNode(op_node_id, NodeType.OPERATOR, {"op": func_name, "num_inputs": len(inputs)}, {"x": 750 - (depth * 180), "y": 100})
+                    dag.add_node(op_node)
+                    for i, inp_id in enumerate(inputs):
+                        dag.add_edge(KpiEdge(str(uuid.uuid4()), inp_id, op_node_id, f"In {i+1}"))
+                    return op_node_id
 
             elif isinstance(node, ast.Name):
                 if node.id.startswith("KPI_"):
                     kpi_id = int(node.id.replace("KPI_", ""))
                     node_id = f"node_kpi_{kpi_id}_{uuid.uuid4().hex[:4]}"
+                    # We'll try to find the name in DB retriever if we had access here, but for now placeholder
                     kpi_node = KpiNode(node_id, NodeType.KPI_INPUT, {"kpi_id": kpi_id, "kpi_name": f"KPI {kpi_id}"}, {"x": 50, "y": 100 + (len(dag.nodes) * 60)})
                     dag.add_node(kpi_node)
                     return node_id

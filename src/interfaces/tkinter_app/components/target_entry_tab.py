@@ -17,8 +17,8 @@ class TargetEntryTab(ttk.Frame):
         self._populating_target_kpi_entries = False
         self._recalculating_ui = False
         
-        self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
-        self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
+        # Load targets from settings
+        self.target_config = self.app.settings.get('targets', [{"id": 1, "name": "Target"}])
         
         self.plants = []
         # Persistent state for all KPIs loaded for the current year/plant
@@ -136,7 +136,9 @@ class TargetEntryTab(ttk.Frame):
                     'hist_y2': None
                 }
             
-            for tn in [1, 2]:
+            # Ensure all configured targets are present
+            for t_cfg in self.target_config:
+                tn = t_cfg['id']
                 if tn not in t_values:
                     t_values[tn] = {'val': 0.0, 'manual': True, 'hist_y1': None, 'hist_y2': None}
 
@@ -242,29 +244,23 @@ class TargetEntryTab(ttk.Frame):
         grid.pack(fill='x')
         
         t_values = data['targets']
+        # Only render targets present in config
+        cfg_ids = [c['id'] for c in self.target_config]
         for tn in sorted(t_values.keys()):
-            self._create_input(grid, kid, tn, t_values[tn], is_calc)
-
-        actions = ttk.Frame(card, style="Card.TFrame")
-        actions.pack(fill='x', pady=(5, 0))
-        ttk.Button(actions, text="+ Add Target", command=lambda: self._add_target_to_kpi(kid), width=12).pack(side='right')
+            if tn in cfg_ids:
+                self._create_input(grid, kid, tn, t_values[tn], is_calc)
 
     def _on_gs_change(self, kid, selected_name):
         gs_id = self.gs_map.get(selected_name)
         self.all_kpis_data_cache[kid]['global_split_id'] = gs_id
 
-
-    def _add_target_to_kpi(self, kid):
-        t_values = self.all_kpis_data_cache[kid]['targets']
-        new_tn = max(t_values.keys()) + 1 if t_values else 1
-        t_values[new_tn] = {'val': 0.0, 'manual': True, 'hist_y1': None, 'hist_y2': None}
-        self.render_cards()
-
     def _create_input(self, parent, kid, tn, t_data, is_calc):
         f = ttk.Frame(parent, style="Card.TFrame")
         f.pack(side='left', fill='x', expand=True, padx=5, pady=2)
         
-        ttk.Label(f, text=f"T{tn}:", width=4).pack(side='left')
+        t_cfg = next((c for c in self.target_config if c['id'] == tn), None)
+        t_label = t_cfg['name'] if t_cfg else f"T{tn}"
+        ttk.Label(f, text=f"{t_label}:", width=15, anchor='w').pack(side='left')
         
         var = tk.StringVar(value=str(t_data['val']))
         m_var = tk.BooleanVar(value=t_data['manual'])

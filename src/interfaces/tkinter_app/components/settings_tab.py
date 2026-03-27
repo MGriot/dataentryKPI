@@ -1,8 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, colorchooser, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog
 import json
-from src import data_retriever as db_retriever
-from src.plants_management import crud as plants_manager
 from src.config.settings import SETTINGS_FILE
 from src.interfaces.common_ui import constants as const
 
@@ -13,6 +11,7 @@ class SettingsTab(ttk.Frame):
         self.settings = self.app.settings
         self.calculation_constants = {}
         self.constant_vars = {}
+        self.target_rows = []
         self.create_widgets()
         self.load_calculation_constants()
 
@@ -21,7 +20,7 @@ class SettingsTab(ttk.Frame):
         self.canvas = tk.Canvas(self, background="#F5F5F5", highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         
-        # Inner scrollable frame - styled to match background or card
+        # Inner scrollable frame
         self.scrollable_frame = ttk.Frame(self.canvas, style="Content.TFrame")
 
         self.scrollable_frame.bind(
@@ -37,17 +36,20 @@ class SettingsTab(ttk.Frame):
         self.canvas.pack(side="left", fill="both", expand=True, padx=10, pady=10)
         self.scrollbar.pack(side="right", fill="y")
 
-        # --- Display Names ---
-        display_names_frame = ttk.LabelFrame(self.scrollable_frame, text="Display Names", style="Card.TLabelframe", padding=15)
-        display_names_frame.pack(fill='x', expand=True, pady=10, padx=5)
+        # --- Target Configuration ---
+        targets_frame = ttk.LabelFrame(self.scrollable_frame, text="Target Configuration", style="Card.TLabelframe", padding=15)
+        targets_frame.pack(fill='x', expand=True, pady=10, padx=5)
 
-        ttk.Label(display_names_frame, text="Target 1:", background="#FFFFFF").grid(row=0, column=0, padx=5, pady=5, sticky='w')
-        self.target1_name_var = tk.StringVar(value=self.settings.get('display_names', {}).get('target1', 'Target 1'))
-        ttk.Entry(display_names_frame, textvariable=self.target1_name_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        ttk.Label(targets_frame, text="Define the targets available in the system. Default is 1.", font=("Helvetica", 9, "italic"), background="#FFFFFF").pack(anchor='w', pady=(0, 10))
 
-        ttk.Label(display_names_frame, text="Target 2:", background="#FFFFFF").grid(row=1, column=0, padx=5, pady=5, sticky='w')
-        self.target2_name_var = tk.StringVar(value=self.settings.get('display_names', {}).get('target2', 'Target 2'))
-        ttk.Entry(display_names_frame, textvariable=self.target2_name_var).grid(row=1, column=1, padx=5, pady=5, sticky='ew')
+        self.targets_list_frame = ttk.Frame(targets_frame, style="Card.TFrame")
+        self.targets_list_frame.pack(fill='x', expand=True)
+
+        self.load_targets_ui()
+
+        btn_f = ttk.Frame(targets_frame, style="Card.TFrame")
+        btn_f.pack(fill='x', pady=10)
+        ttk.Button(btn_f, text="+ Add Target", command=self.add_target_row).pack(side='left', padx=5)
 
         # --- Database Path ---
         db_path_frame = ttk.LabelFrame(self.scrollable_frame, text="Database Path", style="Card.TLabelframe", padding=15)
@@ -55,25 +57,66 @@ class SettingsTab(ttk.Frame):
 
         ttk.Label(db_path_frame, text="Database Folder:", background="#FFFFFF").grid(row=0, column=0, padx=5, pady=5, sticky='w')
         self.db_path_var = tk.StringVar(value=self.settings.get('database_path', ''))
-        ttk.Entry(db_path_frame, textvariable=self.db_path_var).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
+        ttk.Entry(db_path_frame, textvariable=self.db_path_var, width=50).grid(row=0, column=1, padx=5, pady=5, sticky='ew')
         ttk.Button(db_path_frame, text="Browse...", command=self.browse_db_path).grid(row=0, column=2, padx=5, pady=5)
 
         # --- Calculation Constants ---
         constants_frame = ttk.LabelFrame(self.scrollable_frame, text="Calculation Constants", style="Card.TLabelframe", padding=15)
         constants_frame.pack(fill='x', expand=True, pady=10, padx=5)
         
-        self.constants_inner_frame = ttk.Frame(constants_frame, style="Card.TFrame") # Inner frame matches white card
+        self.constants_inner_frame = ttk.Frame(constants_frame, style="Card.TFrame")
         self.constants_inner_frame.pack(fill='both', expand=True)
-        self.populate_constants_frame()
 
         # --- Save Button ---
         save_button = ttk.Button(self.scrollable_frame, text="Save Settings", command=self.save_settings, style="Action.TButton")
         save_button.pack(pady=20, padx=5, anchor='e')
 
+    def load_targets_ui(self):
+        for row in self.target_rows:
+            row['frame'].destroy()
+        self.target_rows = []
+        targets = self.settings.get('targets', [{"id": 1, "name": "Target"}])
+        for t in targets:
+            self._create_target_row(t['id'], t['name'])
+
+    def _create_target_row(self, t_id, t_name):
+        row_f = ttk.Frame(self.targets_list_frame, style="Card.TFrame")
+        row_f.pack(fill='x', pady=2)
+
+        ttk.Label(row_f, text="ID:", width=4, background="#FFFFFF").pack(side='left', padx=2)
+        id_var = tk.StringVar(value=str(t_id))
+        id_ent = ttk.Entry(row_f, textvariable=id_var, width=5)
+        id_ent.pack(side='left', padx=2)
+
+        ttk.Label(row_f, text="Name:", width=6, background="#FFFFFF").pack(side='left', padx=5)
+        name_var = tk.StringVar(value=t_name)
+        ent = ttk.Entry(row_f, textvariable=name_var, width=30)
+        ent.pack(side='left', padx=5)
+
+        row_obj = {'id_var': id_var, 'name_var': name_var, 'frame': row_f}
+        btn = ttk.Button(row_f, text="Delete", width=8, command=lambda: self.delete_target_row(row_obj))
+        btn.pack(side='left', padx=5)
+
+        self.target_rows.append(row_obj)
+
+    def add_target_row(self):
+        ids = []
+        for r in self.target_rows:
+            try: ids.append(int(r['id_var'].get()))
+            except: pass
+        next_id = max(ids) + 1 if ids else 1
+        self._create_target_row(next_id, f"Target {next_id}")
+
+    def delete_target_row(self, row_obj):
+        if len(self.target_rows) <= 1:
+            messagebox.showwarning("Warning", "At least one target is required.")
+            return
+        row_obj['frame'].destroy()
+        self.target_rows.remove(row_obj)
+
     def populate_constants_frame(self):
         for widget in self.constants_inner_frame.winfo_children():
             widget.destroy()
-
         self.constant_vars = {}
         row = 0
         for name, value in self.calculation_constants.items():
@@ -102,45 +145,43 @@ class SettingsTab(ttk.Frame):
             }
         self.populate_constants_frame()
 
-    
-
-    def on_tab_selected(self):
-        # This method is called when the tab is selected
-        self.load_calculation_constants()
-
     def browse_db_path(self):
         path = tk.filedialog.askdirectory()
         if path:
             self.db_path_var.set(path)
 
-    
-
     def save_settings(self):
-        self.settings['display_names'] = {
-            'target1': self.target1_name_var.get(),
-            'target2': self.target2_name_var.get()
-        }
-        self.settings['database_path'] = self.db_path_var.get()
+        new_targets = []
+        seen_ids = set()
+        for row in self.target_rows:
+            try:
+                tid = int(row['id_var'].get().strip())
+                if tid in seen_ids:
+                    messagebox.showerror("Error", f"Duplicate Target ID: {tid}")
+                    return
+                seen_ids.add(tid)
+                new_targets.append({
+                    'id': tid,
+                    'name': row['name_var'].get().strip() or f"Target {tid}"
+                })
+            except ValueError:
+                messagebox.showerror("Error", "Target ID must be a number.")
+                return
 
         try:
-            # Load existing settings to merge, then update
             current_settings = {}
             try:
                 with open(SETTINGS_FILE, 'r') as f:
                     current_settings = json.load(f)
             except (FileNotFoundError, json.JSONDecodeError):
-                pass # File doesn't exist or is empty, start with empty dict
+                pass
 
-            # Update only the sections managed by this tab
-            current_settings['display_names'] = self.settings['display_names']
-            current_settings['database_path'] = self.settings['database_path']
+            current_settings['targets'] = new_targets
+            current_settings['database_path'] = self.db_path_var.get()
             
-            
-
             with open(SETTINGS_FILE, 'w') as f:
                 json.dump(current_settings, f, indent=4)
             
-            # Save calculation constants
             new_constants = {}
             for name, var in self.constant_vars.items():
                 try:
@@ -153,8 +194,9 @@ class SettingsTab(ttk.Frame):
                 json.dump(new_constants, f, indent=4)
 
             self.calculation_constants = new_constants
+            self.settings.update(current_settings)
 
             messagebox.showinfo("Success", "Settings saved successfully.")
-            self.app.load_settings() # Reload settings in the main app
+            self.app.load_settings()
         except Exception as e:
             messagebox.showerror("Error", f"Could not save settings: {e}")
