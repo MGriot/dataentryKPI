@@ -101,8 +101,14 @@ class TargetEntryTab(ttk.Frame):
             self.plant_cb_target.set(self.plants[0]['name'])
             self.load_data()
 
+    def on_tab_selected(self):
+        """Called by main app when this tab is shown."""
+        self.target_config = self.app.settings.get('targets', [{"id": 1, "name": "Target"}])
+        self.load_data()
+
     def load_data(self):
         """Loads all data into cache and builds tree."""
+        self.target_config = self.app.settings.get('targets', [{"id": 1, "name": "Target"}])
         year_str = self.year_cb_target.get()
         p_name = self.plant_cb_target.get()
         if not year_str or not p_name: return

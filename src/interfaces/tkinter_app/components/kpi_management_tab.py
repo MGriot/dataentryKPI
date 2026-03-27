@@ -332,11 +332,13 @@ class KpiManagementTab(ttk.Frame):
         kpi_list = [{"id": k['id'], "name": k['indicator_name']} for k in all_kpis if k['indicator_id'] != ind_id]
 
         dialog = NodeEditorDialog(self.app, initial_json=spec.get('formula_json'), kpi_list=kpi_list)
+        self.wait_window(dialog)
         if dialog.get_result():
             new_json = dialog.get_result()
             kpi_specs_manager.update_kpi_spec(spec['id'], formula_json=new_json)
             messagebox.showinfo("Success", "Formula updated.")
             self.refresh_tree()
+            self._show_indicator_details(ind_id)
 
     def _show_split_details(self, split_id):
         s = self.split_cache[split_id]

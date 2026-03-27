@@ -6,10 +6,12 @@
         },
         {
             "id": 2,
-            "name": "Stretched"
+            "name": "Target 2"
+        },
+        {
+            "id": 3,
+            "name": "Target 3"
         }
     ],
-    "database_base_dir": "C:\\Users\\Admin\\Documents\Coding\\dataentryKPI\\databases",
-    "csv_export_base_dir": "C:\\Users\\Admin\\Documents\\Coding\\dataentryKPI\\csv_exports",
-    "database_path": "C:/Users/Admin/Documents/Coding/dataentryKPI/databases"
+    "database_path": ""
 }
