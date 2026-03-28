@@ -87,34 +87,55 @@ def add_kpi_spec(
 
 def update_kpi_spec(
     kpi_spec_id: int,
-    indicator_id: int,
-    description: str,
-    calculation_type: str,
-    unit_of_measure: str,
-    visible: bool,
+    indicator_id: int = None,
+    description: str = None,
+    calculation_type: str = None,
+    unit_of_measure: str = None,
+    visible: bool = None,
     formula_json: str = None,
     formula_string: str = None,
-    is_calculated: bool = False,
+    is_calculated: bool = None,
     default_distribution_profile: str = None,
 ):
-    """Updates an existing KPI specification."""
+    """Updates an existing KPI specification. Only provided fields (not None) will be updated."""
     db_kpis_path = app_config.get_database_path("db_kpis.db")
+    
+    # 1. Fetch existing record to merge
     with sqlite3.connect(db_kpis_path) as conn:
+        conn.row_factory = sqlite3.Row
+        existing = conn.execute("SELECT * FROM kpis WHERE id = ?", (kpi_spec_id,)).fetchone()
+        if not existing:
+            raise ValueError(f"KPI Spec with ID {kpi_spec_id} not found.")
+        
+        data = dict(existing)
+        
+        # 2. Update with provided values
+        if indicator_id is not None: data['indicator_id'] = indicator_id
+        if description is not None: data['description'] = description
+        if calculation_type is not None: data['calculation_type'] = calculation_type
+        if unit_of_measure is not None: data['unit_of_measure'] = unit_of_measure
+        if visible is not None: data['visible'] = 1 if visible else 0
+        if formula_json is not None: data['formula_json'] = formula_json
+        if formula_string is not None: data['formula_string'] = formula_string
+        if is_calculated is not None: data['is_calculated'] = 1 if is_calculated else 0
+        if default_distribution_profile is not None: data['default_distribution_profile'] = default_distribution_profile
+
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """UPDATE kpis SET indicator_id=?, description=?, calculation_type=?,
-                   unit_of_measure=?, visible=?, formula_json=?, formula_string=?, is_calculated=?, default_distribution_profile=? WHERE id=?""",
+                   unit_of_measure=?, visible=?, formula_json=?, formula_string=?, 
+                   is_calculated=?, default_distribution_profile=? WHERE id=?""",
                 (
-                    indicator_id,
-                    description,
-                    calculation_type,
-                    unit_of_measure,
-                    1 if visible else 0,
-                    formula_json,
-                    formula_string,
-                    1 if is_calculated else 0,
-                    default_distribution_profile,
+                    data['indicator_id'],
+                    data['description'],
+                    data['calculation_type'],
+                    data['unit_of_measure'],
+                    data['visible'],
+                    data['formula_json'],
+                    data['formula_string'],
+                    data['is_calculated'],
+                    data['default_distribution_profile'],
                     kpi_spec_id,
                 ),
             )
