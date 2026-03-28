@@ -76,6 +76,7 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
     with sqlite3.connect(db_targets_path) as conn:
         cursor = conn.cursor()
         for kpi_spec_id_str, data_dict_from_ui in targets_data_map.items():
+            # ... (existing Phase 1 logic for saving UI inputs) ...
             try:
                 current_kpi_spec_id = int(kpi_spec_id_str)
             except: continue
@@ -157,6 +158,23 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                     kpis_with_formula[tn].append(current_kpi_spec_id)
 
         conn.commit()
+
+    # Phase 1.5: Identify all other calculated KPIs in the system
+    # This ensures that if we update KPI A, and KPI B = A * 2, KPI B also gets updated.
+    all_specs = db_retriever.get_all_kpis_detailed()
+    for spec in all_specs:
+        spec_id = spec['id']
+        # If this spec has a formula (JSON or String) or is marked as calculated
+        if spec.get('is_calculated'):
+            # Check for existing target entry to see which target numbers are active
+            target_entry = get_annual_target_entry(year, plant_id, spec_id)
+            if target_entry:
+                for tv in target_entry['target_values']:
+                    if tv['is_formula_based']:
+                        tn = tv['target_number']
+                        if tn not in kpis_with_formula: kpis_with_formula[tn] = []
+                        if spec_id not in kpis_with_formula[tn]:
+                            kpis_with_formula[tn].append(spec_id)
 
     # Phase 2: Calculate formula-based targets
     print("  Phase 2: Calculating formula-based targets...")
@@ -272,32 +290,72 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
     # Phase 4: Repartitions (Processed in dependency order)
     print("  Phase 4: Calculating periodic repartitions...")
     
+    # Identify all KPIs that might be affected by the ones we've already marked
+    # We need to expand kpis_needing_repartition_update to include anyone who depends on them
+    full_update_set = set(kpis_needing_repartition_update)
+    
+    # Simple propagation: if A changes, and B depends on A, B must change.
+    # We'll do this iteratively until no more are added.
+    all_calculated_specs = [s for s in all_specs if s.get('is_calculated')]
+    
+    for _ in range(5): # Limit propagation depth
+        added = False
+        for spec in all_calculated_specs:
+            sid = spec['id']
+            if sid in full_update_set: continue
+            
+            # Check dependencies
+            try:
+                formula = spec.get('formula_json') or spec.get('formula_string')
+                if not formula: continue
+                
+                deps = []
+                if spec.get('formula_json'):
+                    dag = KpiDAG.from_json(spec['formula_json'])
+                    deps = [d['kpi_id'] for d in dag.find_all_kpi_dependencies()]
+                else:
+                    deps = [int(mid) for mid in re.findall(r'\[(\d+)\]', formula)]
+                
+                if any(d in full_update_set for d in deps):
+                    full_update_set.add(sid)
+                    added = True
+            except: pass
+        if not added: break
+
+    # Now topological sort for repartitioning
     sorted_kpis = []
     visited_kpis = set()
     
-    def visit_kpi(kid):
+    def visit_kpi_topo(kid):
         if kid in visited_kpis: return
         visited_kpis.add(kid)
         
-        details_row = db_retriever.get_kpi_detailed_by_id(kid)
-        details = dict(details_row) if details_row else {}
-        if details.get('formula_json'):
+        spec = next((s for s in all_specs if s['id'] == kid), None)
+        if spec and spec.get('is_calculated'):
             try:
-                dag = KpiDAG.from_json(details['formula_json'])
-                for dep in dag.find_all_kpi_dependencies():
-                    if dep['kpi_id'] in kpis_needing_repartition_update:
-                        visit_kpi(dep['kpi_id'])
+                formula = spec.get('formula_json') or spec.get('formula_string')
+                deps = []
+                if spec.get('formula_json'):
+                    dag = KpiDAG.from_json(spec['formula_json'])
+                    deps = [d['kpi_id'] for d in dag.find_all_kpi_dependencies()]
+                else:
+                    deps = [int(mid) for mid in re.findall(r'\[(\d+)\]', formula)]
+                
+                for d in deps:
+                    if d in full_update_set:
+                        visit_kpi_topo(d)
             except: pass
         sorted_kpis.append(kid)
 
-    for kid in list(kpis_needing_repartition_update):
-        visit_kpi(kid)
+    for kid in list(full_update_set):
+        visit_kpi_topo(kid)
 
     for kid in sorted_kpis:
         entry = get_annual_target_entry(year, plant_id, kid)
         if entry:
             for tv in entry['target_values']:
                 if tv['target_value'] is not None:
+                    print(f"    Repartitioning KPI {kid} Target {tv['target_number']}...")
                     repartition_module.calculate_and_save_all_repartitions(year, plant_id, kid, tv['target_number'])
 
     print(f"INFO: Finished save_annual_targets for Year: {year}, Plant: {plant_id}")
