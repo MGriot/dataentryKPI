@@ -11,13 +11,26 @@ class ResultsTab(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
         self.app = app
-        self.target1_display_name = self.app.settings.get('display_names', {}).get('target1', 'Target 1')
-        self.target2_display_name = self.app.settings.get('display_names', {}).get('target2', 'Target 2')
+        self.target_config = self.app.settings.get('targets', [{"id": 1, "name": "Target"}])
         self.create_widgets()
 
     def on_tab_selected(self):
         """Called when the tab is selected."""
+        self.target_config = self.app.settings.get('targets', [{"id": 1, "name": "Target"}])
+        self._update_tree_columns()
         self.populate_results_comboboxes()
+
+    def _update_tree_columns(self):
+        """Re-creates Treeview columns based on current target config."""
+        cols = ["Period"] + [t['name'] for t in self.target_config]
+        self.results_data_tree["columns"] = cols
+        
+        self.results_data_tree.heading("Period", text="Period")
+        self.results_data_tree.column("Period", width=200, anchor="w")
+        
+        for t in self.target_config:
+            self.results_data_tree.heading(t['name'], text=t['name'])
+            self.results_data_tree.column(t['name'], width=120, anchor="e")
 
     def create_widgets(self):
         # Main container for filters, table, and chart
@@ -116,15 +129,8 @@ class ResultsTab(ttk.Frame):
         table_frame = ttk.Frame(self.results_paned_window, height=200)
         self.results_paned_window.add(table_frame, weight=1)
 
-        self.results_data_tree = ttk.Treeview(
-            table_frame, columns=("Period", "Target 1", "Target 2"), show="headings"
-        )
-        self.results_data_tree.heading("Period", text="Period")
-        self.results_data_tree.heading("Target 1", text=self.target1_display_name)
-        self.results_data_tree.heading("Target 2", text=self.target2_display_name)
-        self.results_data_tree.column("Period", width=250, anchor="w", stretch=tk.YES)
-        self.results_data_tree.column("Target 1", width=150, anchor="e", stretch=tk.YES)
-        self.results_data_tree.column("Target 2", width=150, anchor="e", stretch=tk.YES)
+        self.results_data_tree = ttk.Treeview(table_frame, show="headings")
+        self._update_tree_columns()
 
         tree_scrollbar_y = ttk.Scrollbar(
             table_frame, orient="vertical", command=self.results_data_tree.yview
@@ -424,26 +430,23 @@ class ResultsTab(ttk.Frame):
             )
             profile_disp_res = "N/A"
             if target_ann_info_res:
-                profile_disp_res = target_ann_info_res['distribution_profile'] if 'distribution_profile' in target_ann_info_res.keys() and target_ann_info_res['distribution_profile'] else 'N/A'
+                profile_disp_res = target_ann_info_res.get('distribution_profile', 'N/A')
 
-            data_t1 = db_retriever.get_periodic_targets_for_kpi(
-                year_val_res, plant_id_res, kpi_spec_id_res, period_type_res, 1
-            )
-            data_t2 = db_retriever.get_periodic_targets_for_kpi(
-                year_val_res, plant_id_res, kpi_spec_id_res, period_type_res, 2
-            )
+            # --- Data Retrieval for all configured targets ---
+            target_data_maps = {} # tn -> {period -> value}
+            all_ordered_periods = []
+            
+            for t_cfg in self.target_config:
+                tn = t_cfg['id']
+                data = db_retriever.get_periodic_targets_for_kpi(
+                    year_val_res, plant_id_res, kpi_spec_id_res, period_type_res, tn
+                )
+                if data:
+                    target_data_maps[tn] = {row["Periodo"]: row["Target"] for row in data}
+                    if not all_ordered_periods:
+                        all_ordered_periods = [row["Periodo"] for row in data]
 
-            map_t1 = {row["Periodo"]: row["Target"] for row in data_t1} if data_t1 else {}
-            map_t2 = {row["Periodo"]: row["Target"] for row in data_t2} if data_t2 else {}
-
-            ordered_periods = (
-                [row["Periodo"] for row in data_t1]
-                if data_t1
-                else ([row["Periodo"] for row in data_t2] if data_t2 else [])
-            )
-            plot_periods_for_xaxis = list(ordered_periods)
-
-            if not ordered_periods:
+            if not all_ordered_periods:
                 self.summary_label_var_vis.set(
                     f"No repartitioned data for {kpi_display_name_res_str} (Profile: {profile_disp_res})."
                 )
@@ -455,42 +458,50 @@ class ResultsTab(ttk.Frame):
                 return
 
             # --- TABLE POPULATION ---
-            total_sum_t1_table, count_t1_table = 0.0, 0
-            total_sum_t2_table, count_t2_table = 0.0, 0
-            for period_name in ordered_periods:
-                val_t1_table = map_t1.get(period_name)
-                val_t2_table = map_t2.get(period_name)
-                t1_disp_table = f"{val_t1_table:.2f}" if isinstance(val_t1_table, (int, float)) else "N/A"
-                t2_disp_table = f"{val_t2_table:.2f}" if isinstance(val_t2_table, (int, float)) else "N/A"
-                self.results_data_tree.insert("", "end", values=(period_name, t1_disp_table, t2_disp_table))
-                if isinstance(val_t1_table, (int, float)):
-                    total_sum_t1_table += val_t1_table
-                    count_t1_table += 1
-                if isinstance(val_t2_table, (int, float)):
-                    total_sum_t2_table += val_t2_table
-                    count_t2_table += 1
+            target_stats = {t['id']: {'sum': 0.0, 'count': 0} for t in self.target_config}
+            
+            for period_name in all_ordered_periods:
+                row_values = [period_name]
+                for t_cfg in self.target_config:
+                    tn = t_cfg['id']
+                    val = target_data_maps.get(tn, {}).get(period_name)
+                    
+                    if isinstance(val, (int, float)):
+                        row_values.append(f"{val:.2f}")
+                        target_stats[tn]['sum'] += val
+                        target_stats[tn]['count'] += 1
+                    else:
+                        row_values.append("N/A")
+                
+                self.results_data_tree.insert("", "end", values=tuple(row_values))
 
-            # --- Data Preparation for PLOTTING ---
-            plot_target1_values = [map_t1.get(p) for p in ordered_periods]
-            plot_target2_values = [map_t2.get(p) for p in ordered_periods]
-
-            # --- Plotting ---
+            # --- PLOTTING ---
             self.ax_results.clear()
-            x_indices = range(len(ordered_periods))
-
-            self.ax_results.plot(x_indices, plot_target1_values, marker="o", linestyle="-", label="Target 1")
-            self.ax_results.plot(x_indices, plot_target2_values, marker="x", linestyle="--", label="Target 2")
+            x_indices = range(len(all_ordered_periods))
+            
+            import matplotlib.pyplot as plt
+            markers = ['o', 'x', 's', '^', 'v', 'D']
+            
+            for i, t_cfg in enumerate(self.target_config):
+                tn = t_cfg['id']
+                t_name = t_cfg['name']
+                plot_vals = [target_data_maps.get(tn, {}).get(p) for p in all_ordered_periods]
+                
+                # Check if we have at least some data to plot
+                if any(v is not None for v in plot_vals):
+                    self.ax_results.plot(
+                        x_indices, plot_vals, 
+                        marker=markers[i % len(markers)], 
+                        linestyle="-", 
+                        label=t_name
+                    )
 
             self.ax_results.set_xlabel(f"Period ({period_type_res})")
             self.ax_results.set_ylabel(f"Target Value ({kpi_unit_res})")
             self.ax_results.set_title(f"Target Trend: {kpi_display_name_res_str}\n{year_val_res} - {plant_name_res}")
 
-            if plot_periods_for_xaxis:
-                self.ax_results.set_xticks(range(len(plot_periods_for_xaxis)))
-                self.ax_results.set_xticklabels(plot_periods_for_xaxis, rotation=45, ha="right")
-            else:
-                self.ax_results.set_xticks([])
-                self.ax_results.set_xticklabels([])
+            self.ax_results.set_xticks(range(len(all_ordered_periods)))
+            self.ax_results.set_xticklabels(all_ordered_periods, rotation=45, ha="right")
 
             self.fig_results.tight_layout()
             self.ax_results.legend()
@@ -503,12 +514,15 @@ class ResultsTab(ttk.Frame):
                 f"KPI: {kpi_display_name_res_str}",
                 f"Annual Profile: {profile_disp_res}",
             ]
-            if count_t1_table > 0:
-                agg_t1 = (total_sum_t1_table if calc_type_res == 'Incremental' else (total_sum_t1_table / count_t1_table))
-                summary_parts.append(f"{('Tot T1' if calc_type_res == 'Incremental' else 'Avg T1')} ({period_type_res}): {agg_t1:,.2f} {kpi_unit_res}")
-            if count_t2_table > 0:
-                agg_t2 = (total_sum_t2_table if calc_type_res == 'Incremental' else (total_sum_t2_table / count_t2_table))
-                summary_parts.append(f"{('Tot T2' if calc_type_res == 'Incremental' else 'Avg T2')} ({period_type_res}): {agg_t2:,.2f} {kpi_unit_res}")
+            
+            for t_cfg in self.target_config:
+                tn = t_cfg['id']
+                stats = target_stats[tn]
+                if stats['count'] > 0:
+                    agg_val = (stats['sum'] if calc_type_res == 'Incremental' else (stats['sum'] / stats['count']))
+                    label_type = 'Tot' if calc_type_res == 'Incremental' else 'Avg'
+                    summary_parts.append(f"{label_type} {t_cfg['name']}: {agg_val:,.2f} {kpi_unit_res}")
+            
             self.summary_label_var_vis.set(" | ".join(summary_parts))
 
         except ValueError as ve:
