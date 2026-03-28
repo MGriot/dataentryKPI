@@ -22,15 +22,19 @@ class ResultsTab(ttk.Frame):
 
     def _update_tree_columns(self):
         """Re-creates Treeview columns based on current target config."""
+        # Clear existing column configuration to avoid misalignment
+        self.results_data_tree["columns"] = []
+        
         cols = ["Period"] + [t['name'] for t in self.target_config]
         self.results_data_tree["columns"] = cols
         
         self.results_data_tree.heading("Period", text="Period")
-        self.results_data_tree.column("Period", width=200, anchor="w")
+        self.results_data_tree.column("Period", width=200, anchor="w", stretch=tk.YES)
         
         for t in self.target_config:
-            self.results_data_tree.heading(t['name'], text=t['name'])
-            self.results_data_tree.column(t['name'], width=120, anchor="e")
+            t_name = t['name']
+            self.results_data_tree.heading(t_name, text=t_name)
+            self.results_data_tree.column(t_name, width=120, anchor="e", stretch=tk.YES)
 
     def create_widgets(self):
         # Main container for filters, table, and chart
