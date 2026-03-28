@@ -252,21 +252,23 @@ class TargetEntryTab(ttk.Frame):
         t_values = data['targets']
         # Only render targets present in config
         cfg_ids = [c['id'] for c in self.target_config]
+        row_idx = 0
         for tn in sorted(t_values.keys()):
             if tn in cfg_ids:
-                self._create_input(grid, kid, tn, t_values[tn], is_calc)
+                self._create_input(grid, kid, tn, t_values[tn], is_calc, row_idx)
+                row_idx += 1
 
     def _on_gs_change(self, kid, selected_name):
         gs_id = self.gs_map.get(selected_name)
         self.all_kpis_data_cache[kid]['global_split_id'] = gs_id
 
-    def _create_input(self, parent, kid, tn, t_data, is_calc):
+    def _create_input(self, parent, kid, tn, t_data, is_calc, row_idx):
         f = ttk.Frame(parent, style="Card.TFrame")
-        f.pack(side='left', fill='x', expand=True, padx=5, pady=2)
+        f.grid(row=row_idx, column=0, sticky='ew', padx=5, pady=2)
         
         t_cfg = next((c for c in self.target_config if c['id'] == tn), None)
         t_label = t_cfg['name'] if t_cfg else f"T{tn}"
-        ttk.Label(f, text=f"{t_label}:", width=15, anchor='w').pack(side='left')
+        ttk.Label(f, text=f"{t_label}:", width=25, anchor='w').pack(side='left')
         
         var = tk.StringVar(value=str(t_data['val']))
         m_var = tk.BooleanVar(value=t_data['manual'])
