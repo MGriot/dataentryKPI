@@ -279,8 +279,9 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
         if kid in visited_kpis: return
         visited_kpis.add(kid)
         
-        details = db_retriever.get_kpi_detailed_by_id(kid)
-        if details and details.get('formula_json'):
+        details_row = db_retriever.get_kpi_detailed_by_id(kid)
+        details = dict(details_row) if details_row else {}
+        if details.get('formula_json'):
             try:
                 dag = KpiDAG.from_json(details['formula_json'])
                 for dep in dag.find_all_kpi_dependencies():

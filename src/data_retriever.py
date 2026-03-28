@@ -82,6 +82,7 @@ def get_all_kpis_detailed(only_visible=False, plant_id: int = None) -> list:
             SELECT
                 s.id,
                 i.id as indicator_id,
+                i.id as actual_indicator_id,
                 i.name as indicator_name,
                 i.node_id,
                 np.path as hierarchy_path,
@@ -107,7 +108,8 @@ def get_all_kpis_detailed(only_visible=False, plant_id: int = None) -> list:
         if conditions:
             base_query += " WHERE " + " AND ".join(conditions)
 
-        return conn.execute(base_query, params).fetchall()
+        rows = conn.execute(base_query, params).fetchall()
+        return [dict(r) for r in rows]
 
 def get_kpi_detailed_by_id(kpi_spec_id: int, plant_id: int = None):
     """Fetches a single KPI spec by its ID."""

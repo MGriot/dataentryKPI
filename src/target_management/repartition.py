@@ -20,7 +20,7 @@ from src.utils.repartition_utils import (
     get_sinusoidal_proportions,
     get_date_ranges_for_quarters,
 )
-from src.utils.kpi_utils import get_kpi_display_name
+from src.interfaces.common_ui.helpers import get_kpi_display_name
 from src.core.node_engine import KpiDAG
 
 # --- Formula Evaluation Helper ---

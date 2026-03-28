@@ -4,10 +4,6 @@ from src.kpi_management import specs as kpi_specs_manager
 from src.kpi_management import indicators as kpi_indicators_manager
 from src.kpi_management import visibility as kpi_visibility
 from src import data_retriever as db_retriever
-from src import data_retriever
-from src.kpi_management import specs as kpi_specs_manager
-from src.kpi_management import indicators as kpi_indicators_manager
-from src.kpi_management import visibility as kpi_visibility
 from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS
 
 def app():
@@ -37,7 +33,7 @@ def app():
                     try:
                         kpi_spec_details = db_retriever.get_kpi_detailed_by_id(edit_id)
                         if kpi_spec_details:
-                            kpi_indicators_manager.delete_kpi_indicator(kpi_spec_details['actual_indicator_id'])
+                            kpi_indicators_manager.delete_kpi_indicator(kpi_spec_details['indicator_id'])
                             st.success(f"KPI Specification with ID {edit_id} deleted.")
                             st.session_state.spec_to_edit = None
                             st.experimental_rerun()
@@ -56,7 +52,7 @@ def app():
 
         groups = db_retriever.get_kpi_groups()
         group_names = [g['name'] for g in groups]
-        selected_group_name = st.selectbox("Group", group_names, index=group_names.index(spec_data['group_name']) if spec_data else 0)
+        selected_group_name = st.selectbox("Group", group_names, index=group_names.index(spec_data['group_name']) if spec_data and spec_data['group_name'] in group_names else 0)
 
         selected_group_id = next((g['id'] for g in groups if g['name'] == selected_group_name), None)
         subgroups = db_retriever.get_kpi_subgroups_by_group_revised(selected_group_id) if selected_group_id else []
@@ -94,6 +90,7 @@ def app():
                     else: # Add
                         kpi_id_to_update = kpi_specs_manager.add_kpi_spec(selected_indicator_id, description, calculation_type, unit_of_measure, visible)
                     
+                    # Update per-plant visibility
                     for plant_id, is_enabled in plant_visibility_states.items():
                         kpi_visibility.set_kpi_plant_visibility(kpi_id_to_update, plant_id, is_enabled)
                     
