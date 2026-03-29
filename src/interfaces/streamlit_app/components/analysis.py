@@ -115,6 +115,52 @@ def app():
                 fig.update_layout(hovermode="x unified")
                 st.plotly_chart(fig, use_container_width=True, key=f"chart_single_{selected_kpi['id']}")
 
+                # --- Metrics Overview ---
+                st.markdown("---")
+                st.subheader("📊 Performance Metrics")
+                
+                import numpy as np
+                cols = st.columns(2)
+                
+                with cols[0]:
+                    st.markdown("**📅 Year-over-Year (YoY)**")
+                    if len(selected_years) >= 2:
+                        sorted_years = sorted([int(y) for y in selected_years])
+                        cur_y = sorted_years[-1]
+                        prev_y = sorted_years[-2]
+                        
+                        for series in combined_df['Series'].unique():
+                            sdf = combined_df[combined_df['Series'] == series]
+                            cur_val = sdf[sdf['Year'] == cur_y]['Target'].sum()
+                            prev_val = sdf[sdf['Year'] == prev_y]['Target'].sum()
+                            
+                            if prev_val != 0:
+                                delta = ((cur_val - prev_val) / abs(prev_val)) * 100
+                                st.metric(f"{series} ({prev_y} vs {cur_y})", f"{cur_val:,.0f}", f"{delta:+.1f}%")
+                            else:
+                                st.write(f"{series}: Insufficient history for YoY")
+                    else:
+                        st.info("Select at least 2 years for YoY comparison.")
+
+                with cols[1]:
+                    st.markdown("**📈 Overall Trend Analysis**")
+                    for series in combined_df['Series'].unique():
+                        sdf = combined_df[combined_df['Series'] == series].sort_values('DateAxis')
+                        y_vals = sdf['Target'].values
+                        if len(y_vals) > 2:
+                            x_vals = np.arange(len(y_vals))
+                            slope, _ = np.polyfit(x_vals, y_vals, 1)
+                            mean_v = np.mean(y_vals)
+                            rel_slope = (slope / mean_v * 100) if abs(mean_v) > 1e-9 else 0
+                            
+                            trend_icon = "⤴️" if rel_slope > 0.5 else "⤵️" if rel_slope < -0.5 else "➡️"
+                            trend_text = "Upward" if rel_slope > 0.5 else "Downward" if rel_slope < -0.5 else "Stable"
+                            color = "green" if rel_slope > 0.5 else "red" if rel_slope < -0.5 else "gray"
+                            
+                            st.markdown(f"{trend_icon} **{series}:** {trend_text} (`{rel_slope:+.2f}%` per period)")
+                        else:
+                            st.write(f"{series}: Not enough data for trend.")
+
     else:
         st.subheader("🌎 Global KPI Overview")
         

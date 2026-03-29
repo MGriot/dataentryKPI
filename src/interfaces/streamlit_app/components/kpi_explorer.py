@@ -120,11 +120,70 @@ def app():
                                    if spec.get('calculation_type') in KPI_CALC_TYPE_OPTIONS else 0))
                 visible = c3.checkbox("Is Visible", value=spec.get('visible', True))
                 
+                # Logic & Formula
                 st.markdown("---")
-                st.subheader("🧮 Logic")
-                is_calc = st.toggle("Calculated via Formula", value=spec.get('is_calculated', False))
-                f_str = st.text_input("Formula Expression:", value=spec.get('formula_string', ''), 
-                                    disabled=not is_calc)
+                st.subheader("🧮 Calculation Logic")
+                
+                is_calc = st.toggle("Enable Calculated Mode", value=spec.get('is_calculated', False))
+                
+                if is_calc:
+                    formula_mode = st.radio("Editor Mode:", ["Visual Builder", "Raw Expression"], horizontal=True)
+                    
+                    if formula_mode == "Raw Expression":
+                        f_str = st.text_input("Formula String:", value=spec.get('formula_string', ''), placeholder="e.g. [101] * 1.5 + [102]")
+                        st.caption("Use `[ID]` to reference other KPIs. All standard math operators supported.")
+                        
+                        # Trigger conversion to JSON for background storage if changed
+                        if f_str and f_str != spec.get('formula_string'):
+                            from src.core.node_engine import KpiDAG
+                            try:
+                                dag = KpiDAG.from_formula(f_str)
+                                f_json = dag.to_json()
+                            except: f_json = spec.get('formula_json')
+                        else:
+                            f_json = spec.get('formula_json')
+                    else:
+                        # --- Visual Builder (Structured) ---
+                        from src.core.node_engine import KpiDAG
+                        
+                        st.info("Visual Node Editor (Structured Builder)")
+                        
+                        # Load existing DAG to get current formula string if available
+                        current_f_json = spec.get('formula_json')
+                        current_f_str = spec.get('formula_string', '')
+                        
+                        # Show current formula as breadcrumb
+                        if current_f_str:
+                            st.success(f"Current logic: `{current_f_str}`")
+                        
+                        if st.button("🛠️ Open Structured Builder"):
+                            # In a real app we might open a dialog, here we'll use an expander/popover
+                            st.session_state.show_logic_builder = True
+                        
+                        if st.session_state.get('show_logic_builder'):
+                            with st.container(border=True):
+                                st.write("Building logic step-by-step...")
+                                # This is a placeholder for a more complex multi-step UI
+                                # For now, we'll allow entering/modifying the raw string but emphasizing 
+                                # the 'Visual' aspect will come in EVO-NODE-01 properly.
+                                # Let's provide a 'Quick Select' for KPI IDs.
+                                all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
+                                kpi_options = {f"{k['indicator_name']} [ID:{k['id']}]": k['id'] for k in all_kpis if k['id'] != spec.get('id')}
+                                
+                                selected_ref = st.selectbox("Reference a KPI:", ["None"] + list(kpi_options.keys()))
+                                if selected_ref != "None":
+                                    ref_id = kpi_options[selected_ref]
+                                    st.code(f"To use this KPI, add `[{ref_id}]` to your formula.")
+                                
+                                if st.button("Close Builder"):
+                                    st.session_state.show_logic_builder = False
+                                    st.rerun()
+                        
+                        f_str = spec.get('formula_string', '')
+                        f_json = spec.get('formula_json', '')
+                else:
+                    f_str = ""
+                    f_json = None
                 
                 st.markdown("---")
                 st.subheader("🏭 Plant Visibility")

@@ -68,7 +68,10 @@ def app():
             definitions = db_retriever.get_template_defined_indicators(st.session_state.selected_template_id)
             if definitions:
                 df = pd.DataFrame(definitions)
-                st.dataframe(df[['indicator_name_in_template', 'default_calculation_type', 'default_unit_of_measure', 'default_visible', 'default_description']])
+                # Filter columns only if they exist in the dataframe
+                expected_cols = ['indicator_name_in_template', 'default_calculation_type', 'default_unit_of_measure', 'default_visible', 'default_description']
+                available_cols = [c for c in expected_cols if c in df.columns]
+                st.dataframe(df[available_cols])
             else:
                 st.info("No definitions in this template.")
 

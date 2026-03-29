@@ -22,13 +22,15 @@ def get_hierarchy_nodes(parent_id=None):
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
         sql = "SELECT * FROM kpi_nodes WHERE parent_id IS ?" if parent_id is None else "SELECT * FROM kpi_nodes WHERE parent_id = ?"
-        return conn.execute(sql, (parent_id,)).fetchall()
+        rows = conn.execute(sql, (parent_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 def get_indicators_by_node(node_id):
     if _handle_db_connection_error("db_kpis.db", "get_indicators_by_node"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_indicators WHERE node_id = ?", (node_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM kpi_indicators WHERE node_id = ?", (node_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 def get_kpi_indicators_by_subgroup(subgroup_id: int):
     """Legacy support for retrieving KPI indicators by subgroup_id."""
@@ -39,28 +41,32 @@ def get_kpi_groups():
     if _handle_db_connection_error("db_kpis.db", "get_kpi_groups"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT id, name FROM kpi_nodes WHERE node_type = 'group'").fetchall()
+        rows = conn.execute("SELECT id, name FROM kpi_nodes WHERE node_type = 'group'").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_kpi_subgroups():
     """Legacy support: returns subgroups from kpi_nodes."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpi_subgroups"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT id, name, parent_id as group_id FROM kpi_nodes WHERE node_type = 'subgroup'").fetchall()
+        rows = conn.execute("SELECT id, name, parent_id as group_id FROM kpi_nodes WHERE node_type = 'subgroup'").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_kpi_indicators():
     """Returns all indicator names and IDs."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpi_indicators"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT id, name, node_id, subgroup_id FROM kpi_indicators").fetchall()
+        rows = conn.execute("SELECT id, name, node_id, subgroup_id FROM kpi_indicators").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_kpis():
     """Returns all records from the kpis table."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpis"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpis").fetchall()
+        rows = conn.execute("SELECT * FROM kpis").fetchall()
+        return [dict(r) for r in rows]
 
 # --- KPI Specifications ---
 def get_all_kpis_detailed(only_visible=False, plant_id: int = None) -> list:
@@ -124,20 +130,23 @@ def get_all_plants(visible_only=False):
     if _handle_db_connection_error("db_plants.db", "get_all_plants"): return []
     with sqlite3.connect(app_config.get_database_path("db_plants.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM plants" + (" WHERE visible = 1" if visible_only else "") + " ORDER BY name").fetchall()
+        rows = conn.execute("SELECT * FROM plants" + (" WHERE visible = 1" if visible_only else "") + " ORDER BY name").fetchall()
+        return [dict(r) for r in rows]
 
 # --- Templates ---
 def get_kpi_indicator_templates():
     if _handle_db_connection_error("db_kpi_templates.db", "get_kpi_indicator_templates"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_indicator_templates ORDER BY name").fetchall()
+        rows = conn.execute("SELECT * FROM kpi_indicator_templates ORDER BY name").fetchall()
+        return [dict(r) for r in rows]
 
 def get_template_defined_indicators(template_id):
     if _handle_db_connection_error("db_kpi_templates.db", "get_template_defined_indicators"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_templates.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM template_defined_indicators WHERE template_id = ?", (template_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM template_defined_indicators WHERE template_id = ?", (template_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 # --- Targets ---
 def get_kpi_annual_target_values(annual_target_id):
@@ -145,7 +154,8 @@ def get_kpi_annual_target_values(annual_target_id):
     if _handle_db_connection_error("db_kpi_targets.db", "get_kpi_annual_target_values"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_annual_target_values WHERE annual_target_id = ? ORDER BY target_number", (annual_target_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM kpi_annual_target_values WHERE annual_target_id = ? ORDER BY target_number", (annual_target_id,)).fetchall()
+        return [dict(r) for r in rows]
 
 def get_annual_target_entry(year, plant_id, kpi_id):
     if _handle_db_connection_error("db_kpi_targets.db", "get_annual_target_entry"): return None
@@ -154,13 +164,10 @@ def get_annual_target_entry(year, plant_id, kpi_id):
         row = conn.execute("SELECT * FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?", (year, plant_id, kpi_id)).fetchone()
         
         if row:
-            # Enrich with dynamic target values to maintain backward compatibility
-            # and provide full data for new logic.
             enriched_data = dict(row)
             target_values = get_kpi_annual_target_values(row['id'])
             enriched_data['target_values'] = [dict(tv) for tv in target_values]
             
-            # Map specific target numbers back to the old fields if they exist
             for tv in target_values:
                 tn = tv['target_number']
                 enriched_data[f'annual_target{tn}'] = tv['target_value']
@@ -178,13 +185,11 @@ def get_annual_targets(plant_id, year):
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM annual_targets WHERE plant_id=? AND year=?", (plant_id, year)).fetchall()
         
-        # Enrich all rows
         enriched_rows = []
         for row in rows:
             enriched_data = dict(row)
             target_values = get_kpi_annual_target_values(row['id'])
             enriched_data['target_values'] = [dict(tv) for tv in target_values]
-            # Backward compatibility
             for tv in target_values:
                 tn = tv['target_number']
                 enriched_data[f'annual_target{tn}'] = tv['target_value']
@@ -205,18 +210,17 @@ def get_available_target_numbers_for_kpi(year, plant_id, kpi_id):
 
 def get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_number):
     if period_type == "Year":
-        # Year targets are in db_kpi_targets.db, in kpi_annual_target_values
         db_name = "db_kpi_targets.db"
         if _handle_db_connection_error(db_name, "get_periodic_targets_for_kpi"): return []
         with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
             conn.row_factory = sqlite3.Row
-            # Join with annual_targets to filter by year/plant/kpi
-            return conn.execute("""
+            rows = conn.execute("""
                 SELECT 'Year' as period, v.target_value as Target 
                 FROM kpi_annual_target_values v
                 JOIN annual_targets t ON v.annual_target_id = t.id
                 WHERE t.year=? AND t.plant_id=? AND t.kpi_id=? AND v.target_number=?
             """, (year, plant_id, kpi_id, target_number)).fetchall()
+            return [dict(r) for r in rows]
 
     db_map = { "Day": "days", "Week": "weeks", "Month": "months", "Quarter": "quarters" }
     col_map = { "Day": "date_value", "Week": "week_value", "Month": "month_value", "Quarter": "quarter_value" }
@@ -229,7 +233,8 @@ def get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_num
 
     with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute(f"SELECT {col_name} as period, target_value as Target FROM {table_name} WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=?", (year, plant_id, kpi_id, target_number)).fetchall()
+        rows = conn.execute(f"SELECT {col_name} as period, target_value as Target FROM {table_name} WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=?", (year, plant_id, kpi_id, target_number)).fetchall()
+        return [dict(r) for r in rows]
 
 def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, year: int = None):
     """Fetches periodic targets for a specific KPI across all plants, including plant names."""
@@ -253,7 +258,8 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
         with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute(f"ATTACH DATABASE '{plants_db_path}' AS plants_db")
-            return conn.execute(query, params).fetchall()
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
 
     db_map = { "Day": "days", "Week": "weeks", "Month": "months", "Quarter": "quarters" }
     col_map = { "Day": "date_value", "Week": "week_value", "Month": "month_value", "Quarter": "quarter_value" }
@@ -264,7 +270,6 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
     
     if _handle_db_connection_error(db_name, "get_periodic_targets_for_kpi_all_plants"): return []
     
-    # We need to ATTACH db_plants.db to get plant names
     plants_db_path = app_config.get_database_path("db_plants.db")
     
     query = f"""
@@ -281,16 +286,17 @@ def get_periodic_targets_for_kpi_all_plants(kpi_spec_id: int, period_type: str, 
     with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
         conn.row_factory = sqlite3.Row
         conn.execute(f"ATTACH DATABASE '{plants_db_path}' AS plants_db")
-        # Adjust query to use the attached DB for plants
         query = query.replace("FROM plants p", "FROM plants_db.plants p")
-        return conn.execute(query, params).fetchall()
+        rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_annual_target_entries_for_export() -> list:
     """Fetches all records from annual_targets for CSV export."""
     if _handle_db_connection_error("db_kpi_targets.db", "get_all_annual_target_entries_for_export"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM annual_targets").fetchall()
+        rows = conn.execute("SELECT * FROM annual_targets").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_periodic_targets_for_export(period_type: str) -> list:
     """Fetches all records from a specific periodic target table for CSV export."""
@@ -305,29 +311,31 @@ def get_all_periodic_targets_for_export(period_type: str) -> list:
     
     with sqlite3.connect(app_config.get_database_path(db_name)) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute(f"SELECT year, plant_id, kpi_id, target_number, {col_name}, target_value FROM {table_name}").fetchall()
+        rows = conn.execute(f"SELECT year, plant_id, kpi_id, target_number, {col_name}, target_value FROM {table_name}").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_kpi_nodes():
     """Returns all records from the kpi_nodes table."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpi_nodes"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_nodes").fetchall()
+        rows = conn.execute("SELECT * FROM kpi_nodes").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_kpi_plant_visibility():
     """Returns all records from the kpi_plant_visibility table."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpi_plant_visibility"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT * FROM kpi_plant_visibility").fetchall()
+        rows = conn.execute("SELECT * FROM kpi_plant_visibility").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_kpi_definitions_for_export():
     """Fetches all KPI definitions enriched with indicator and node names."""
     if _handle_db_connection_error("db_kpis.db", "get_all_kpi_definitions_for_export"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        # Using the same CTE logic as get_all_kpis_detailed
-        return conn.execute("""
+        rows = conn.execute("""
             WITH RECURSIVE NodePaths AS (
                 SELECT id, name, parent_id, name as path
                 FROM kpi_nodes
@@ -349,6 +357,7 @@ def get_all_kpi_definitions_for_export():
             JOIN kpi_indicators i ON s.indicator_id = i.id
             LEFT JOIN NodePaths np ON i.node_id = np.id
         """).fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_annual_targets_enriched():
     """Fetches all annual targets enriched with plant and KPI names."""
@@ -362,7 +371,7 @@ def get_all_annual_targets_enriched():
         conn.execute(f"ATTACH DATABASE '{plants_db}' AS plants_db")
         conn.execute(f"ATTACH DATABASE '{kpis_db}' AS kpis_db")
         
-        return conn.execute("""
+        rows = conn.execute("""
             SELECT 
                 t.*,
                 p.name as plant_name,
@@ -372,6 +381,7 @@ def get_all_annual_targets_enriched():
             LEFT JOIN kpis_db.kpis s ON t.kpi_id = s.id
             LEFT JOIN kpis_db.kpi_indicators i ON s.indicator_id = i.id
         """).fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_periodic_targets_unified():
     """Combines all periodic targets (days, weeks, months, quarters) into a single list."""
@@ -395,18 +405,20 @@ def get_daily_targets_for_kpi(year, plant_id, kpi_id, target_number):
     if _handle_db_connection_error("db_kpi_days.db", "get_daily_targets_for_kpi"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_days.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("""
+        rows = conn.execute("""
             SELECT date_value, target_value 
             FROM daily_targets 
             WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=?
             ORDER BY date_value
         """, (year, plant_id, kpi_id, target_number)).fetchall()
+        return [dict(r) for r in rows]
 
 def get_distinct_years():
     if _handle_db_connection_error("db_kpi_targets.db", "get_distinct_years"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
         conn.row_factory = sqlite3.Row
-        return conn.execute("SELECT DISTINCT year FROM annual_targets ORDER BY year DESC").fetchall()
+        rows = conn.execute("SELECT DISTINCT year FROM annual_targets ORDER BY year DESC").fetchall()
+        return [dict(r) for r in rows]
 
 def get_all_global_splits(year: int = None) -> list[dict]:
     """Retrieves all global KPI split templates, optionally filtered by year."""
@@ -432,4 +444,29 @@ def get_all_global_splits(year: int = None) -> list[dict]:
         except sqlite3.Error as e:
             print(f"ERROR: Database error while retrieving all global splits. Details: {e}")
             return []
+
+def get_lean_targets() -> list[dict]:
+    """
+    Returns a minimal, high-portability list of target data.
+    Columns: Indicator, Plant, Year, PeriodType, PeriodValue, TargetNumber, Value
+    """
+    unified = get_all_periodic_targets_unified()
+    if not unified: return []
+    
+    # Enrichment
+    plants = {p['id']: p['name'] for p in get_all_plants()}
+    kpis = {k['id']: k['indicator_name'] for k in get_all_kpis_detailed()}
+    
+    lean_data = []
+    for row in unified:
+        lean_data.append({
+            "Indicator": kpis.get(row['kpi_id'], f"ID:{row['kpi_id']}"),
+            "Plant": plants.get(row['plant_id'], f"ID:{row['plant_id']}"),
+            "Year": row['year'],
+            "PeriodType": row['period_type'],
+            "PeriodValue": row['period_value'],
+            "TargetID": row['target_number'],
+            "Value": row['target_value']
+        })
+    return lean_data
 

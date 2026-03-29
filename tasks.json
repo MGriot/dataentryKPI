@@ -1,154 +1,114 @@
 {
   "tasks": [
     {
-      "id": "MAINT-001",
-      "title": "Verify backup, load, and export functionality",
-      "description": "Ensure that the core data maintenance functions (backup to zip, load from zip, and CSV export) are working correctly.",
-      "status": "done",
-      "target_files": ["src/export_manager.py", "src/import_manager.py"],
-      "verification_method": "Run existing export/import tests.",
+      "id": "EVO-BUG-01",
+      "title": "Fix Streamlit KeyError in kpi_templates.py",
+      "description": "Resolve the KeyError by ensuring DataFrame columns match the expected indicator definition fields.",
+      "status": "todo",
+      "target_files": ["src/interfaces/streamlit_app/components/kpi_templates.py"],
+      "verification_method": "Navigate to Templates page in Streamlit and verify no crash occurs.",
       "priority": "high",
-      "created_at": "2026-03-16T21:35:00Z"
+      "created_at": "2026-03-26T23:00:00Z"
     },
     {
-      "id": "TARGET-001",
-      "title": "Show historical targets in Target Entry page",
-      "description": "Display previous two years' target values for context.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/pages/target_entry.py"],
-      "verification_method": "Manual verification in UI.",
+      "id": "EVO-BUG-02",
+      "title": "Fix missing data in Template page",
+      "description": "Ensure existing template settings are correctly loaded and displayed in both Tkinter and Streamlit.",
+      "status": "todo",
+      "target_files": ["src/kpi_management/templates.py"],
+      "verification_method": "Add a template and verify it persists and appears correctly in both GUIs.",
+      "priority": "high",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-SET-01",
+      "title": "Align Streamlit Settings with Tkinter dynamic targets",
+      "description": "Implement the dynamic target list manager (ID/Name assignment) in Streamlit.",
+      "status": "todo",
+      "target_files": ["src/interfaces/streamlit_app/components/settings.py"],
+      "verification_method": "Verify target list management in Streamlit matches Tkinter functionality.",
       "priority": "medium",
-      "created_at": "2026-03-16T21:35:00Z"
+      "created_at": "2026-03-26T23:00:00Z"
     },
     {
-      "id": "TARGET-002-DB",
-      "title": "Refactor annual_targets schema",
-      "description": "Normalized table for dynamic targets.",
-      "status": "done",
-      "target_files": ["src/data_access/setup.py"],
-      "verification_method": "DB schema check.",
-      "priority": "high",
-      "created_at": "2026-03-16T22:10:00Z"
-    },
-    {
-      "id": "TARGET-002-SERVICE",
-      "title": "Update service layer for dynamic targets",
-      "description": "Backend logic for arbitrary target numbers.",
-      "status": "done",
-      "target_files": ["src/target_management/annual.py"],
-      "verification_method": "Integration tests.",
-      "priority": "high",
-      "created_at": "2026-03-16T22:10:00Z"
-    },
-    {
-      "id": "TARGET-002-UI",
-      "title": "Streamlit UI: Dynamic Targets",
-      "description": "UI for adding/removing targets dynamically.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/pages/target_entry.py"],
-      "verification_method": "Manual UI check.",
+      "id": "EVO-SET-02",
+      "title": "Implement Data Recovery in Streamlit",
+      "description": "Add 'Restore from Backup' functionality to the Streamlit interface.",
+      "status": "todo",
+      "target_files": ["src/interfaces/streamlit_app/components/settings.py"],
+      "verification_method": "Perform a successful restore operation through the Streamlit UI.",
       "priority": "medium",
-      "created_at": "2026-03-16T22:10:00Z"
+      "created_at": "2026-03-26T23:00:00Z"
     },
     {
-      "id": "UX-001",
-      "title": "Fix Explorer Tree refresh behavior",
-      "description": "Reset explorer to root after changes.",
-      "status": "done",
+      "id": "EVO-GS-01",
+      "title": "Enhance Global Split UI Transparency",
+      "description": "Show clearly which KPIs and Years are involved for each split profile in both GUIs.",
+      "status": "todo",
+      "target_files": ["src/interfaces/tkinter_app/components/kpi_management_tab.py", "src/interfaces/streamlit_app/components/global_splits.py"],
+      "verification_method": "Verify involved KPIs/Years list in Global Split details.",
+      "priority": "medium",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-GS-02",
+      "title": "Support heterogeneous rules per KPI in Global Split",
+      "description": "Allow a single Global Split profile to manage different distribution profiles for each KPI.",
+      "status": "todo",
+      "target_files": ["src/kpi_management/splits.py", "src/target_management/repartition.py"],
+      "verification_method": "Verify different distribution results for two KPIs linked to the same split.",
+      "priority": "high",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-GS-03",
+      "title": "Emphasize Global Split override in KPI Management",
+      "description": "Automatically switch and mark local split profile as 'Global Split' when linked.",
+      "status": "todo",
+      "target_files": ["src/interfaces/tkinter_app/components/kpi_management_tab.py", "src/interfaces/streamlit_app/components/kpi_explorer.py"],
+      "verification_method": "Link a KPI to a split and verify the local profile indicator updates.",
+      "priority": "medium",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-ANA-01",
+      "title": "Add Analytics Metrics (YoY and Trend)",
+      "description": "Implement Year-over-Year comparison and trend slope analysis in both GUIs.",
+      "status": "todo",
+      "target_files": ["src/interfaces/tkinter_app/components/analysis_tab.py", "src/interfaces/streamlit_app/components/analysis.py"],
+      "verification_method": "Verify presence of YoY % and trend charts in Analysis tabs.",
+      "priority": "medium",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-EXP-01",
+      "title": "Implement Lean Export Mode",
+      "description": "Create a high-portability export mode providing minimal [KPI, Date, Target] columns.",
+      "status": "todo",
+      "target_files": ["src/export_manager.py"],
+      "verification_method": "Generate a 'Lean' CSV and verify it contains the minimal column set.",
+      "priority": "low",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-API-01",
+      "title": "Prepare FastAPI entry point",
+      "description": "Implement a lightweight API endpoint for external target analysis connection.",
+      "status": "todo",
+      "target_files": ["src/main.py"],
+      "verification_method": "Verify API response from /targets endpoint.",
+      "priority": "low",
+      "created_at": "2026-03-26T23:00:00Z"
+    },
+    {
+      "id": "EVO-NODE-01",
+      "title": "Streamlit Visual Node Editor",
+      "description": "Implement an interactive visual node graph editor for formulas in Streamlit.",
+      "status": "todo",
       "target_files": ["src/interfaces/streamlit_app/components/kpi_explorer.py"],
-      "verification_method": "Manual UI check.",
-      "priority": "medium",
-      "created_at": "2026-03-16T21:35:00Z"
-    },
-    {
-      "id": "NODE-001",
-      "title": "Enhanced Node Editor",
-      "description": "Hierarchy selection, orthogonal lines, dynamic inputs.",
-      "status": "done",
-      "target_files": ["src/gui/node_editor.py"],
-      "verification_method": "Manual UI check.",
-      "priority": "medium",
-      "created_at": "2026-03-16T21:35:00Z"
-    },
-    {
-      "id": "UI-PARITY",
-      "title": "Streamlit-Tkinter Parity Audit",
-      "description": "Identify missing features in Streamlit vs Tkinter.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/main.py"],
-      "verification_method": "Parity report.",
+      "verification_method": "Successfully create a formula using visual nodes in Streamlit.",
       "priority": "high",
-      "created_at": "2026-03-16T23:50:00Z"
-    },
-    {
-      "id": "UI-MIGRATE-SPLITS",
-      "title": "Streamlit: Global Splits Management",
-      "description": "Implement the missing Global Splits page in Streamlit to manage repartition templates.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/components/global_splits.py"],
-      "verification_method": "Verify split creation and editing in Streamlit.",
-      "priority": "high",
-      "created_at": "2026-03-16T23:55:00Z"
-    },
-    {
-      "id": "UI-MIGRATE-LINKS",
-      "title": "Streamlit: Hierarchical Master/Sub Management",
-      "description": "Refactor Master/Sub UI to use a tree view and show linked subs with weights, matching Tkinter.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/components/master_sub_link.py"],
-      "verification_method": "Verify tree-based navigation and link editing.",
-      "priority": "high",
-      "created_at": "2026-03-16T23:55:00Z"
-    },
-    {
-      "id": "UI-MIGRATE-ANALYSIS",
-      "title": "Streamlit: Enhanced Analysis Dashboard",
-      "description": "Implement multi-year selection and improved manufacturing-date chart scaling.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/components/analysis.py"],
-      "verification_method": "Verify multi-year overlay on charts.",
-      "priority": "medium",
-      "created_at": "2026-03-16T23:55:00Z"
-    },
-    {
-      "id": "UI-MIGRATE-PREVIEW",
-      "title": "Streamlit: KPI Detail Real-time Preview",
-      "description": "Add a formula/node preview panel to the KPI details view in the explorer.",
-      "status": "done",
-      "target_files": ["src/interfaces/streamlit_app/components/kpi_explorer.py"],
-      "verification_method": "Observe preview update while typing formula.",
-      "priority": "medium",
-      "created_at": "2026-03-16T23:55:00Z"
-    },
-    {
-      "id": "SPLIT-LOGIC",
-      "title": "Advanced Split Logic (Multivariate)",
-      "description": "CSV/XLSX import for trend-based splitting.",
-      "status": "done",
-      "target_files": ["src/target_management/repartition.py"],
-      "verification_method": "Verify split suggestions based on imported data.",
-      "priority": "high",
-      "created_at": "2026-03-16T23:50:00Z"
-    },
-    {
-      "id": "BI-DIRECTIONAL",
-      "title": "Formula-Node Bi-directional Conversion",
-      "description": "Convert freely between node graph and text formula.",
-      "status": "done",
-      "target_files": ["src/core/node_engine.py"],
-      "verification_method": "Verify round-trip conversion accuracy.",
-      "priority": "medium",
-      "created_at": "2026-03-16T23:50:00Z"
-    },
-    {
-      "id": "CLEANUP",
-      "title": "Final System Validation & Cleanup",
-      "description": "Run all verification scripts and remove temporary test files.",
-      "status": "done",
-      "target_files": ["/"],
-      "verification_method": "All scripts pass.",
-      "priority": "medium",
-      "created_at": "2026-03-17T01:30:00Z"
+      "created_at": "2026-03-26T23:00:00Z"
     }
   ]
 }

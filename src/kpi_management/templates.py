@@ -112,8 +112,8 @@ def delete_kpi_indicator_template(template_id: int):
 
     if linked_nodes and _data_retriever_available:
         defs = data_retriever.get_template_defined_indicators(template_id)
-        for d_row in defs:
-            _propagate_template_indicator_change(template_id, dict(d_row), "remove", linked_nodes)
+        for d in defs:
+            _propagate_template_indicator_change(template_id, d, "remove", linked_nodes)
 
     # Unlink
     with sqlite3.connect(db_kpis_path) as conn:

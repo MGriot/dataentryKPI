@@ -5,5 +5,7 @@ plotly
 numpy
 matplotlib
 scikit-learn
+fastapi
+uvicorn
 # Tkinter is part of the standard library, but may require 'python3-tk' on some systems
 # sqlite3 is part of the Python standard library

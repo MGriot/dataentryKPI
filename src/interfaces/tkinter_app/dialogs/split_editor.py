@@ -125,7 +125,8 @@ class SplitEditorDialog(tk.Toplevel):
     def _refresh_ind_tree(self):
         for i in self.ind_tree.get_children(): self.ind_tree.delete(i)
         for i in self.afflicted_indicators:
-            self.ind_tree.insert("", "end", iid=str(i['indicator_id']), values=(i['indicator_id'], i['indicator_name'], i['override'] or "Default"))
+            ov_disp = i.get('override') or "(Default)"
+            self.ind_tree.insert("", "end", iid=str(i['indicator_id']), values=(i['indicator_id'], i['indicator_name'], ov_disp))
 
     def _on_preset_change(self, event):
         logic = self.logic_var.get()

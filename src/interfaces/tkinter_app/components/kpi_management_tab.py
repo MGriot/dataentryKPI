@@ -246,7 +246,18 @@ class KpiManagementTab(ttk.Frame):
             ttk.Label(grid, text=spec['calculation_type'], background="#FFFFFF").grid(row=0, column=3, sticky="w", padx=5, pady=2)
             
             ttk.Label(grid, text="Split Profile:", font=("Helvetica", 9, "bold"), background="#FFFFFF").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-            ttk.Label(grid, text=spec.get('default_distribution_profile', 'Standard (Equal)'), background="#FFFFFF").grid(row=1, column=1, sticky="w", padx=5, pady=2)
+            
+            profile_text = spec.get('default_distribution_profile', 'Standard (Equal)')
+            profile_color = "#333333"
+            
+            if spec.get('global_split_id'):
+                gs = db_retriever.get_all_global_splits()
+                gs_obj = next((s for s in gs if s['id'] == spec['global_split_id']), None)
+                if gs_obj:
+                    profile_text = f"🔗 Global Split: {gs_obj['name']} ({gs_obj['year']})"
+                    profile_color = "#d32f2f" # Reddish to indicate external control
+            
+            ttk.Label(grid, text=profile_text, background="#FFFFFF", foreground=profile_color).grid(row=1, column=1, sticky="w", padx=5, pady=2)
             
             ttk.Label(grid, text="Visible:", font=("Helvetica", 9, "bold"), background="#FFFFFF").grid(row=1, column=2, sticky="w", padx=20, pady=2)
             ttk.Label(grid, text="Yes" if spec['visible'] else "No", background="#FFFFFF").grid(row=1, column=3, sticky="w", padx=5, pady=2)
@@ -359,6 +370,28 @@ class KpiManagementTab(ttk.Frame):
         btn_f.pack(fill="x", pady=10)
         ttk.Button(btn_f, text="Edit Split", command=lambda: self.edit_split(split_id), style="Action.TButton").pack(side="left", padx=5)
         ttk.Button(btn_f, text="Delete Split", command=lambda: self.delete_split(split_id)).pack(side="left", padx=5)
+
+        # Show Affected KPIs
+        st_f = ttk.LabelFrame(self.split_detail_content, text="🎯 Affected KPIs", padding=10)
+        st_f.pack(fill="both", expand=True, pady=(15, 0))
+        
+        from src.kpi_management.splits import get_indicators_for_global_split
+        afflicted = get_indicators_for_global_split(split_id)
+        
+        if afflicted:
+            # We need indicator names. Fetching all KPIs to map.
+            all_inds = db_retriever.get_all_kpi_indicators()
+            ind_map = {i['id']: i['name'] for i in all_inds}
+            
+            # Use a listbox to show KPIs
+            kpi_lb = tk.Listbox(st_f, font=("Helvetica", 9), height=10)
+            kpi_lb.pack(fill="both", expand=True)
+            for a in afflicted:
+                name = ind_map.get(a['indicator_id'], f"ID:{a['indicator_id']}")
+                profile_info = f" (Override: {a['override_distribution_profile']})" if a.get('override_distribution_profile') else ""
+                kpi_lb.insert(tk.END, f"- {name}{profile_info}")
+        else:
+            ttk.Label(st_f, text="No KPIs linked to this split.", foreground="#999").pack()
 
     def _show_template_details(self, tpl_id):
         for c in self.tpl_detail_content.winfo_children(): c.destroy()

@@ -23,6 +23,7 @@ try:
         get_all_kpi_plant_visibility,
         get_all_annual_targets_enriched,
         get_all_periodic_targets_unified,
+        get_lean_targets,
     )
     _data_retriever_available = True
 except ImportError as e:
@@ -57,6 +58,18 @@ def _export_to_csv(output_filepath: Path, data: list, header: list[str]):
     except Exception as e:
         print(f"ERROR writing to {output_filepath.name}: {e}")
         traceback.print_exc()
+
+def export_lean_data_to_csv(base_export_path_str: str = None):
+    """Generates a minimal, high-portability CSV for external consumption."""
+    if not _data_retriever_available: return
+    
+    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
+    target_export_path.mkdir(parents=True, exist_ok=True)
+    
+    _export_to_csv(target_export_path / "lean_target_data.csv", 
+                   get_lean_targets(), 
+                   ["Indicator", "Plant", "Year", "PeriodType", "PeriodValue", "TargetID", "Value"])
+    print("INFO: Lean export completed.")
 
 def export_all_data_to_global_csvs(base_export_path_str: str = None):
     """Generates/Overwrites global CSV files with all data, fetched via data_retriever."""

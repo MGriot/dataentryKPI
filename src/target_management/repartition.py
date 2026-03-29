@@ -380,6 +380,18 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
         
         if gs:
             logic, profile, vals, params = gs['repartition_logic'], gs['distribution_profile'], gs['repartition_values'], gs['profile_params']
+            
+            # Check for per-indicator profile override within this global split
+            try:
+                from src.kpi_management.splits import get_indicators_for_global_split
+                afflicted = get_indicators_for_global_split(global_split_id)
+                ind_id = kpi_details.get('indicator_id')
+                override = next((a for a in afflicted if a['indicator_id'] == ind_id), None)
+                if override and override.get('override_distribution_profile'):
+                    profile = override['override_distribution_profile']
+                    print(f"      INFO: Using override profile '{profile}' for KPI {kpi_spec_id} in Global Split {global_split_id}")
+            except Exception as e_gs:
+                print(f"      WARNING: Could not check for Global Split override: {e_gs}")
         else:
             REPARTITION_LOGIC_YEAR = app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"]
             PROFILE_ANNUAL_PROGRESSIVE = app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"]

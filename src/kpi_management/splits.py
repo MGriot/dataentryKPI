@@ -5,8 +5,8 @@ import traceback
 from src.config import settings as app_config
 from pathlib import Path
 
-def add_global_split(name: str, year: int, repartition_logic: str, repartition_values: dict, distribution_profile: str, profile_params: dict) -> int:
-    """Adds a new global KPI split template."""
+def add_global_split(name: str, year: int, repartition_logic: str, repartition_values: dict, distribution_profile: str, profile_params: dict, afflicted_indicators: list[dict] = None) -> int:
+    """Adds a new global KPI split template and optionally links indicators."""
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
     with sqlite3.connect(db_templates_path) as conn:
         try:
@@ -16,16 +16,24 @@ def add_global_split(name: str, year: int, repartition_logic: str, repartition_v
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (name, year, repartition_logic, json.dumps(repartition_values), distribution_profile, json.dumps(profile_params))
             )
+            split_id = cursor.lastrowid
             conn.commit()
-            return cursor.lastrowid
+            
+            if afflicted_indicators:
+                update_global_split_indicators(split_id, afflicted_indicators)
+                
+            return split_id
         except sqlite3.Error as e:
             print(f"ERROR: Database error while adding global split '{name}'. Details: {e}")
             print(traceback.format_exc())
             raise
 
 def update_global_split(split_id: int, **kwargs):
-    """Updates an existing global KPI split template."""
+    """Updates an existing global KPI split template and its linked indicators."""
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    
+    # Handle afflicted_indicators separately
+    afflicted = kwargs.pop('afflicted_indicators', None)
     
     # Map fields to their serialization logic
     serialized_fields = {'repartition_values', 'profile_params'}
@@ -40,21 +48,20 @@ def update_global_split(split_id: int, **kwargs):
             set_clauses.append(f"{key} = ?")
             params.append(value)
     
-    if not set_clauses:
-        return
+    if set_clauses:
+        params.append(split_id)
+        query = f"UPDATE global_kpi_splits SET {', '.join(set_clauses)} WHERE id = ?"
+        with sqlite3.connect(db_templates_path) as conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
+                conn.commit()
+            except sqlite3.Error as e:
+                print(f"ERROR: Database error while updating global split ID {split_id}. Details: {e}")
+                raise
 
-    params.append(split_id)
-    query = f"UPDATE global_kpi_splits SET {', '.join(set_clauses)} WHERE id = ?"
-
-    with sqlite3.connect(db_templates_path) as conn:
-        try:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            conn.commit()
-        except sqlite3.Error as e:
-            print(f"ERROR: Database error while updating global split ID {split_id}. Details: {e}")
-            print(traceback.format_exc())
-            raise
+    if afflicted is not None:
+        update_global_split_indicators(split_id, afflicted)
 
 def delete_global_split(split_id: int):
     """Deletes a global KPI split template and its afflicted indicators."""

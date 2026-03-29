@@ -137,6 +137,12 @@ class AnalysisTab(ttk.Frame):
         self.table.heading("T3+", text="Other Targets")
         self.table.pack(fill="x", padx=10, pady=5)
 
+        # Metrics Overview Panel
+        self.metrics_f = ttk.LabelFrame(detail_f, text="📊 Performance Metrics", padding=10, style="Card.TLabelframe")
+        self.metrics_f.pack(fill="x", padx=10, pady=5)
+        self.metrics_label = ttk.Label(self.metrics_f, text="Select a KPI to see analysis metrics.", font=("Segoe UI", 10))
+        self.metrics_label.pack(fill="x")
+
         self.fig = Figure(figsize=(5, 4), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, master=detail_f)
@@ -250,6 +256,55 @@ class AnalysisTab(ttk.Frame):
             
             self.ax.plot(x_indices, tn_vals, marker=marker, linestyle=style, label=label, color=color)
         
+        # --- Metrics Calculation (YoY and Trend) ---
+        metrics_text = []
+        import numpy as np
+        
+        # 1. YoY Calculation (if at least 2 years selected)
+        if len(years) >= 2:
+            sorted_years = sorted(years)
+            cur_y = sorted_years[-1]
+            prev_y = sorted_years[-2]
+            metrics_text.append(f"📅 **YoY Comparison ({prev_y} vs {cur_y}):**")
+            
+            for tn in sorted(all_t_nums):
+                cur_sum = sum(data_tree[cur_y].get(tn, {}).values())
+                prev_sum = sum(data_tree[prev_y].get(tn, {}).values())
+                
+                if prev_sum != 0:
+                    diff = ((cur_sum - prev_sum) / abs(prev_sum)) * 100
+                    emoji = "📈" if diff > 0 else "📉" if diff < 0 else "📊"
+                    t_name = self.target1_display_name if tn == 1 else self.target2_display_name if tn == 2 else f"T{tn}"
+                    metrics_text.append(f"  {emoji} {t_name}: {diff:+.1f}%")
+        
+        # 2. Trend Analysis (Regression slope on the full timeline)
+        metrics_text.append("\n📈 **Overall Trend Analysis:**")
+        for tn in sorted(all_t_nums):
+            # Collect all values in chronological order
+            full_series = []
+            for yp in sorted_all_ps:
+                y, p = yp
+                if tn in data_tree[y] and p in data_tree[y][tn]:
+                    full_series.append(data_tree[y][tn][p])
+            
+            if len(full_series) > 2:
+                x = np.arange(len(full_series))
+                slope, intercept = np.polyfit(x, full_series, 1)
+                
+                # Normalize slope to percentage of mean
+                mean_val = np.mean(full_series)
+                if abs(mean_val) > 1e-9:
+                    relative_slope = (slope / mean_val) * 100
+                    trend_desc = "Upward" if relative_slope > 0.5 else "Downward" if relative_slope < -0.5 else "Stable"
+                    color_code = "green" if trend_desc == "Upward" else "red" if trend_desc == "Downward" else "black"
+                    t_name = self.target1_display_name if tn == 1 else self.target2_display_name if tn == 2 else f"T{tn}"
+                    metrics_text.append(f"  🔹 {t_name}: {trend_desc} ({relative_slope:+.2f}% / period)")
+
+        if metrics_text:
+            self.metrics_label.config(text="\n".join(metrics_text))
+        else:
+            self.metrics_label.config(text="Insufficient data for trend/YoY analysis.")
+
         if len(sorted_all_ps) > 20:
             step = max(1, len(sorted_all_ps) // 10)
             indices = range(0, len(sorted_all_ps), step)

@@ -31,7 +31,11 @@ class DataManagementTab(ttk.Frame):
         csv_card.pack(side="left", fill="both", expand=True, padx=5)
 
         ttk.Label(csv_card, text="Generate flat CSV files for external reporting or Excel analysis.", wraplength=200, background="#FFFFFF").pack(pady=10)
-        ttk.Button(csv_card, text="Export CSVs", command=self.export_csvs, style="Action.TButton").pack(side="bottom", pady=10)
+        
+        btn_f = ttk.Frame(csv_card, style="Card.TFrame")
+        btn_f.pack(side="bottom", fill="x")
+        ttk.Button(btn_f, text="Export All", command=self.export_csvs, style="Action.TButton").pack(side="left", padx=2, pady=5)
+        ttk.Button(btn_f, text="Lean Export", command=self.export_lean).pack(side="left", padx=2, pady=5)
 
         # --- Card 2: Backup ---
         backup_card = ttk.LabelFrame(cards_frame, text="System Backup", padding=15, style="Card.TLabelframe")
@@ -53,6 +57,13 @@ class DataManagementTab(ttk.Frame):
             messagebox.showinfo("Success", f"All tables exported as CSV to:\n{CSV_EXPORT_BASE_PATH}")
         except Exception as e:
             messagebox.showerror("Export Error", str(e))
+
+    def export_lean(self):
+        try:
+            export_manager.export_lean_data_to_csv()
+            messagebox.showinfo("Success", f"Lean data exported to:\n{CSV_EXPORT_BASE_PATH}/lean_target_data.csv")
+        except Exception as e:
+            messagebox.showerror("Lean Export Error", str(e))
 
     def create_backup(self):
         try:

@@ -192,7 +192,10 @@ def app():
         # Edit existing
         split_id = next(s['id'] for s in all_splits if f"{s['year']} - {s['name']}" == selected_split_label)
         split = kpi_splits_manager.get_global_split(split_id)
+        current_afflicted = kpi_splits_manager.get_indicators_for_global_split(split_id)
         
+        st.info(f"📊 **Summary:** This split template is configured for year **{split['year']}** and is currently linked to **{len(current_afflicted)}** KPIs.")
+
         with col_config:
             st.subheader(f"✏️ Edit Split: {split['name']}")
             _render_multivariate_section(f"edit_{split_id}")
@@ -232,23 +235,39 @@ def app():
 
         with col_inds:
             st.subheader("🎯 Affected KPIs")
-            st.caption("Indicators following this split template.")
+            st.caption("Indicators following this split template. You can set a specific distribution profile per KPI.")
             
             current_afflicted = kpi_splits_manager.get_indicators_for_global_split(split_id)
             current_ids = [i['indicator_id'] for i in current_afflicted]
             default_labels = [f"{i['name']} [ID:{i['id']}]" for i in all_inds if i['id'] in current_ids]
             
-            selected_labels = st.multiselect("Select KPIs to Link", options=list(ind_options.keys()), default=default_labels, key=f"inds_edit_{split_id}")
+            selected_labels = st.multiselect("Link/Unlink KPIs", options=list(ind_options.keys()), default=default_labels, key=f"inds_edit_{split_id}")
             
-            if st.button("Sync KPI Links", type="primary", use_container_width=True):
-                new_data = []
-                for label in selected_labels:
-                    iid = ind_options[label]
-                    existing = next((i for i in current_afflicted if i['indicator_id'] == iid), None)
+            st.markdown("---")
+            st.write("**Set Profile Overrides:**")
+            
+            new_data = []
+            for label in selected_labels:
+                iid = ind_options[label]
+                existing = next((i for i in current_afflicted if i['indicator_id'] == iid), None)
+                
+                # Show a small expander or container for each selected KPI to set override
+                with st.container(border=True):
+                    c_name, c_ov = st.columns([1.5, 1])
+                    c_name.write(label)
+                    
+                    # Profile options + "Default"
+                    opts = ["(Default)"] + DISTRIBUTION_PROFILE_OPTIONS
+                    current_ov = existing['override_distribution_profile'] if existing and existing['override_distribution_profile'] else "(Default)"
+                    
+                    ov_profile = c_ov.selectbox("Override:", opts, index=opts.index(current_ov) if current_ov in opts else 0, key=f"ov_{split_id}_{iid}")
+                    
                     new_data.append({
                         'indicator_id': iid,
-                        'override_distribution_profile': existing['override_distribution_profile'] if existing else None
+                        'override_distribution_profile': None if ov_profile == "(Default)" else ov_profile
                     })
+            
+            if st.button("Sync KPI Links & Overrides", type="primary", use_container_width=True):
                 kpi_splits_manager.update_global_split_indicators(split_id, new_data)
-                st.success("KPI list updated!")
+                st.success("KPI list and overrides updated!")
                 st.rerun()
