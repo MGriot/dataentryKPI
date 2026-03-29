@@ -93,9 +93,26 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         # Standard Distribution Profile
         from src.interfaces.common_ui.constants import DISTRIBUTION_PROFILE_OPTIONS
         ttk.Label(master, text="Split Profile:").grid(row=8, column=0, sticky="w", padx=5, pady=3)
-        self.dist_profile_var = tk.StringVar(value=self.initial_spec_data.get("default_distribution_profile", DISTRIBUTION_PROFILE_OPTIONS[0]))
-        self.dist_profile_cb = ttk.Combobox(master, textvariable=self.dist_profile_var, values=DISTRIBUTION_PROFILE_OPTIONS, state="readonly", width=38)
+        
+        initial_profile = self.initial_spec_data.get("default_distribution_profile", DISTRIBUTION_PROFILE_OPTIONS[0])
+        gs_id = self.initial_spec_data.get("global_split_id")
+        state = "readonly"
+        
+        if gs_id:
+            all_gs = data_retriever.get_all_global_splits()
+            gs_obj = next((s for s in all_gs if s['id'] == gs_id), None)
+            if gs_obj:
+                initial_profile = f"🔗 Global Split: {gs_obj['name']}"
+                state = "disabled"
+
+        self.dist_profile_var = tk.StringVar(value=initial_profile)
+        self.dist_profile_cb = ttk.Combobox(master, textvariable=self.dist_profile_var, values=DISTRIBUTION_PROFILE_OPTIONS, state=state, width=38)
         self.dist_profile_cb.grid(row=8, column=1, padx=5, pady=3)
+        
+        if gs_id:
+            # We can't easily color the text of a disabled combobox in some themes, 
+            # but we can add a warning label.
+            ttk.Label(master, text="Controlled by Global Split", foreground="#d32f2f", font=("Helvetica", 8, "italic")).grid(row=8, column=1, sticky="e", padx=10)
 
         # Per-Plant Visibility Section
         self.pv_frame = ttk.LabelFrame(master, text="Per-Plant Visibility")
