@@ -352,46 +352,57 @@ class KpiManagementTab(ttk.Frame):
             self._show_indicator_details(ind_id)
 
     def _show_split_details(self, split_id):
+        for c in self.split_detail_content.winfo_children(): c.destroy()
         s = self.split_cache[split_id]
-        ttk.Label(self.split_detail_content, text=f"Split: {s['name']}", font=("Helvetica", 14, "bold"), background="#FFFFFF").pack(anchor="w")
-        ttk.Label(self.split_detail_content, text=f"Year: {s['year']} | Logic: {s['repartition_logic']}", background="#FFFFFF").pack(anchor="w", pady=5)
-        ttk.Label(self.split_detail_content, text=f"Profile: {s['distribution_profile']}", background="#FFFFFF").pack(anchor="w")
+        
+        header_f = ttk.Frame(self.split_detail_content, style="Card.TFrame")
+        header_f.pack(fill="x", pady=(0, 10))
+        
+        ttk.Label(header_f, text=f"Split: {s['name']}", font=("Helvetica", 16, "bold"), background="#FFFFFF").pack(side="left")
+        ttk.Label(header_f, text=f" [Year: {s['year']}]", font=("Helvetica", 14), foreground="#666", background="#FFFFFF").pack(side="left")
+
+        info_grid = ttk.Frame(self.split_detail_content, style="Card.TFrame")
+        info_grid.pack(fill="x", pady=5)
+        
+        ttk.Label(info_grid, text="Logic:", font=("Helvetica", 9, "bold"), background="#FFFFFF").grid(row=0, column=0, sticky="w", padx=5)
+        ttk.Label(info_grid, text=s['repartition_logic'], background="#FFFFFF").grid(row=0, column=1, sticky="w", padx=5)
+        
+        ttk.Label(info_grid, text="Default Profile:", font=("Helvetica", 9, "bold"), background="#FFFFFF").grid(row=1, column=0, sticky="w", padx=5)
+        ttk.Label(info_grid, text=s['distribution_profile'], background="#FFFFFF").grid(row=1, column=1, sticky="w", padx=5)
 
         # Visual representation of values (simplified)
-        vals_f = ttk.LabelFrame(self.split_detail_content, text="Repartition Values", padding=10)
-        vals_f.pack(fill="both", expand=True, pady=15)
+        vals_f = ttk.LabelFrame(self.split_detail_content, text="📋 Repartition Weights", padding=10)
+        vals_f.pack(fill="x", pady=10)
         
-        vals_text = tk.Text(vals_f, height=8, font=("Courier", 9))
-        vals_text.pack(fill="both", expand=True)
+        vals_text = tk.Text(vals_f, height=4, font=("Courier", 9))
+        vals_text.pack(fill="x", expand=True)
         vals_text.insert("1.0", json.dumps(s['repartition_values'], indent=2))
         vals_text.config(state="disabled")
 
-        btn_f = ttk.Frame(self.split_detail_content, style="Card.TFrame")
-        btn_f.pack(fill="x", pady=10)
-        ttk.Button(btn_f, text="Edit Split", command=lambda: self.edit_split(split_id), style="Action.TButton").pack(side="left", padx=5)
-        ttk.Button(btn_f, text="Delete Split", command=lambda: self.delete_split(split_id)).pack(side="left", padx=5)
-
         # Show Affected KPIs
-        st_f = ttk.LabelFrame(self.split_detail_content, text="🎯 Affected KPIs", padding=10)
-        st_f.pack(fill="both", expand=True, pady=(15, 0))
-        
         from src.kpi_management.splits import get_indicators_for_global_split
         afflicted = get_indicators_for_global_split(split_id)
         
+        st_f = ttk.LabelFrame(self.split_detail_content, text=f"🎯 Affected KPIs ({len(afflicted)})", padding=10)
+        st_f.pack(fill="both", expand=True, pady=10)
+        
         if afflicted:
-            # We need indicator names. Fetching all KPIs to map.
             all_inds = db_retriever.get_all_kpi_indicators()
             ind_map = {i['id']: i['name'] for i in all_inds}
             
-            # Use a listbox to show KPIs
-            kpi_lb = tk.Listbox(st_f, font=("Helvetica", 9), height=10)
+            kpi_lb = tk.Listbox(st_f, font=("Helvetica", 10), height=8, borderwidth=0, highlightthickness=0)
             kpi_lb.pack(fill="both", expand=True)
             for a in afflicted:
                 name = ind_map.get(a['indicator_id'], f"ID:{a['indicator_id']}")
-                profile_info = f" (Override: {a['override_distribution_profile']})" if a.get('override_distribution_profile') else ""
-                kpi_lb.insert(tk.END, f"- {name}{profile_info}")
+                profile_info = f" → Override: {a['override_distribution_profile']}" if a.get('override_distribution_profile') else ""
+                kpi_lb.insert(tk.END, f"• {name}{profile_info}")
         else:
-            ttk.Label(st_f, text="No KPIs linked to this split.", foreground="#999").pack()
+            ttk.Label(st_f, text="No KPIs linked to this split.", foreground="#999", background="#FFFFFF").pack()
+
+        btn_f = ttk.Frame(self.split_detail_content, style="Card.TFrame")
+        btn_f.pack(fill="x", pady=10)
+        ttk.Button(btn_f, text="Edit Split & Links", command=lambda: self.edit_split(split_id), style="Action.TButton").pack(side="left", padx=5)
+        ttk.Button(btn_f, text="Delete Split", command=lambda: self.delete_split(split_id)).pack(side="left", padx=5)
 
     def _show_template_details(self, tpl_id):
         for c in self.tpl_detail_content.winfo_children(): c.destroy()

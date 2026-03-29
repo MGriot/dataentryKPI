@@ -74,13 +74,18 @@ class SplitEditorDialog(tk.Toplevel):
         self.values_text.pack(fill="both", expand=True, pady=(0, 10))
 
         # Right Column: Afflicted Indicators
-        right = ttk.LabelFrame(container, text="Indicators Afflicted (Req 9)", padding=10)
+        right = ttk.LabelFrame(container, text="🎯 Indicators Afflicted (Heterogeneous Rules)", padding=10)
         right.pack(side="right", fill="both", expand=True)
+
+        ttk.Label(right, text="These KPIs follow this template. Use 'Set Override' to\nassign a different profile to specific KPIs.", font=("Helvetica", 8, "italic")).pack(anchor="w", pady=(0, 5))
 
         self.ind_tree = ttk.Treeview(right, columns=("ID", "Name", "Override"), show="headings", height=15)
         self.ind_tree.heading("ID", text="ID"); self.ind_tree.column("ID", width=40)
         self.ind_tree.heading("Name", text="Indicator Name"); self.ind_tree.column("Name", width=150)
         self.ind_tree.heading("Override", text="Profile Override"); self.ind_tree.column("Override", width=120)
+        
+        # Tags for coloring overrides
+        self.ind_tree.tag_configure("override", background="#FFF3E0") # Light orange for overrides
         self.ind_tree.pack(fill="both", expand=True)
 
         ind_btns = ttk.Frame(right)
@@ -126,7 +131,8 @@ class SplitEditorDialog(tk.Toplevel):
         for i in self.ind_tree.get_children(): self.ind_tree.delete(i)
         for i in self.afflicted_indicators:
             ov_disp = i.get('override') or "(Default)"
-            self.ind_tree.insert("", "end", iid=str(i['indicator_id']), values=(i['indicator_id'], i['indicator_name'], ov_disp))
+            tags = ("override",) if i.get('override') else ()
+            self.ind_tree.insert("", "end", iid=str(i['indicator_id']), values=(i['indicator_id'], i['indicator_name'], ov_disp), tags=tags)
 
     def _on_preset_change(self, event):
         logic = self.logic_var.get()
