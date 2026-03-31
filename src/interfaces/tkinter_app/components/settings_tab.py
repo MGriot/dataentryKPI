@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import json
-from src.config.settings import SETTINGS_FILE
+from src.config.settings import SETTINGS_FILE, USER_CONSTANTS_FILE
 from src.interfaces.common_ui import constants as const
 
 class SettingsTab(ttk.Frame):
@@ -128,7 +128,7 @@ class SettingsTab(ttk.Frame):
 
     def load_calculation_constants(self):
         try:
-            with open('user_constants.json', 'r') as f:
+            with open(USER_CONSTANTS_FILE, 'r') as f:
                 self.calculation_constants = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             self.calculation_constants = {
@@ -190,7 +190,7 @@ class SettingsTab(ttk.Frame):
                     messagebox.showerror("Error", f"Invalid value for {name}. Please enter a number.")
                     return
             
-            with open('user_constants.json', 'w') as f:
+            with open(USER_CONSTANTS_FILE, 'w') as f:
                 json.dump(new_constants, f, indent=4)
 
             self.calculation_constants = new_constants

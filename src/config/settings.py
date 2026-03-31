@@ -4,8 +4,8 @@ CALC_TYPE_INCREMENTAL = "Incremental"
 CALC_TYPE_AVERAGE = "Average"
 
 # --- Settings File Path ---
-SETTINGS_FILE = Path(__file__).resolve().parents[2] / "settings.json"
-USER_CONSTANTS_FILE = Path(__file__).resolve().parents[2] / "user_constants.json"
+SETTINGS_FILE = Path(__file__).resolve().parents[2] / "user_config" / "settings.json"
+USER_CONSTANTS_FILE = Path(__file__).resolve().parents[2] / "user_config" / "user_constants.json"
 
 # --- Default Settings ---
 DEFAULT_SETTINGS = {

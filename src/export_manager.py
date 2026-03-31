@@ -124,6 +124,40 @@ def export_all_data_to_global_csvs(base_export_path_str: str = None):
     print("INFO: Global CSV export finished.")
 
 
+def export_single_table(table_key: str, base_export_path_str: str = None) -> str:
+    """Exports a single specific table to CSV based on a key."""
+    if not _data_retriever_available:
+        return "Error: Data retriever not available."
+
+    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
+    target_export_path.mkdir(parents=True, exist_ok=True)
+
+    # Mapping of keys to (retrieval_func, header, filename)
+    from src import data_retriever
+    mapping = {
+        "Plants": (data_retriever.get_all_plants, ["id", "name", "description", "visible", "color"], GLOBAL_CSV_FILES["plants"]),
+        "KPI Hierarchy": (data_retriever.get_all_kpi_nodes, ["id", "name", "parent_id", "node_type"], GLOBAL_CSV_FILES["kpi_nodes"]),
+        "KPI Definitions": (data_retriever.get_all_kpi_definitions_for_export, ["kpi_id", "indicator_name", "hierarchy_path", "description", "calculation_type", "unit_of_measure", "visible"], GLOBAL_CSV_FILES["kpi_definitions"]),
+        "Plant Visibility": (data_retriever.get_all_kpi_plant_visibility, ["kpi_id", "plant_id", "is_enabled"], GLOBAL_CSV_FILES["kpi_plant_visibility"]),
+        "Annual Targets": (data_retriever.get_all_annual_targets_enriched, ["id", "year", "plant_id", "plant_name", "kpi_id", "indicator_name", "annual_target1", "annual_target2", "repartition_logic"], GLOBAL_CSV_FILES["annual"]),
+        "Periodic Targets": (data_retriever.get_all_periodic_targets_unified, ["year", "plant_id", "kpi_id", "target_number", "period_type", "period_value", "target_value"], GLOBAL_CSV_FILES["periodic"])
+    }
+
+    if table_key not in mapping:
+        return f"Error: Unknown table key '{table_key}'"
+
+    func, header, filename = mapping[table_key]
+    # Handle visible_only for get_all_plants
+    if table_key == "Plants":
+        data = func(visible_only=False)
+    else:
+        data = func()
+
+    output_path = target_export_path / filename
+    _export_to_csv(output_path, data, header)
+    return f"Success: Exported {table_key} to {filename}"
+
+
 def package_all_csvs_as_zip(csv_base_path_str: str = None, output_zip_filepath_str: str = None, return_bytes_for_streamlit: bool = False):
     """Packages all globally defined CSV files into a ZIP archive."""
     source_csv_path = Path(csv_base_path_str) if csv_base_path_str else _CSV_EXPORT_BASE_PATH_OBJ

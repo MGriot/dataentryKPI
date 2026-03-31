@@ -51,6 +51,20 @@ class DataManagementTab(ttk.Frame):
         ttk.Label(restore_card, text="Restore system state from a previous ZIP backup. WARN: Overwrites data.", wraplength=200, background="#FFFFFF").pack(pady=10)
         ttk.Button(restore_card, text="Restore ZIP", command=self.restore_backup).pack(side="bottom", pady=10)
 
+        # --- Card 4: Single Table Export ---
+        single_export_card = ttk.LabelFrame(container, text="Single Table Export", padding=15, style="Card.TLabelframe")
+        single_export_card.pack(fill="x", pady=10)
+
+        ttk.Label(single_export_card, text="Select a specific table to export as a flat CSV file.", background="#FFFFFF").pack(side="left", padx=10)
+        
+        self.table_var = tk.StringVar()
+        tables = ["Plants", "KPI Hierarchy", "KPI Definitions", "Plant Visibility", "Annual Targets", "Periodic Targets"]
+        table_combo = ttk.Combobox(single_export_card, textvariable=self.table_var, values=tables, state="readonly", width=30)
+        table_combo.pack(side="left", padx=10)
+        table_combo.current(0)
+
+        ttk.Button(single_export_card, text="Export Table", command=self.export_single, style="Action.TButton").pack(side="left", padx=10)
+
     def export_csvs(self):
         try:
             export_manager.export_all_data_to_global_csvs()
@@ -64,6 +78,19 @@ class DataManagementTab(ttk.Frame):
             messagebox.showinfo("Success", f"Lean data exported to:\n{CSV_EXPORT_BASE_PATH}/lean_target_data.csv")
         except Exception as e:
             messagebox.showerror("Lean Export Error", str(e))
+
+    def export_single(self):
+        table = self.table_var.get()
+        if not table:
+            return
+        try:
+            msg = export_manager.export_single_table(table)
+            if "Success" in msg:
+                messagebox.showinfo("Success", msg)
+            else:
+                messagebox.showerror("Error", msg)
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
 
     def create_backup(self):
         try:

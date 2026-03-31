@@ -8,6 +8,7 @@ from src.kpi_management import specs as kpi_specs_manager
 from src.kpi_management import visibility as kpi_visibility
 from src import data_retriever as db_retriever
 from src.interfaces.common_ui.constants import KPI_CALC_TYPE_OPTIONS, DISTRIBUTION_PROFILE_OPTIONS
+from src.interfaces.streamlit_app.components.visual_builder import visual_node_editor
 
 def app():
     st.title("📁 KPI Management Explorer")
@@ -119,9 +120,13 @@ def app():
                 
                 # These variables store the "in-flight" formula before saving
                 if f"temp_f_str_{ind_id}" not in st.session_state:
-                    st.session_state[f"temp_f_str_{ind_id}"] = spec.get('formula_string', '')
+                    st.session_state[f"temp_f_str_{ind_id}"] = spec.get('formula_string') or ''
                 if f"temp_f_json_{ind_id}" not in st.session_state:
-                    st.session_state[f"temp_f_json_{ind_id}"] = spec.get('formula_json', '')
+                    st.session_state[f"temp_f_json_{ind_id}"] = spec.get('formula_json') or ''
+                
+                # Double safety check to avoid NoneType errors
+                if st.session_state[f"temp_f_str_{ind_id}"] is None:
+                    st.session_state[f"temp_f_str_{ind_id}"] = ''
 
                 if is_calc:
                     formula_mode = st.radio("Editor Mode:", ["Visual Builder", "Raw Expression"], horizontal=True, key=f"rad_mode_v6_{ind_id}")
@@ -136,46 +141,30 @@ def app():
                                 st.session_state[f"temp_f_json_{ind_id}"] = dag.to_json()
                             except: pass
                     else:
-                        # --- Structured Visual Builder ---
-                        st.info("Structured Formula Builder")
-                        if st.session_state[f"temp_f_str_{ind_id}"]:
-                            st.success(f"Logic: `{st.session_state[f'temp_f_str_{ind_id}']}`")
+                        # --- Enhanced Visual Node Editor ---
+                        all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
+                        kpi_list = [{"id": k['id'], "indicator_name": k['indicator_name']} for k in all_kpis if k['id'] != spec.get('id')]
                         
-                        if st.button("🛠️ Open Logic Builder", key=f"btn_open_builder_{ind_id}", use_container_width=True):
-                            st.session_state.show_logic_builder = True
+                        current_json = st.session_state[f"temp_f_json_{ind_id}"]
+                        # Fallback: if JSON is empty but string formula exists, try to parse it
+                        if (not current_json or current_json == "") and st.session_state[f"temp_f_str_{ind_id}"]:
+                            from src.core.node_engine import KpiDAG
+                            try:
+                                dag = KpiDAG.from_formula(st.session_state[f"temp_f_str_{ind_id}"])
+                                current_json = dag.to_json()
+                                st.session_state[f"temp_f_json_{ind_id}"] = current_json
+                            except: pass
+
+                        new_json = visual_node_editor(current_json, kpi_list)
                         
-                        if st.session_state.show_logic_builder:
-                            with st.container(border=True):
-                                st.markdown("#### 🔧 Build Logic")
-                                all_kpis = db_retriever.get_all_kpis_detailed(only_visible=True)
-                                kpi_options = {f"{k['indicator_name']} [ID:{k['id']}]": k['id'] for k in all_kpis if k['id'] != spec.get('id')}
-                                
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    sel_kpi = st.selectbox("Insert KPI Reference:", ["Select..."] + list(kpi_options.keys()), key=f"build_kpi_{ind_id}")
-                                    if sel_kpi != "Select...":
-                                        ref_id = kpi_options[sel_kpi]
-                                        st.session_state[f"temp_f_str_{ind_id}"] += f"[{ref_id}]"
-                                        st.rerun()
-                                with c2:
-                                    sel_op = st.selectbox("Insert Operator:", ["Select...", "+", "-", "*", "/", "(", ")", "min(", "max(", "avg(", ","], key=f"build_op_{ind_id}")
-                                    if sel_op != "Select...":
-                                        st.session_state[f"temp_f_str_{ind_id}"] += sel_op
-                                        st.rerun()
-                                
-                                if st.button("🗑️ Clear Formula", key=f"build_clear_{ind_id}"):
-                                    st.session_state[f"temp_f_str_{ind_id}"] = ""
-                                    st.session_state[f"temp_f_json_{ind_id}"] = ""
-                                    st.rerun()
-                                
-                                if st.button("✅ Done Building", key=f"build_done_{ind_id}", use_container_width=True):
-                                    st.session_state.show_logic_builder = False
-                                    from src.core.node_engine import KpiDAG
-                                    try:
-                                        dag = KpiDAG.from_formula(st.session_state[f"temp_f_str_{ind_id}"])
-                                        st.session_state[f"temp_f_json_{ind_id}"] = dag.to_json()
-                                    except: pass
-                                    st.rerun()
+                        if new_json and new_json != current_json:
+                            st.session_state[f"temp_f_json_{ind_id}"] = new_json
+                            from src.core.node_engine import KpiDAG
+                            try:
+                                dag = KpiDAG.from_json(new_json)
+                                st.session_state[f"temp_f_str_{ind_id}"] = dag.to_formula()
+                            except: pass
+                            st.rerun()
 
                 if st.button("💾 Save Calculation Logic", type="primary", use_container_width=True, key=f"save_logic_{ind_id}"):
                     try:

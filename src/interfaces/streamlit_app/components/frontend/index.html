@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>KPI Graph Editor</title>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; background-color: #f0f2f6; }
+        #node-editor-container { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+        #toolbar { padding: 12px; background: white; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .btn { cursor:pointer; padding: 6px 12px; border-radius: 4px; font-weight: 500; font-size: 13px; }
+        .btn-kpi { border: 1px solid #2196F3; background: #E3F2FD; color: #1976D2; }
+        .btn-const { border: 1px solid #9C27B0; background: #F3E5F5; color: #7B1FA2; }
+        .btn-op { border: 1px solid #FBC02D; background: #FFF9C4; color: #F57F17; }
+        .btn-clear { border: 1px solid #dc3545; background: #fff; color: #dc3545; }
+        .btn-save { padding: 8px 20px; background: #28a745; color: white; border: none; font-weight: bold; }
+        #status-bar { padding: 4px 12px; background: #333; color: #00ff00; font-family: monospace; font-size: 10px; display: flex; justify-content: space-between; }
+        #main-view { flex: 1; display: flex; position: relative; overflow: hidden; }
+        #kpi-sidebar { width: 250px; background: white; border-right: 1px solid #ddd; display: none; flex-direction: column; overflow-y: auto; padding: 10px; z-index: 500; }
+        #canvas-wrapper { flex: 1; position: relative; background-image: radial-gradient(#d1d1d1 1px, transparent 1px); background-size: 20px 20px; }
+        canvas { width: 100%; height: 100%; cursor: crosshair; }
+        #node-props { position: absolute; right: 20px; top: 20px; width: 240px; background: white; border: 1px solid #ccc; padding: 15px; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 1001; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div id="status-bar">
+        <span id="log-status">INITIALIZING...</span>
+        <span id="log-time"></span>
+    </div>
+
+    <div id="node-editor-container">
+        <div id="toolbar">
+            <button class="btn btn-kpi" onclick="addNode('kpi_input')">+ KPI Input</button>
+            <button class="btn btn-const" onclick="addNode('constant')">+ Constant</button>
+            <button class="btn btn-op" onclick="addNode('operator')">+ Operator</button>
+            <div style="flex-grow: 1;"></div>
+            <button class="btn btn-clear" onclick="clearCanvas()">Clear All</button>
+            <button class="btn btn-save" id="saveBtn" onclick="saveData()">✅ APPLY CHANGE</button>
+        </div>
+        
+        <div id="main-view">
+            <div id="kpi-sidebar">
+                <h4 style="margin:0 0 10px 0;">KPIs</h4>
+                <input type="text" id="kpi-search" placeholder="Search..." oninput="filterKPIs()" style="width:100%;padding:8px;box-sizing:border-box">
+                <div id="kpi-list-container"></div>
+            </div>
+            <div id="canvas-wrapper">
+                <canvas id="editorCanvas"></canvas>
+            </div>
+            <div id="node-props">
+                <h4 style="margin:0 0 10px 0; border-bottom:1px solid #eee">Edit Node</h4>
+                <div id="props-content"></div>
+                <div style="margin-top:15px; display:flex; gap:8px;">
+                    <button style="background:#dc3545;color:white;border:none;padding:8px;border-radius:4px;flex:1" onclick="deleteSelected()">Delete</button>
+                    <button style="background:#6c757d;color:white;border:none;padding:8px;border-radius:4px;flex:1" onclick="closeProps()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- STREAMLIT PROTOCOL FIXED ---
+        function sendMessage(type, data) {
+            window.parent.postMessage({
+                isStreamlitMessage: true, // Required sentinel
+                type: type,
+                ...data
+            }, "*");
+        }
+
+        const statusEl = document.getElementById('log-status');
+        const timeEl = document.getElementById('log-time');
+        function log(msg, color='#00ff00') {
+            console.log(`[KPI Editor] ${msg}`);
+            if (statusEl) statusEl.innerText = msg.toUpperCase();
+            if (statusEl) statusEl.style.color = color;
+            if (timeEl) timeEl.innerText = new Date().toLocaleTimeString();
+        }
+
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        const wrapper = document.getElementById('canvas-wrapper');
+        
+        let data = {nodes: [], edges: []};
+        let availableKPIs = [];
+        let selectedNodeId = null;
+        let draggingNodeId = null;
+        let dragOffset = {x: 0, y: 0};
+        let drawingEdge = null;
+        
+        const NODE_WIDTH = 160;
+        const SOCKET_RADIUS = 6;
+        const COLORS = {
+            'kpi_input': {bg: '#E3F2FD', border: '#2196F3', title: '#1976D2'},
+            'constant': {bg: '#F3E5F5', border: '#9C27B0', title: '#7B1FA2'},
+            'operator': {bg: '#FFF9C4', border: '#FBC02D', title: '#F57F17'},
+            'output': {bg: '#E8F5E9', border: '#4CAF50', title: '#2E7D32'}
+        };
+
+        function resize() {
+            if (!wrapper) return;
+            canvas.width = wrapper.clientWidth;
+            canvas.height = wrapper.clientHeight;
+            render();
+            // Height is now only sent after a render event to avoid race conditions
+        }
+        window.addEventListener('resize', resize);
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            data.edges.forEach(e => drawEdgeLine(e));
+            data.nodes.forEach(n => drawNodeCard(n));
+            if (drawingEdge) {
+                ctx.beginPath(); ctx.moveTo(drawingEdge.startX, drawingEdge.startY);
+                const midX = (drawingEdge.startX + drawingEdge.currentX) / 2;
+                ctx.lineTo(midX, drawingEdge.startY); ctx.lineTo(midX, drawingEdge.currentY); ctx.lineTo(drawingEdge.currentX, drawingEdge.currentY);
+                ctx.strokeStyle = '#999'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
+            }
+        }
+
+        function getNodeHeight(n) { const h = (n.type === 'operator' || n.type === 'output') ? (n.data.op==='/'||n.data.op==='pow'||n.data.op==='-'? 2 : (n.data.num_inputs||2)) : 0; return Math.max(80, 40 + h * 20); }
+        function getInputHandles(n) { if(n.type==='output') return ['Result']; if(n.type!=='operator') return []; const op=n.data.op||'+'; if(op==='/'||op==='pow'||op==='-') return ['A','B']; let r=[]; for(let i=1;i<=(n.data.num_inputs||2);i++) r.push('In '+i); return r; }
+
+        function drawNodeCard(n) {
+            const h = getNodeHeight(n); const isS = selectedNodeId === n.id; const cfg = COLORS[n.type];
+            ctx.fillStyle = cfg.bg; ctx.strokeStyle = isS ? 'red' : cfg.border; ctx.lineWidth = isS?3:2;
+            ctx.beginPath(); ctx.roundRect(n.position.x, n.position.y, NODE_WIDTH, h, 8); ctx.fill(); ctx.stroke();
+            ctx.fillStyle = cfg.title; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+            let t = n.type.toUpperCase(); if(n.type==='kpi_input') t=n.data.kpi_name; else if(n.type==='constant') t='CONST: '+n.data.value; else if(n.type==='operator') t='OP: '+(n.data.op||'+');
+            ctx.fillText((t || "UNKNOWN").substring(0,25), n.position.x + NODE_WIDTH/2, n.position.y + 22);
+            ctx.fillStyle = '#444';
+            if(n.type!=='output') { const s=getSocketCoords(n.id,'out'); ctx.beginPath(); ctx.arc(s.x,s.y,SOCKET_RADIUS,0,Math.PI*2); ctx.fill(); }
+            const ins = getInputHandles(n); ins.forEach((l,i)=>{ const s=getSocketCoords(n.id,'in',l); ctx.beginPath(); ctx.arc(s.x,s.y,SOCKET_RADIUS,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#666'; ctx.font='9px sans-serif'; ctx.textAlign='left'; ctx.fillText(l,n.position.x+10,s.y+3); });
+        }
+
+        function getSocketCoords(id, type, label) {
+            const n = data.nodes.find(x=>x.id===id); if(!n) return {x:0,y:0}; const h=getNodeHeight(n);
+            if(type==='out') return {x:n.position.x+NODE_WIDTH, y:n.position.y+h/2};
+            const ins=getInputHandles(n); const idx=ins.indexOf(label); const sp=(h-35)/(ins.length+1);
+            return {x:n.position.x, y:n.position.y+35+(idx+1)*sp};
+        }
+
+        function drawEdgeLine(e) {
+            const s=getSocketCoords(e.source,'out'); const t=getSocketCoords(e.target,'in',e.target_handle);
+            ctx.beginPath(); ctx.moveTo(s.x,s.y); const mid=(s.x+t.x)/2; ctx.lineTo(mid,s.y); ctx.lineTo(mid,t.y); ctx.lineTo(t.x,t.y);
+            ctx.strokeStyle='#666'; ctx.lineWidth=2; ctx.stroke();
+        }
+
+        canvas.onmousedown=(e)=>{
+            const r=canvas.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
+            for(let n of data.nodes) { if(n.type!=='output') { const s=getSocketCoords(n.id,'out'); if(Math.hypot(mx-s.x,my-s.y)<15) { drawingEdge={sourceId:n.id,startX:s.x,startY:s.y,currentX:mx,currentY:my}; return; } } }
+            selectedNodeId=null; document.getElementById('node-props').style.display='none';
+            for(let i=data.nodes.length-1;i>=0;i--) { const n=data.nodes[i], h=getNodeHeight(n); if(mx>=n.position.x && mx<=n.position.x+NODE_WIDTH && my>=n.position.y && my<=n.position.y+h) { selectedNodeId=n.id; draggingNodeId=n.id; dragOffset={x:mx-n.position.x,y:my-n.position.y}; showProps(n); data.nodes.splice(i,1); data.nodes.push(n); render(); return; } }
+            render();
+        };
+        canvas.onmousemove=(e)=>{
+            const r=canvas.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
+            if(draggingNodeId) { const n=data.nodes.find(x=>x.id===draggingNodeId); n.position.x=mx-dragOffset.x; n.position.y=my-dragOffset.y; render(); }
+            else if(drawingEdge) { drawingEdge.currentX=mx; drawingEdge.currentY=my; render(); }
+        };
+        canvas.onmouseup=(e)=>{
+            if(drawingEdge) {
+                const r=canvas.getBoundingClientRect(); const mx=e.clientX-r.left, my=e.clientY-r.top;
+                for(let n of data.nodes) { const ins=getInputHandles(n); for(let l of ins) { const s=getSocketCoords(n.id,'in',l); if(Math.hypot(mx-s.x,my-s.y)<20) { data.edges=data.edges.filter(x=>!(x.target===n.id&&x.target_handle===l)); data.edges.push({id:'e_'+Date.now(),source:drawingEdge.sourceId,target:n.id,target_handle:l}); break; } } }
+            }
+            draggingNodeId=null; drawingEdge=null; render();
+        };
+
+        function addNode(t) { if(t==='kpi_input') { document.getElementById('kpi-sidebar').style.display='flex'; filterKPIs(); return; } const n={id:'n_'+Date.now(),type:t,position:{x:50,y:50},data:{}}; if(t==='constant') n.data.value=1.0; if(t==='operator') n.data.op='+'; data.nodes.push(n); render(); }
+        window.filterKPIs=()=>{ const q=document.getElementById('kpi-search').value.toLowerCase(); const c=document.getElementById('kpi-list-container'); c.innerHTML=''; availableKPIs.forEach(k=>{ if(k.indicator_name.toLowerCase().includes(q)) { const d=document.createElement('div'); d.style="padding:8px;border-bottom:1px solid #eee;cursor:pointer;font-size:12px;"; d.innerHTML=`📊 ${k.indicator_name}`; d.onclick=()=>{ data.nodes.push({id:'n_kpi_'+k.id+'_'+Date.now(),type:'kpi_input',position:{x:50,y:50},data:{kpi_id:k.id,kpi_name:k.indicator_name}}); document.getElementById('kpi-sidebar').style.display='none'; render(); }; c.appendChild(d); } }); }
+
+        function showProps(n) {
+            const p=document.getElementById('node-props'); const c=document.getElementById('props-content'); p.style.display='block';
+            let h = `<p style="font-size:10px;color:#999">${n.id}</p>`;
+            if(n.type==='kpi_input') h += `<p>${n.data.kpi_name}</p>`;
+            else if(n.type==='constant') h += `<input type="number" step="0.1" value="${n.data.value||0}" onchange="updateNodeData('value',this.value)" style="width:100%">`;
+            else if(n.type==='operator') {
+                h += `<select onchange="updateNodeData('op',this.value)" style="width:100%">`;
+                ['+','-','*','/','pow','min','max','avg'].forEach(o=>{ h+=`<option value="${o}" ${n.data.op===o?'selected':''}>${o}</option>`; });
+                h += `</select>`;
+                if(n.data.op==='+'||n.data.op==='*') h+=`<input type="number" value="${n.data.num_inputs||2}" onchange="updateNodeData('num_inputs',this.value)" style="width:100%;margin-top:10px">`;
+            }
+            c.innerHTML=h;
+        }
+        window.updateNodeData=(k,v)=>{ const n=data.nodes.find(x=>x.id===selectedNodeId); if(!n)return; if(k==='value')n.data.value=parseFloat(v); else if(k==='op')n.data.op=v; else if(k==='num_inputs')n.data.num_inputs=parseInt(v); render(); showProps(n); };
+        window.deleteSelected=()=>{ if(!selectedNodeId||selectedNodeId==='OUTPUT_NODE')return; data.nodes=data.nodes.filter(x=>x.id!==selectedNodeId); data.edges=data.edges.filter(x=>x.source!==selectedNodeId&&x.target!==selectedNodeId); selectedNodeId=null; document.getElementById('node-props').style.display='none'; render(); };
+        window.closeProps=()=>document.getElementById('node-props').style.display='none';
+        window.clearCanvas=()=>{ if(confirm('Clear?')){data={nodes:[{id:'OUTPUT_NODE',type:'output',position:{x:500,y:250},data:{}}],edges:[]};render();} };
+        
+        function saveData() { 
+            log("SAVING..."); 
+            sendMessage("streamlit:setComponentValue", { 
+                value: JSON.stringify(data),
+                dataType: "json"
+            }); 
+        }
+
+        // --- STREAMLIT HANDSHAKE FIXED ---
+        window.addEventListener("message", (event) => {
+            if (event.data.type === "streamlit:render") {
+                log("CONNECTED");
+                const args = event.data.args;
+                if (args.initial_json) {
+                    try { data = JSON.parse(args.initial_json); } catch(e) { log("PARSE ERROR", "red"); }
+                }
+                if (args.kpi_list) availableKPIs = args.kpi_list;
+                
+                if (!data.nodes || data.nodes.length === 0) {
+                    data = {nodes: [{id: 'OUTPUT_NODE', type: 'output', position: {x: 500, y: 250}, data: {}}], edges: []};
+                }
+                render();
+                // SAFE TO RESIZE NOW
+                sendMessage("streamlit:setFrameHeight", { height: 720 });
+            }
+        });
+
+        document.addEventListener("DOMContentLoaded", () => {
+            log("READY");
+            sendMessage("streamlit:componentReady", { apiVersion: 1 });
+            resize();
+        });
+    </script>
+</body>
+</html>

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-03-31
+
+### Added
+- **Visual Node Editor (Streamlit)**: High-performance Canvas-based graph editor for KPI formulas. Supports draggable nodes, dynamic sockets, and bidirectional sync with raw expressions.
+- **Individual Table Export**: Granular export functionality for specific database tables (Plants, Hierarchy, Definitions, Targets) in both GUIs.
+- **Handshake Protocol**: Implemented strict Streamlit component handshake to resolve iframe loading timeouts.
+
+### Changed
+- **Workspace Hygiene**: Cleaned up the project root by moving management files to `conductor/` and user configurations to `user_config/`.
+- **Streamlit Data Center**: Promoted individual table exports to the top of the interface for better accessibility.
+
 ## [1.2.0] - 2026-03-20
 
 ### Added
