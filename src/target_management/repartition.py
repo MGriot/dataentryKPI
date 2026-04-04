@@ -76,6 +76,17 @@ def _get_period_allocations(
 ) -> dict:
     period_allocations = {}
 
+    # Handle Universal Mode from Global Splits
+    if user_repartition_logic == "universal":
+        # We determine which level to use based on the context. 
+        # However, for the current engine, we'll map to Monthly as the primary driver if present.
+        if "monthly" in user_repartition_values:
+            user_repartition_logic = app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_MONTH"]
+            user_repartition_values = user_repartition_values["monthly"]
+        elif "quarterly" in user_repartition_values:
+            user_repartition_logic = app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_QUARTER"]
+            user_repartition_values = user_repartition_values["quarterly"]
+
     if kpi_calc_type == app_config.CALC_TYPE_INCREMENTAL:
         if user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_MONTH"]:
             raw_proportions_list = [

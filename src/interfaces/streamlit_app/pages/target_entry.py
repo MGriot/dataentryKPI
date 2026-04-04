@@ -66,6 +66,19 @@ def load_kpi_targets_for_entry_target():
     targets = [dict(row) for row in db_retriever.get_annual_targets(plant_id, year)]
     st.session_state.targets_map_for_entry = {t['kpi_id']: t for t in targets}
     
+    # Fetch standardized GS links for this year
+    from src.kpi_management.splits import get_all_global_splits, get_indicators_for_global_split
+    all_gs = get_all_global_splits(year=year)
+    
+    # indicator_id -> list of {'id', 'name'}
+    st.session_state.kpi_to_gs_options = {}
+    for gs in all_gs:
+        for ind in get_indicators_for_global_split(gs['id']):
+            iid = ind['indicator_id']
+            if iid not in st.session_state.kpi_to_gs_options:
+                st.session_state.kpi_to_gs_options[iid] = []
+            st.session_state.kpi_to_gs_options[iid].append({'id': gs['id'], 'name': gs['name']})
+
     # Historical years
     hist1 = [dict(row) for row in db_retriever.get_annual_targets(plant_id, year - 1)]
     st.session_state.hist1_map_for_entry = {t['kpi_id']: t for t in hist1}
@@ -78,9 +91,23 @@ def load_kpi_targets_for_entry_target():
     
     for kpi in st.session_state.kpis_for_entry:
         kpi_id = kpi['id']
+        ind_id = kpi.get('indicator_id')
         target_data = st.session_state.targets_map_for_entry.get(kpi_id, {})
         target_values = target_data.get('target_values', [])
         
+        # Determine global split ID
+        cur_gs_id = target_data.get('global_split_id')
+        
+        valid_splits = st.session_state.kpi_to_gs_options.get(ind_id, [])
+        valid_ids = [vs['id'] for vs in valid_splits]
+        
+        is_standard = False
+        if cur_gs_id is None and len(valid_splits) == 1:
+            cur_gs_id = valid_splits[0]['id']
+            is_standard = True
+        elif cur_gs_id in valid_ids:
+            is_standard = True
+
         # We always use the global config for targets
         st.session_state[f'target_numbers_{kpi_id}'] = [t['id'] for t in target_config]
 
@@ -96,7 +123,8 @@ def load_kpi_targets_for_entry_target():
         st.session_state[f'repartition_logic_{kpi_id}'] = target_data.get('repartition_logic', REPARTITION_LOGIC_YEAR)
         st.session_state[f'repartition_values_{kpi_id}'] = json.loads(target_data.get('repartition_values', '{}') or '{}')
         st.session_state[f'profile_params_{kpi_id}'] = json.loads(target_data.get('profile_params', '{}') or '{}')
-        st.session_state[f'global_split_id_{kpi_id}'] = target_data.get('global_split_id')
+        st.session_state[f'global_split_id_{kpi_id}'] = cur_gs_id
+        st.session_state[f'is_standard_gs_{kpi_id}'] = is_standard
 
 def save_all_targets_entry():
     year_str = st.session_state.selected_year_target
@@ -169,14 +197,16 @@ def _update_repartition_input_area_streamlit(kpi_id):
 def app():
     st.title("🎯 Target Entry")
 
-    # Fetch Global Splits for the selector
-    global_splits = db_retriever.get_all_global_splits()
-    gs_options = {f"{s['year']} - {s['name']}": s['id'] for s in global_splits}
-    gs_names = ["None (Custom)"] + list(gs_options.keys())
-
     # Initialize session state variables if they don't exist
     if 'selected_year_target' not in st.session_state:
         st.session_state.selected_year_target = str(datetime.datetime.now().year)
+
+    # Fetch Global Splits for the selected year
+    year_int = int(st.session_state.selected_year_target)
+    global_splits = db_retriever.get_all_global_splits(year=year_int)
+    gs_options = {s['name']: s['id'] for s in global_splits}
+    gs_names = ["None (Custom)"] + list(gs_options.keys())
+
     if 'selected_plant_name_target' not in st.session_state:
         st.session_state.selected_plant_name_target = None
     if 'plants_map_target' not in st.session_state:
@@ -304,15 +334,23 @@ def app():
                         
                         # Global Split Template Link
                         cur_gs_id = st.session_state.get(f'global_split_id_{kpi_id}')
-                        cur_gs_name = next((name for name, sid in gs_options.items() if sid == cur_gs_id), "None (Custom)")
-                        
+
+                        # Build local options for this KPI
+                        ind_id = kpi.get('indicator_id')
+                        local_valid_splits = st.session_state.kpi_to_gs_options.get(ind_id, [])
+                        local_gs_map = {s['name']: s['id'] for s in local_valid_splits}
+                        local_gs_names = ["None (Custom)"] + list(local_gs_map.keys())
+
+                        cur_gs_name = next((name for name, sid in local_gs_map.items() if sid == cur_gs_id), "None (Custom)")
+
+                        label_prefix = "⭐ " if st.session_state.get(f'is_standard_gs_{kpi_id}') else ""
                         selected_gs_name = st.selectbox(
-                            "Standardized Split Template:",
-                            gs_names,
-                            index=gs_names.index(cur_gs_name) if cur_gs_name in gs_names else 0,
+                            f"{label_prefix}Standardized Split Template:",
+                            local_gs_names,
+                            index=local_gs_names.index(cur_gs_name) if cur_gs_name in local_gs_names else 0,
                             key=f"gs_select_{kpi_id}"
                         )
-                        st.session_state[f'global_split_id_{kpi_id}'] = gs_options.get(selected_gs_name)
+                        st.session_state[f'global_split_id_{kpi_id}'] = local_gs_map.get(selected_gs_name)
                         
                         is_using_template = selected_gs_name != "None (Custom)"
                         

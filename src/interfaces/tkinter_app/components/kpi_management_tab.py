@@ -5,6 +5,7 @@ import traceback
 import json
 
 from src.kpi_management import hierarchy as kpi_hierarchy_manager
+from src.config import settings as app_config
 from src.kpi_management import indicators as kpi_indicators_manager
 from src.kpi_management import templates as kpi_templates_manager
 from src.kpi_management import specs as kpi_specs_manager
@@ -16,6 +17,39 @@ from src.interfaces.common_ui.helpers import get_kpi_display_name
 
 from src.kpi_management import splits as kpi_splits_manager
 from src.interfaces.tkinter_app.dialogs.split_editor import SplitEditorDialog
+
+class MoveNodeDialog(simpledialog.Dialog):
+    def __init__(self, parent, current_id, current_name, node_cache):
+        self.current_id = current_id
+        self.current_name = current_name
+        self.node_cache = node_cache
+        self.result_parent_id = -999 # Sentinel for no change
+        super().__init__(parent, f"Move '{current_name}'")
+
+    def body(self, master):
+        ttk.Label(master, text=f"Select new parent for '{self.current_name}':").pack(pady=10)
+        
+        self.lb = tk.Listbox(master, width=50, height=15)
+        self.lb.pack(padx=10, pady=5)
+        
+        # Add Root option
+        self.lb.insert(tk.END, "[Root Level]")
+        self.option_ids = [None]
+        
+        # Add all other nodes (except self and its descendants to avoid cycles)
+        # For simplicity, we just filter out self for now
+        sorted_nodes = sorted(self.node_cache.values(), key=lambda x: x['name'])
+        for n in sorted_nodes:
+            if n['id'] != self.current_id:
+                self.lb.insert(tk.END, f"{n['name']} (ID:{n['id']})")
+                self.option_ids.append(n['id'])
+        
+        return self.lb
+
+    def apply(self):
+        sel = self.lb.curselection()
+        if sel:
+            self.result_parent_id = self.option_ids[sel[0]]
 
 class KpiManagementTab(ttk.Frame):
     def __init__(self, parent, app):
@@ -151,16 +185,12 @@ class KpiManagementTab(ttk.Frame):
             self._load_level(n['id'], iid) # Recursive load
 
         # 2. Load Indicators for this level
-        # Logic: If parent_id is None, we are at root.
-        # But get_indicators_by_node(None) might not work depending on DB schema (node_id is likely NOT NULL).
-        # Assuming indicators always belong to a node.
-        if parent_id:
-            inds_raw = db_retriever.get_indicators_by_node(parent_id)
-            for i_row in inds_raw:
-                i = dict(i_row)
-                iid = f"I_{i['id']}"
-                self.tree.insert(tree_parent, "end", iid=iid, text=f"📊 {i['name']}")
-                self.indicator_cache[i['id']] = i
+        inds_raw = db_retriever.get_indicators_by_node(parent_id)
+        for i_row in inds_raw:
+            i = dict(i_row)
+            iid = f"I_{i['id']}"
+            self.tree.insert(tree_parent, "end", iid=iid, text=f"📊 {i['name']}")
+            self.indicator_cache[i['id']] = i
 
     def refresh_templates(self):
         self.tpl_list.delete(0, tk.END)
@@ -177,7 +207,10 @@ class KpiManagementTab(ttk.Frame):
         splits_raw = kpi_splits_manager.get_all_global_splits()
         for s in splits_raw:
             self.split_cache[s['id']] = s
-            self.split_list.insert(tk.END, f"{s['year']} - {s['name']}")
+            years = s.get('years', [])
+            if not years and s.get('year'): years = [s['year']]
+            years_str = ", ".join(map(str, years))
+            self.split_list.insert(tk.END, f"{years_str} - {s['name']}")
 
     def on_tree_select(self, event):
         sel = self.tree.selection()
@@ -209,17 +242,22 @@ class KpiManagementTab(ttk.Frame):
         btn_f = ttk.Frame(self.detail_content, style="Card.TFrame")
         btn_f.pack(fill="x", pady=20)
         ttk.Button(btn_f, text="Rename", command=lambda: self.rename_node(node_id)).pack(side="left", padx=5)
+        ttk.Button(btn_f, text="Move Node", command=lambda: self.move_node(node_id)).pack(side="left", padx=5)
         ttk.Button(btn_f, text="Delete Node", command=lambda: self.delete_node(node_id)).pack(side="left", padx=5)
 
     def on_split_select(self, event):
         sel = self.split_list.curselection()
-        for c in self.split_detail_content.winfo_children(): c.destroy()
         if not sel: return
+        for c in self.split_detail_content.winfo_children(): c.destroy()
 
         split_label = self.split_list.get(sel[0])
-        # Find ID by label "year - name"
-        split_id = next(sid for sid, s in self.split_cache.items() if f"{s['year']} - {s['name']}" == split_label)
-        self._show_split_details(split_id)
+        # Find ID by label "years - name"
+        try:
+            split_name = split_label.split(" - ", 1)[1]
+            split_id = next(sid for sid, s in self.split_cache.items() if s['name'] == split_name)
+            self._show_split_details(split_id)
+        except (IndexError, StopIteration):
+            pass
 
     def _show_indicator_details(self, ind_id):
         ind = dict(self.indicator_cache[ind_id])
@@ -250,12 +288,16 @@ class KpiManagementTab(ttk.Frame):
             profile_text = spec.get('default_distribution_profile', 'Standard (Equal)')
             profile_color = "#333333"
             
-            if spec.get('global_split_id'):
-                gs = db_retriever.get_all_global_splits()
-                gs_obj = next((s for s in gs if s['id'] == spec['global_split_id']), None)
-                if gs_obj:
-                    profile_text = f"🔗 Global Split: {gs_obj['name']} ({gs_obj['year']})"
-                    profile_color = "#d32f2f" # Reddish to indicate external control
+            # Use new helper to check for GS links
+            from src.kpi_management.splits import get_global_splits_for_indicator
+            linked_gs = get_global_splits_for_indicator(ind_id)
+            
+            if linked_gs:
+                gs = linked_gs[0]
+                profile_text = f"🔗 Managed by GS: {gs['name']}"
+                if len(linked_gs) > 1:
+                    profile_text += f" (+{len(linked_gs)-1} more)"
+                profile_color = "#d32f2f"
             
             ttk.Label(grid, text=profile_text, background="#FFFFFF", foreground=profile_color).grid(row=1, column=1, sticky="w", padx=5, pady=2)
             
@@ -298,6 +340,7 @@ class KpiManagementTab(ttk.Frame):
         btn_f = ttk.Frame(self.detail_content, style="Card.TFrame")
         btn_f.pack(fill="x", pady=20)
         ttk.Button(btn_f, text="Full Edit", command=lambda: self.edit_kpi(ind_id), style="Action.TButton").pack(side="left", padx=5)
+        ttk.Button(btn_f, text="Move KPI", command=lambda: self.move_indicator(ind_id)).pack(side="left", padx=5)
         ttk.Button(btn_f, text="Delete KPI", command=lambda: self.delete_kpi(ind_id)).pack(side="left", padx=5)
 
     def _get_expanded_formula(self, formula_str: str) -> str:
@@ -358,8 +401,12 @@ class KpiManagementTab(ttk.Frame):
         header_f = ttk.Frame(self.split_detail_content, style="Card.TFrame")
         header_f.pack(fill="x", pady=(0, 10))
         
+        years = s.get('years', [])
+        if not years and s.get('year'): years = [s['year']]
+        years_str = ", ".join(map(str, years))
+        
         ttk.Label(header_f, text=f"Split: {s['name']}", font=("Helvetica", 16, "bold"), background="#FFFFFF").pack(side="left")
-        ttk.Label(header_f, text=f" [Year: {s['year']}]", font=("Helvetica", 14), foreground="#666", background="#FFFFFF").pack(side="left")
+        ttk.Label(header_f, text=f" [Years: {years_str}]", font=("Helvetica", 14), foreground="#666", background="#FFFFFF").pack(side="left")
 
         info_grid = ttk.Frame(self.split_detail_content, style="Card.TFrame")
         info_grid.pack(fill="x", pady=5)
@@ -435,9 +482,41 @@ class KpiManagementTab(ttk.Frame):
 
     # --- Actions: Hierarchy ---
 
-    def add_node(self, node_type='folder'):
+    def move_node(self, node_id):
+        node = self.node_cache[node_id]
+        dialog = MoveNodeDialog(self.app, node_id, node['name'], self.node_cache)
+        if dialog.result_parent_id != -999:
+            kpi_hierarchy_manager.update_node(node_id, parent_id=dialog.result_parent_id)
+            self.refresh_tree()
+
+    def move_indicator(self, ind_id):
+        ind = self.indicator_cache[ind_id]
+        dialog = MoveNodeDialog(self.app, -1, ind['name'], self.node_cache)
+        if dialog.result_parent_id != -999:
+            db_path = app_config.get_database_path("db_kpis.db")
+            import sqlite3
+            with sqlite3.connect(db_path) as conn:
+                conn.execute("UPDATE kpi_indicators SET node_id = ? WHERE id = ?", (dialog.result_parent_id, ind_id))
+                conn.commit()
+            self.refresh_tree()
+
+    def _get_creation_parent(self):
+        """Asks user whether to create at root or inside selected node."""
         sel = self.tree.selection()
-        parent_id = int(sel[0].split("_")[1]) if sel and sel[0].startswith("N_") else None
+        if not (sel and sel[0].startswith("N_")):
+            return None 
+            
+        node_id = int(sel[0].split("_")[1])
+        node_name = self.node_cache[node_id]['name']
+        
+        choice = messagebox.askyesnocancel("Placement", f"Create inside '{node_name}'?\n\nYes: Inside '{node_name}'\nNo: At Root level\nCancel: Abort")
+        if choice is True: return node_id
+        if choice is False: return None
+        return -1
+
+    def add_node(self, node_type='folder'):
+        parent_id = self._get_creation_parent()
+        if parent_id == -1: return
         
         type_labels = {'folder': 'Folder', 'group': 'KPI Group', 'subgroup': 'KPI Subgroup'}
         name = simpledialog.askstring(f"New {type_labels.get(node_type, 'Node')}", "Enter name:")
@@ -446,23 +525,19 @@ class KpiManagementTab(ttk.Frame):
             self.refresh_tree()
 
     def add_kpi(self):
-        sel = self.tree.selection()
-        if not (sel and sel[0].startswith("N_")):
-            messagebox.showwarning("Warning", "Please select a destination folder first.")
-            return
-        node_id = int(sel[0].split("_")[1])
+        parent_id = self._get_creation_parent()
+        if parent_id == -1: return
+        
         dialog = IndicatorSpecEditorDialog(self.app, title="New KPI")
         if dialog.result_data:
             try:
-                new_id = kpi_indicators_manager.add_kpi_indicator(dialog.result_data["indicator_name"], node_id)
+                new_id = kpi_indicators_manager.add_kpi_indicator(dialog.result_data["indicator_name"], parent_id)
                 spec_id = kpi_specs_manager.add_kpi_spec(indicator_id=new_id, **{k:v for k,v in dialog.result_data.items() if k not in ["indicator_name", "per_plant_visibility"]})
                 if "per_plant_visibility" in dialog.result_data:
                     kpi_visibility.update_plant_visibility(spec_id, dialog.result_data["per_plant_visibility"])
                 self.refresh_tree()
-                # Auto-select the newly added KPI
                 iid = f"I_{new_id}"
-                self.tree.selection_set(iid)
-                self.tree.see(iid)
+                self.tree.selection_set(iid); self.tree.see(iid)
                 self._show_indicator_details(new_id)
             except Exception as e: messagebox.showerror("Error", str(e))
 
@@ -482,8 +557,6 @@ class KpiManagementTab(ttk.Frame):
         ind = dict(self.indicator_cache[ind_id])
         spec_row = kpi_specs_manager.get_kpi_spec_by_indicator_id(ind_id)
         spec = dict(spec_row) if spec_row else {}
-        
-        # Fetch current visibility
         visibility = kpi_visibility.get_plant_visibility_for_kpi(spec.get('id')) if spec.get('id') else []
         spec['per_plant_visibility'] = visibility
 
@@ -494,10 +567,8 @@ class KpiManagementTab(ttk.Frame):
             if "per_plant_visibility" in dialog.result_data:
                 kpi_visibility.update_plant_visibility(spec_id, dialog.result_data["per_plant_visibility"])
             self.refresh_tree()
-            # Restore selection and refresh details
             iid = f"I_{ind_id}"
-            self.tree.selection_set(iid)
-            self.tree.see(iid)
+            self.tree.selection_set(iid); self.tree.see(iid)
             self._show_indicator_details(ind_id)
 
     def delete_kpi(self, ind_id):

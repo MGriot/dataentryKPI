@@ -95,24 +95,31 @@ class IndicatorSpecEditorDialog(simpledialog.Dialog):
         ttk.Label(master, text="Split Profile:").grid(row=8, column=0, sticky="w", padx=5, pady=3)
         
         initial_profile = self.initial_spec_data.get("default_distribution_profile", DISTRIBUTION_PROFILE_OPTIONS[0])
-        gs_id = self.initial_spec_data.get("global_split_id")
-        state = "readonly"
         
-        if gs_id:
-            all_gs = data_retriever.get_all_global_splits()
-            gs_obj = next((s for s in all_gs if s['id'] == gs_id), None)
-            if gs_obj:
-                initial_profile = f"🔗 Global Split: {gs_obj['name']}"
-                state = "disabled"
+        # Determine if this indicator is managed by a Global Split
+        from src.kpi_management.splits import get_global_splits_for_indicator
+        linked_gs = []
+        if self.initial_spec_data.get('indicator_id'):
+            linked_gs = get_global_splits_for_indicator(self.initial_spec_data['indicator_id'])
+        
+        state = "readonly"
+        gs_info_text = ""
+        
+        if linked_gs:
+            # If multiple, we show the first one but indicate there are others
+            gs = linked_gs[0]
+            initial_profile = gs['distribution_profile']
+            state = "disabled"
+            gs_info_text = f"🔗 Managed by GS: {gs['name']}"
+            if len(linked_gs) > 1:
+                gs_info_text += f" (+{len(linked_gs)-1} more)"
 
         self.dist_profile_var = tk.StringVar(value=initial_profile)
         self.dist_profile_cb = ttk.Combobox(master, textvariable=self.dist_profile_var, values=DISTRIBUTION_PROFILE_OPTIONS, state=state, width=38)
         self.dist_profile_cb.grid(row=8, column=1, padx=5, pady=3)
         
-        if gs_id:
-            # We can't easily color the text of a disabled combobox in some themes, 
-            # but we can add a warning label.
-            ttk.Label(master, text="Controlled by Global Split", foreground="#d32f2f", font=("Helvetica", 8, "italic")).grid(row=8, column=1, sticky="e", padx=10)
+        if gs_info_text:
+            ttk.Label(master, text=gs_info_text, foreground="#d32f2f", font=("Helvetica", 8, "italic")).grid(row=8, column=1, sticky="e", padx=10)
 
         # Per-Plant Visibility Section
         self.pv_frame = ttk.LabelFrame(master, text="Per-Plant Visibility")

@@ -17,14 +17,14 @@ def add_node(name: str, parent_id: int = None, node_type: str = 'folder') -> int
             print(f"ERROR (add_node): {e}")
             raise
 
-def update_node(node_id: int, name: str = None, parent_id: int = None):
-    """Updates node properties."""
+def update_node(node_id: int, name: str = None, parent_id = -999):
+    """Updates node properties. Use parent_id=None for root."""
     db_path = app_config.get_database_path("db_kpis.db")
     with sqlite3.connect(db_path) as conn:
         try:
             if name:
                 conn.execute("UPDATE kpi_nodes SET name = ? WHERE id = ?", (name, node_id))
-            if parent_id is not None:
+            if parent_id != -999:
                 conn.execute("UPDATE kpi_nodes SET parent_id = ? WHERE id = ?", (parent_id, node_id))
             conn.commit()
         except sqlite3.Error as e:

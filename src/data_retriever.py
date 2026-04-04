@@ -29,7 +29,8 @@ def get_indicators_by_node(node_id):
     if _handle_db_connection_error("db_kpis.db", "get_indicators_by_node"): return []
     with sqlite3.connect(app_config.get_database_path("db_kpis.db")) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM kpi_indicators WHERE node_id = ?", (node_id,)).fetchall()
+        sql = "SELECT * FROM kpi_indicators WHERE node_id IS ?" if node_id is None else "SELECT * FROM kpi_indicators WHERE node_id = ?"
+        rows = conn.execute(sql, (node_id,)).fetchall()
         return [dict(r) for r in rows]
 
 def get_kpi_indicators_by_subgroup(subgroup_id: int):

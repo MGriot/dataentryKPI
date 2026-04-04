@@ -5,18 +5,25 @@ import traceback
 from src.config import settings as app_config
 from pathlib import Path
 
-def add_global_split(name: str, year: int, repartition_logic: str, repartition_values: dict, distribution_profile: str, profile_params: dict, afflicted_indicators: list[dict] = None) -> int:
+def add_global_split(name: str, years: list[int], repartition_logic: str, repartition_values: dict, distribution_profile: str, profile_params: dict, afflicted_indicators: list[dict] = None) -> int:
     """Adds a new global KPI split template and optionally links indicators."""
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
     with sqlite3.connect(db_templates_path) as conn:
         try:
             cursor = conn.cursor()
+            # We still keep 'year' in the main table for backward compatibility (first year)
+            first_year = years[0] if years else None
             cursor.execute(
                 """INSERT INTO global_kpi_splits (name, year, repartition_logic, repartition_values, distribution_profile, profile_params)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (name, year, repartition_logic, json.dumps(repartition_values), distribution_profile, json.dumps(profile_params))
+                (name, first_year, repartition_logic, json.dumps(repartition_values), distribution_profile, json.dumps(profile_params))
             )
             split_id = cursor.lastrowid
+            
+            # Insert years into mapping table
+            for y in years:
+                cursor.execute("INSERT OR IGNORE INTO global_split_years (global_split_id, year) VALUES (?, ?)", (split_id, y))
+            
             conn.commit()
             
             if afflicted_indicators:
@@ -34,6 +41,7 @@ def update_global_split(split_id: int, **kwargs):
     
     # Handle afflicted_indicators separately
     afflicted = kwargs.pop('afflicted_indicators', None)
+    years = kwargs.pop('years', None)
     
     # Map fields to their serialization logic
     serialized_fields = {'repartition_values', 'profile_params'}
@@ -48,17 +56,28 @@ def update_global_split(split_id: int, **kwargs):
             set_clauses.append(f"{key} = ?")
             params.append(value)
     
-    if set_clauses:
-        params.append(split_id)
-        query = f"UPDATE global_kpi_splits SET {', '.join(set_clauses)} WHERE id = ?"
-        with sqlite3.connect(db_templates_path) as conn:
-            try:
-                cursor = conn.cursor()
+    with sqlite3.connect(db_templates_path) as conn:
+        try:
+            cursor = conn.cursor()
+            if set_clauses:
+                params.append(split_id)
+                query = f"UPDATE global_kpi_splits SET {', '.join(set_clauses)} WHERE id = ?"
                 cursor.execute(query, params)
-                conn.commit()
-            except sqlite3.Error as e:
-                print(f"ERROR: Database error while updating global split ID {split_id}. Details: {e}")
-                raise
+
+            if years is not None:
+                # Update first year for backward compatibility
+                if years:
+                    cursor.execute("UPDATE global_kpi_splits SET year = ? WHERE id = ?", (years[0], split_id))
+                
+                # Sync mapping table
+                cursor.execute("DELETE FROM global_split_years WHERE global_split_id = ?", (split_id,))
+                for y in years:
+                    cursor.execute("INSERT INTO global_split_years (global_split_id, year) VALUES (?, ?)", (split_id, y))
+            
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while updating global split ID {split_id}. Details: {e}")
+            raise
 
     if afflicted is not None:
         update_global_split_indicators(split_id, afflicted)
@@ -121,20 +140,55 @@ def get_global_split(split_id: int) -> dict:
                 res = dict(row)
                 res['repartition_values'] = json.loads(res['repartition_values'])
                 res['profile_params'] = json.loads(res['profile_params'])
+                
+                # Fetch years
+                years_rows = conn.execute("SELECT year FROM global_split_years WHERE global_split_id = ?", (split_id,)).fetchall()
+                res['years'] = [r['year'] for r in years_rows]
                 return res
             return None
         except sqlite3.Error as e:
             print(f"ERROR: Database error while retrieving global split ID {split_id}. Details: {e}")
             return None
 
+def get_global_splits_for_indicator(indicator_id: int) -> list[dict]:
+    """Retrieves all global splits that affect a specific indicator."""
+    db_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    with sqlite3.connect(db_templates_path) as conn:
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute("""
+                SELECT s.* FROM global_kpi_splits s
+                JOIN global_split_indicators i ON s.id = i.global_split_id
+                WHERE i.indicator_id = ?
+            """, (indicator_id,)).fetchall()
+            
+            results = []
+            for row in rows:
+                res = dict(row)
+                # Fetch years for each
+                y_rows = conn.execute("SELECT year FROM global_split_years WHERE global_split_id = ?", (res['id'],)).fetchall()
+                res['years'] = [yr['year'] for yr in y_rows]
+                results.append(res)
+            return results
+        except sqlite3.Error as e:
+            print(f"ERROR: {e}")
+            return []
+
 def get_all_global_splits(year: int = None) -> list[dict]:
     """Retrieves all global KPI split templates, optionally filtered by year."""
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    
     query = "SELECT * FROM global_kpi_splits"
     params = []
+    
     if year:
-        query += " WHERE year = ?"
+        query = """
+            SELECT s.* FROM global_kpi_splits s
+            JOIN global_split_years y ON s.id = y.global_split_id
+            WHERE y.year = ?
+        """
         params.append(year)
+    
     query += " ORDER BY name"
 
     with sqlite3.connect(db_templates_path) as conn:
@@ -146,6 +200,10 @@ def get_all_global_splits(year: int = None) -> list[dict]:
                 res = dict(row)
                 res['repartition_values'] = json.loads(res['repartition_values'])
                 res['profile_params'] = json.loads(res['profile_params'])
+                
+                # Fetch years for each split
+                y_rows = conn.execute("SELECT year FROM global_split_years WHERE global_split_id = ?", (res['id'],)).fetchall()
+                res['years'] = [yr['year'] for yr in y_rows]
                 results.append(res)
             return results
         except sqlite3.Error as e:

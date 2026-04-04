@@ -85,7 +85,7 @@ def setup_databases():
                 f"""CREATE TABLE IF NOT EXISTS global_kpi_splits (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL UNIQUE,
-                    year INTEGER NOT NULL,
+                    year INTEGER,
                     repartition_logic TEXT NOT NULL DEFAULT '{REPARTITION_LOGIC_YEAR}',
                     repartition_values TEXT NOT NULL DEFAULT '{{}}',
                     distribution_profile TEXT NOT NULL DEFAULT '{PROFILE_ANNUAL_PROGRESSIVE}',
@@ -93,6 +93,22 @@ def setup_databases():
                 )"""
             )
 
+            # Support for multiple years per global split
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS global_split_years (
+                    global_split_id INTEGER NOT NULL,
+                    year INTEGER NOT NULL,
+                    PRIMARY KEY (global_split_id, year),
+                    FOREIGN KEY (global_split_id) REFERENCES global_kpi_splits(id) ON DELETE CASCADE
+                )"""
+            )
+
+            # Migration: Move data from global_kpi_splits.year to global_split_years if any
+            cursor.execute("SELECT id, year FROM global_kpi_splits WHERE year IS NOT NULL")
+            existing_splits = cursor.fetchall()
+            for split_id, year in existing_splits:
+                cursor.execute("INSERT OR IGNORE INTO global_split_years (global_split_id, year) VALUES (?, ?)", (split_id, year))
+            
             # Req 9: Indicators afflicted by a global split
             cursor.execute(
                 """CREATE TABLE IF NOT EXISTS global_split_indicators (

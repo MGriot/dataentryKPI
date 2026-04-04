@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-04-01
+
+### Added
+- **Universal Global Splits**: Introduced a unified split definition that automatically applies to all aggregation levels (Daily, Weekly, Monthly, Quarterly).
+- **Multi-Year Support**: Global Splits can now be assigned to multiple years simultaneously, with a dedicated mapping table in the database.
+- **Enhanced KPI Explorer (Tkinter)**: 
+    - Added "Move Node" and "Move KPI" functionality to easily reorganize the hierarchy.
+    - Improved creation logic to allow placing new elements at the Root level or inside selected nodes.
+- **Standardized Split Indicator**: Both GUIs now identify and highlight "Standard" Global Split assignments with a ⭐ icon in the Target Entry page.
+- **Automated Weight Preview**: The Global Split editor now dynamically generates and previews weights for all levels (Monthly/Quarterly) when a profile is selected.
+
+### Changed
+- **Project Structure**: Consolidated redundant entry points and moved utility scripts to `src/scripts/` for better project organization.
+- **UI Optimization**: Cleaned up labels in Target Entry; `(Incremental)` calc type is now hidden by default to reduce visual noise.
+- **Dependency Update**: Refined `requirements.txt` with strict versioning and missing ML/Excel libraries.
+
+### Fixed
+- **Root Level Visibility**: Fixed an issue where indicators moved to the root level were hidden in the KPI Explorer tree.
+- **AttributeError**: Resolved a crash in the Tkinter Target Entry tab caused by incorrect module mapping.
+- **SQL Security**: Audited and improved SQL query safety across the backend logic.
+
 ## [1.3.0] - 2026-03-31
 
 ### Added

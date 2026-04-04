@@ -7,30 +7,38 @@ import pandas as pd
 import tempfile
 import os
 import plotly.express as px
+import math
 from src.kpi_management import splits as kpi_splits_manager
 from src import data_retriever
 from src.services import split_analyzer
 from src.interfaces.common_ui.constants import (
-    REPARTITION_LOGIC_OPTIONS,
     DISTRIBUTION_PROFILE_OPTIONS,
-    REPARTITION_LOGIC_YEAR,
-    REPARTITION_LOGIC_MONTH,
-    REPARTITION_LOGIC_QUARTER,
-    REPARTITION_LOGIC_WEEK,
+    PROFILE_EVEN,
     PROFILE_ANNUAL_PROGRESSIVE,
-    PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS,
-    PROFILE_TRUE_ANNUAL_SINUSOIDAL,
-    PROFILE_MONTHLY_SINUSOIDAL,
-    PROFILE_QUARTERLY_SINUSOIDAL,
-    PROFILE_QUARTERLY_PROGRESSIVE
+    PROFILE_TRUE_ANNUAL_SINUSOIDAL
 )
 
-def _get_preset_values(logic, year):
-    if logic == REPARTITION_LOGIC_MONTH:
-        return {m: 100.0/12 for m in calendar.month_name[1:] if m}
-    elif logic == REPARTITION_LOGIC_QUARTER:
-        return {f"Q{i+1}": 25.0 for i in range(4)}
-    return {}
+def _get_universal_presets(profile):
+    months = [m for m in calendar.month_name[1:] if m]
+    quarters = ["Q1", "Q2", "Q3", "Q4"]
+    
+    def calc(num_periods, labels):
+        if profile == PROFILE_EVEN:
+            factors = [1.0] * num_periods
+        elif profile == PROFILE_ANNUAL_PROGRESSIVE:
+            factors = [0.8 + (1.2 - 0.8) * (i / (num_periods-1)) for i in range(num_periods)]
+        elif profile == PROFILE_TRUE_ANNUAL_SINUSOIDAL:
+            factors = [1.0 + 0.2 * math.sin(2 * math.pi * (i / (num_periods-1))) for i in range(num_periods)]
+        else:
+            factors = [1.0] * num_periods
+        total_f = sum(factors)
+        return {label: round((factors[i] / total_f) * 100.0, 4) for i, label in enumerate(labels)}
+
+    return {
+        "mode": "universal",
+        "monthly": calc(12, months),
+        "quarterly": calc(4, quarters)
+    }
 
 def _render_multivariate_section(context_id):
     """Renders the predictor UI and returns the suggested weights if applied."""
@@ -87,12 +95,10 @@ def _render_multivariate_section(context_id):
                     st.markdown("#### 📈 Model Fit Visualization")
                     plot_df = pd.read_json(stats['plot_data'])
                     
-                    # Plotly chart with Shaded CI
                     fig = px.line(plot_df, x='period_idx', y=['Actual_Target', 'Predicted_Fit'], markers=True, 
                                  labels={'value': 'Normalized Value', 'period_idx': 'Period Index'},
                                  title=f"Seasonality Fit ({stats['model_name']})")
                     
-                    # Add Shaded CI
                     fig.add_scatter(
                         x=plot_df['period_idx'].tolist() + plot_df['period_idx'].tolist()[::-1],
                         y=plot_df['CI_Upper'].tolist() + plot_df['CI_Lower'].tolist()[::-1],
@@ -117,7 +123,9 @@ def _render_multivariate_section(context_id):
                         st.json(st.session_state[f"suggested_{context_id}"])
                     
                     if st.button("Apply to Template Below", use_container_width=True, key=f"apply_{context_id}"):
-                        st.session_state[f"val_override_{context_id}"] = json.dumps(st.session_state[f"suggested_{context_id}"], indent=2)
+                        # Wrap suggested into universal format
+                        u_data = {"mode": "universal", "monthly": st.session_state[f"suggested_{context_id}"]}
+                        st.session_state[f"val_override_{context_id}"] = json.dumps(u_data, indent=2)
                         st.rerun()
 
             except Exception as e:
@@ -127,18 +135,27 @@ def _render_multivariate_section(context_id):
 
 def app():
     st.title("✂️ Global Splits Management")
-    st.markdown("Manage repartition templates that can be applied to multiple KPIs.")
+    st.markdown("Manage universal repartition templates that work across all levels.")
 
     # --- Sidebar: List of Splits ---
     st.sidebar.subheader("Existing Templates")
     all_splits = kpi_splits_manager.get_all_global_splits()
     
-    split_names = ["+ Create New Split"] + [f"{s['year']} - {s['name']}" for s in all_splits]
+    def get_split_label(s):
+        years = s.get('years', [])
+        if not years and s.get('year'): years = [s['year']]
+        years_str = ", ".join(map(str, years))
+        return f"{years_str} - {s['name']}"
+
+    split_labels_map = {get_split_label(s): s['id'] for s in all_splits}
+    split_names = ["+ Create New Split"] + list(split_labels_map.keys())
     selected_split_label = st.sidebar.radio("Select Template:", split_names)
 
     # Prepare common data
     all_inds = sorted(data_retriever.get_all_kpi_indicators(), key=lambda x: x['name'])
     ind_options = {f"{i['name']} [ID:{i['id']}]": i['id'] for i in all_inds}
+    
+    year_options = list(range(2020, 2035))
 
     # --- Main Layout ---
     col_config, col_inds = st.columns([1.4, 1])
@@ -150,124 +167,121 @@ def app():
             
             st.markdown("---")
             st.subheader("📋 Template Details")
+            
+            if "new_split_profile" not in st.session_state:
+                st.session_state.new_split_profile = PROFILE_EVEN
+            
             with st.form("new_split_form"):
                 name = st.text_input("Template Name")
-                year = st.number_input("Target Year", min_value=2000, max_value=2100, value=datetime.datetime.now().year)
-                logic = st.selectbox("Repartition Logic", REPARTITION_LOGIC_OPTIONS)
-                profile = st.selectbox("Default Distribution Profile", DISTRIBUTION_PROFILE_OPTIONS)
+                years = st.multiselect("Target Year(s)", options=year_options, default=[datetime.datetime.now().year])
+                profile = st.selectbox("Universal Distribution Profile", DISTRIBUTION_PROFILE_OPTIONS, key="new_profile_sel")
                 
-                initial_val = st.session_state.get("val_override_new_split", "{}")
-                values_json = st.text_area("Repartition Weights (%)", value=initial_val, height=200)
+                if profile != st.session_state.new_split_profile:
+                    st.session_state.new_split_profile = profile
+                    st.session_state["val_override_new_split"] = json.dumps(_get_universal_presets(profile), indent=2)
+
+                initial_val = st.session_state.get("val_override_new_split", json.dumps(_get_universal_presets(st.session_state.new_split_profile), indent=2))
+                values_json = st.text_area("Multi-level Repartition Weights (%)", value=initial_val, height=300)
                 
-                # In creation mode, we'll store the indicators in session state before form submission
-                st.markdown("*(Select KPIs in the right column before saving)*")
-                
-                submitted = st.form_submit_button("Create Template & Link KPIs", type="primary")
+                submitted = st.form_submit_button("Create Universal Template", type="primary")
                 if submitted:
                     if not name: st.error("Name is required.")
+                    elif not years: st.error("At least one year is required.")
                     else:
                         try:
-                            # 1. Add split
-                            v = json.loads(values_json) if values_json.strip() not in ["{}", ""] else _get_preset_values(logic, year)
-                            new_id = kpi_splits_manager.add_global_split(name, year, logic, v, profile, {})
+                            v = json.loads(values_json)
+                            new_id = kpi_splits_manager.add_global_split(name, years, "universal", v, profile, {})
                             
-                            # 2. Link indicators from session state
                             selected_labels = st.session_state.get("temp_inds_selection", [])
                             if selected_labels:
                                 new_links = [{'indicator_id': ind_options[label]} for label in selected_labels]
                                 kpi_splits_manager.update_global_split_indicators(new_id, new_links)
                             
-                            st.success(f"Split '{name}' created and linked!")
-                            if "val_override_new_split" in st.session_state: del st.session_state["val_override_new_split"]
-                            if "temp_inds_selection" in st.session_state: del st.session_state["temp_inds_selection"]
+                            st.success(f"Split '{name}' created!")
+                            for k in ["val_override_new_split", "temp_inds_selection", "new_split_profile"]:
+                                if k in st.session_state: del st.session_state[k]
                             st.rerun()
                         except Exception as e: st.error(f"Error: {e}")
 
         with col_inds:
             st.subheader("🎯 Affected KPIs")
-            st.caption("Select indicators that will follow this new template.")
-            st.multiselect("Select KPIs to Link", options=list(ind_options.keys()), key="temp_inds_selection")
+            st.multiselect("Link KPIs to this Split", options=list(ind_options.keys()), key="temp_inds_selection")
 
     else:
         # Edit existing
-        split_id = next(s['id'] for s in all_splits if f"{s['year']} - {s['name']}" == selected_split_label)
+        split_id = split_labels_map[selected_split_label]
         split = kpi_splits_manager.get_global_split(split_id)
         current_afflicted = kpi_splits_manager.get_indicators_for_global_split(split_id)
         
-        st.info(f"📊 **Summary:** This split template is configured for year **{split['year']}** and is currently linked to **{len(current_afflicted)}** KPIs.")
+        years_raw = split.get('years', [])
+        if not years_raw and split.get('year'): years_raw = [split['year']]
+        
+        st.info(f"📊 **Summary:** Universal Split applied to {len(current_afflicted)} KPIs.")
+
+        if f"edit_split_profile_{split_id}" not in st.session_state:
+            st.session_state[f"edit_split_profile_{split_id}"] = split['distribution_profile']
 
         with col_config:
-            st.subheader(f"✏️ Edit Split: {split['name']}")
+            st.subheader(f"✏️ Edit: {split['name']}")
             _render_multivariate_section(f"edit_{split_id}")
 
             st.markdown("---")
             st.subheader("📋 Template Details")
             with st.form("edit_split_form"):
                 new_name = st.text_input("Template Name", value=split['name'])
-                new_year = st.number_input("Target Year", min_value=2000, max_value=2100, value=split['year'])
-                new_logic = st.selectbox("Repartition Logic", REPARTITION_LOGIC_OPTIONS, 
-                                       index=REPARTITION_LOGIC_OPTIONS.index(split['repartition_logic']) 
-                                       if split['repartition_logic'] in REPARTITION_LOGIC_OPTIONS else 0)
+                new_years = st.multiselect("Target Year(s)", options=year_options, default=years_raw)
                 new_profile = st.selectbox("Distribution Profile", DISTRIBUTION_PROFILE_OPTIONS, 
-                                         index=DISTRIBUTION_PROFILE_OPTIONS.index(split['distribution_profile'])
-                                         if split['distribution_profile'] in DISTRIBUTION_PROFILE_OPTIONS else 0)
+                                         index=DISTRIBUTION_PROFILE_OPTIONS.index(st.session_state[f"edit_split_profile_{split_id}"])
+                                         if st.session_state[f"edit_split_profile_{split_id}"] in DISTRIBUTION_PROFILE_OPTIONS else 0)
                 
+                if new_profile != st.session_state[f"edit_split_profile_{split_id}"]:
+                    st.session_state[f"edit_split_profile_{split_id}"] = new_profile
+                    st.session_state[f"val_override_edit_{split_id}"] = json.dumps(_get_universal_presets(new_profile), indent=2)
+
                 initial_val = st.session_state.get(f"val_override_edit_{split_id}", json.dumps(split['repartition_values'], indent=2))
-                new_values_json = st.text_area("Repartition Weights (%)", value=initial_val, height=200)
+                new_values_json = st.text_area("Multi-level Repartition Weights (%)", value=initial_val, height=300)
                 
-                update_btn = st.form_submit_button("Save Template Changes", type="primary")
+                update_btn = st.form_submit_button("Update Universal Split", type="primary")
                 if update_btn:
                     try:
                         v = json.loads(new_values_json)
-                        kpi_splits_manager.update_global_split(split_id, name=new_name, year=new_year, 
-                                                             repartition_logic=new_logic, repartition_values=v, 
+                        kpi_splits_manager.update_global_split(split_id, name=new_name, years=new_years, 
+                                                             repartition_logic="universal", repartition_values=v, 
                                                              distribution_profile=new_profile)
                         st.success("Template updated!")
-                        if f"val_override_edit_{split_id}" in st.session_state: del st.session_state[f"val_override_edit_{split_id}"]
+                        for k in [f"val_override_edit_{split_id}", f"edit_split_profile_{split_id}"]:
+                            if k in st.session_state: del st.session_state[k]
                         st.rerun()
                     except Exception as e: st.error(f"Error: {e}")
 
             if st.button("🗑️ Delete Template", use_container_width=True):
-                if st.checkbox("Confirm permanent deletion."):
+                st.session_state[f"confirm_delete_{split_id}"] = True
+
+            if st.session_state.get(f"confirm_delete_{split_id}"):
+                st.warning("Delete permanently?")
+                if st.button("Yes, Delete", type="primary"):
                     kpi_splits_manager.delete_global_split(split_id)
-                    st.success("Deleted.")
                     st.rerun()
 
         with col_inds:
             st.subheader("🎯 Affected KPIs")
-            st.caption("Indicators following this split template. You can set a specific distribution profile per KPI.")
-            
-            current_afflicted = kpi_splits_manager.get_indicators_for_global_split(split_id)
-            current_ids = [i['indicator_id'] for i in current_afflicted]
-            default_labels = [f"{i['name']} [ID:{i['id']}]" for i in all_inds if i['id'] in current_ids]
-            
+            default_labels = [f"{i['name']} [ID:{i['id']}]" for i in all_inds if i['id'] in [a['indicator_id'] for a in current_afflicted]]
             selected_labels = st.multiselect("Link/Unlink KPIs", options=list(ind_options.keys()), default=default_labels, key=f"inds_edit_{split_id}")
             
             st.markdown("---")
-            st.write("**Set Profile Overrides:**")
-            
             new_data = []
             for label in selected_labels:
                 iid = ind_options[label]
                 existing = next((i for i in current_afflicted if i['indicator_id'] == iid), None)
-                
-                # Show a small expander or container for each selected KPI to set override
                 with st.container(border=True):
                     c_name, c_ov = st.columns([1.5, 1])
                     c_name.write(label)
-                    
-                    # Profile options + "Default"
                     opts = ["(Default)"] + DISTRIBUTION_PROFILE_OPTIONS
                     current_ov = existing['override_distribution_profile'] if existing and existing['override_distribution_profile'] else "(Default)"
-                    
                     ov_profile = c_ov.selectbox("Override:", opts, index=opts.index(current_ov) if current_ov in opts else 0, key=f"ov_{split_id}_{iid}")
-                    
-                    new_data.append({
-                        'indicator_id': iid,
-                        'override_distribution_profile': None if ov_profile == "(Default)" else ov_profile
-                    })
+                    new_data.append({'indicator_id': iid, 'override_distribution_profile': None if ov_profile == "(Default)" else ov_profile})
             
-            if st.button("Sync KPI Links & Overrides", type="primary", use_container_width=True):
+            if st.button("Sync KPIs", type="primary", use_container_width=True):
                 kpi_splits_manager.update_global_split_indicators(split_id, new_data)
-                st.success("KPI list and overrides updated!")
+                st.success("Updated!")
                 st.rerun()
