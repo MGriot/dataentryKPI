@@ -34,7 +34,8 @@ dataentryKPI/
 │
 ├── docs/                 # Comprehensive Technical & User Documentation
 ├── databases/            # SQLite storage partitioned by domain
-├── multivariate_test_data.csv # Sample data for ML predictor
+├── data/
+│   └── multivariate_test_data.csv # Sample data for ML predictor
 ├── main.py               # Unified Launcher
 └── requirements.txt      # Project dependencies
 ```

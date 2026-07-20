@@ -27,7 +27,7 @@ try:
     _indicators_module_available = True
 except ImportError:
     print("WARNING: kpi_management.indicators not available for subgroups.py. Mocks being used.")
-    def add_kpi_indicator(name, subgroup_id): return None
+    def add_kpi_indicator(name, node_id): return None
     def delete_kpi_indicator(indicator_id): pass
 
 try:
@@ -74,7 +74,7 @@ def _apply_template_indicator_to_new_subgroup(subgroup_id: int, indicator_defini
 
     indicator_name = indicator_definition.get("indicator_name_in_template")
     desc = indicator_definition.get("default_description", "")
-    calc_type = indicator_definition.get("default_calculation_type", CALC_TYPE_INCREMENTALE)
+    calc_type = indicator_definition.get("default_calculation_type", CALC_TYPE_INCREMENTAL)
     unit = indicator_definition.get("default_unit_of_measure", "")
     visible = bool(indicator_definition.get("default_visible", True))
 
@@ -85,8 +85,8 @@ def _apply_template_indicator_to_new_subgroup(subgroup_id: int, indicator_defini
     print(f"  Applying template indicator '{indicator_name}' to subgroup {subgroup_id}...")
     try:
         # 1. Create the kpi_indicator record
-        # add_kpi_indicator will return existing ID if name/subgroup_id combo exists.
-        actual_indicator_id = add_kpi_indicator(name=indicator_name, subgroup_id=subgroup_id)
+        # add_kpi_indicator will return existing ID if name/node_id combo exists.
+        actual_indicator_id = add_kpi_indicator(name=indicator_name, node_id=subgroup_id)
 
         if not actual_indicator_id:
             print(f"  ERROR (_apply_template): Failed to create/retrieve indicator '{indicator_name}' for subgroup {subgroup_id}.")
@@ -454,7 +454,7 @@ if __name__ == "__main__":
             cur.execute("""CREATE TABLE IF NOT EXISTS kpi_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, node_id INTEGER NOT NULL, subgroup_id INTEGER,
                            FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE, UNIQUE (name, node_id));""")
             cur.execute(f"""CREATE TABLE IF NOT EXISTS kpis (id INTEGER PRIMARY KEY AUTOINCREMENT, indicator_id INTEGER NOT NULL UNIQUE, description TEXT,
-                           calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
+                           calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
                            unit_of_measure TEXT, visible BOOLEAN DEFAULT 1,
                            FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE);""")
             conn.commit()
@@ -466,14 +466,14 @@ if __name__ == "__main__":
             cur_tpl.execute("INSERT OR IGNORE INTO kpi_indicator_templates (id, name, description) VALUES (?, 'Test Template for Subgroups', 'Desc')", (template_id,))
             cur_tpl.execute(f"""CREATE TABLE IF NOT EXISTS template_defined_indicators (id INTEGER PRIMARY KEY AUTOINCREMENT, template_id INTEGER NOT NULL,
                                indicator_name_in_template TEXT NOT NULL, default_description TEXT,
-                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTALE}', '{CALC_TYPE_AVERAGE}')),
+                               default_calculation_type TEXT NOT NULL CHECK(default_calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
                                default_unit_of_measure TEXT, default_visible BOOLEAN DEFAULT 1,
                                FOREIGN KEY (template_id) REFERENCES kpi_indicator_templates(id) ON DELETE CASCADE,
                                UNIQUE (template_id, indicator_name_in_template));""")
             # Add a definition to the test template
             cur_tpl.execute("""INSERT OR IGNORE INTO template_defined_indicators
                                (template_id, indicator_name_in_template, default_calculation_type, default_unit_of_measure)
-                               VALUES (?, 'Tpl Ind 1', ?, 'Units')""", (template_id, CALC_TYPE_INCREMENTALE))
+                               VALUES (?, 'Tpl Ind 1', ?, 'Units')""", (template_id, CALC_TYPE_INCREMENTAL))
             cur_tpl.execute("""INSERT OR IGNORE INTO template_defined_indicators
                                (template_id, indicator_name_in_template, default_calculation_type, default_unit_of_measure)
                                VALUES (?, 'Tpl Ind 2', ?, 'Count')""", (template_id, CALC_TYPE_AVERAGE))

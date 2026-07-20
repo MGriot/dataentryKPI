@@ -14,6 +14,7 @@ Welcome to the documentation for the Data Entry KPI system. This application pro
 - **[Streamlit Web Manual](gui_streamlit.md):** Guide for the web interface, focusing on remote data entry, parity features, and the new predictive analytics dashboard.
 
 ### 🛠️ Technical Reference
+- **[Complete Technical & Product Specification](product_specification_and_code_depth.md)**: Meticulous specification of the entire system architecture, backend DAG logic, ML models, operational pages, and code reviews.
 - **[System Architecture](architecture.md):** Overview of the codebase structure, service layers, and data flow.
 - **[Database Schema](database_schema.md):** Detailed reference of the SQLite tables, relationships, and data models.
 - **[Core Features & Logic](features.md):** Explanations of key algorithms including:
