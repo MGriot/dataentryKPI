@@ -5,14 +5,20 @@ import traceback
 from src.config import settings as app_config
 from pathlib import Path
 
-def add_global_split(name: str, years: list[int], repartition_logic: str, repartition_values: dict, distribution_profile: str, profile_params: dict, afflicted_indicators: list[dict] = None) -> int:
+def add_global_split(name: str, repartition_logic: str, repartition_values: dict, distribution_profile: str, profile_params: dict, years: list[int] = None, year: int = None, afflicted_indicators: list[dict] = None) -> int:
     """Adds a new global KPI split template and optionally links indicators."""
+    if years is None and year is not None:
+        years = [year]
+    elif years is None:
+        years = []
+
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
     with sqlite3.connect(db_templates_path) as conn:
         try:
             cursor = conn.cursor()
             # We still keep 'year' in the main table for backward compatibility (first year)
-            first_year = years[0] if years else None
+            first_year = years[0] if years else year
+
             cursor.execute(
                 """INSERT INTO global_kpi_splits (name, year, repartition_logic, repartition_values, distribution_profile, profile_params)
                    VALUES (?, ?, ?, ?, ?, ?)""",

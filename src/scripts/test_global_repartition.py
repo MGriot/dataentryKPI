@@ -13,7 +13,14 @@ def test_global_repartition():
     kpi_id = 1
     target_num = 1
     
-    # 1. Create a Global Split Template
+    # 1. Ensure KPI 1 is Incremental
+    db_kpis_path = app_config.get_database_path("db_kpis.db")
+    with sqlite3.connect(db_kpis_path) as conn:
+        conn.execute("INSERT OR IGNORE INTO kpi_indicators (id, name, node_id) VALUES (1, 'Test Repartition KPI', 1)")
+        conn.execute("INSERT OR REPLACE INTO kpis (id, indicator_id, calculation_type) VALUES (1, 1, 'Incremental')")
+        conn.commit()
+
+    # 2. Create a Global Split Template
     # Let's say we want 100% in January, 0% elsewhere.
     repart_values = {"January": 100.0}
     for m in ["February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]:
@@ -34,12 +41,23 @@ def test_global_repartition():
     # 2. Assign this split to an annual target
     db_targets_path = app_config.get_database_path("db_kpi_targets.db")
     with sqlite3.connect(db_targets_path) as conn:
-        # Ensure target entry exists
-        conn.execute(
+        cursor = conn.cursor()
+        cursor.execute(
             """INSERT OR REPLACE INTO annual_targets 
-               (year, plant_id, kpi_id, annual_target1, global_split_id) 
-               VALUES (?, ?, ?, ?, ?)""",
-            (year, plant_id, kpi_id, 1200.0, split_id)
+               (year, plant_id, kpi_id, global_split_id) 
+               VALUES (?, ?, ?, ?)""",
+            (year, plant_id, kpi_id, split_id)
+        )
+        cursor.execute(
+            "SELECT id FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?",
+            (year, plant_id, kpi_id)
+        )
+        at_id = cursor.fetchone()[0]
+        cursor.execute(
+            """INSERT OR REPLACE INTO kpi_annual_target_values 
+               (annual_target_id, target_number, target_value) 
+               VALUES (?, 1, 1200.0)""",
+            (at_id,)
         )
         conn.commit()
     print(f"Assigned Split ID {split_id} to KPI {kpi_id} for {year}")

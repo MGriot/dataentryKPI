@@ -26,18 +26,21 @@ This document outlines potential improvements, refactoring tasks, and future fea
 ## Features & Enhancements
 
 *   **Error Handling and Logging:** Implement robust error handling and a standardized logging system across the application.
-*   **Tests:** Implement a comprehensive test suite (Unit and Integration) for core logic, especially for `target_management/repartition.py` and formula calculations.
+*   **Tests:** Implement a comprehensive test suite (Unit and Integration) for core logic, especially for `target_management/repartition.py` and formula calculations. Also add pytest coverage for `src/api.py` itself (currently only tested manually/via the React app) and the auth flow.
 *   **Database Migrations:** Introduce a migration tool (e.g., Alembic, or a custom light version) for easier database schema updates.
-*   **Performance Optimization:** Profile and optimize critical sections, especially target distribution algorithms and database queries.
+*   **Performance Optimization:** Profile and optimize critical sections, especially target distribution algorithms and database queries. `save_annual_targets` currently rescans every calculated KPI system-wide on every single save, not just affected ones.
 *   **Advanced Distribution Models:** Research and implement additional mathematical models for target distribution.
-*   **Web Interface (Streamlit):**
-    *   Implement User Authentication/Authorization if multi-user access is required.
-    *   Improve responsive design.
-    *   Document cloud deployment strategy.
+*   [x] **User Authentication/Authorization:** Implemented for the React app + REST API (password login, sessions, audit trail) — see CHANGELOG 2.0.0. Still open:
+    *   Role-based access control (currently any logged-in user can create other accounts, no admin/read-only distinction).
+    *   Wire Swagger UI's "Authorize" button to the session-bearer scheme so `/docs` can call protected endpoints without manually setting headers.
+    *   No "forgot password" / admin password reset flow.
+*   **Global Split UX:** When a KPI has a Global Split linked, its own Repartition Logic/Distribution Profile fields are silently ignored (the split wins) but the Target Entry UI doesn't disable or explain this — should gray them out with an explanatory note.
+*   **`target_granularity`:** Stored and editable per KPI but not read by any calculation logic yet (repartition uses the separate per-save Repartition Logic instead). Either wire it in as a real constraint/default, or drop it from the UI to stop implying it does something.
+*   **Streamlit:** Improve responsive design; document a cloud deployment strategy. (Login/auth was implemented for the React app and REST API only — Streamlit and Tkinter remain unauthenticated, direct-to-database.)
 
 ## Documentation Improvements
 
-*   **API Reference Generation:** Consider using Sphinx to auto-generate API documentation from docstrings.
+*   **API Reference Generation:** Consider using Sphinx to auto-generate API documentation from docstrings (a hand-written reference exists at `docs/api_reference.md`).
 *   **Contribution Guidelines:** Expand on the existing contribution guidelines in `README.md`.
 
 ---

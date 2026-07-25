@@ -12,26 +12,37 @@ def get_table_columns(cursor: sqlite3.Cursor, table_name: str) -> list[str]:
     return [row[1] for row in cursor.fetchall()]
 
 def import_from_zip(zip_path: str):
-    """Restores the database state from a ZIP backup by appending data."""
+    """Restores the database state from a ZIP backup by appending data.
+
+    Expects the raw per-table CSV dumps produced by export_manager.export_raw_backup_csvs
+    (filenames/tables must match RAW_BACKUP_TABLES there) -- these preserve primary keys and
+    foreign-key columns, unlike the human-readable enriched CSVs used for single-table export.
+    The order below respects foreign-key dependencies (parents before children).
+    """
     try:
         with zipfile.ZipFile(zip_path, 'r') as zipf:
-            # The order is critical to respect foreign key constraints
-            import_order = {
-                'dict_plants.csv': ('plants', get_database_path('db_plants.db')),
-                'dict_kpi_nodes.csv': ('kpi_nodes', get_database_path('db_kpis.db')),
-                'dict_kpi_groups.csv': ('kpi_groups', get_database_path('db_kpis.db')),
-                'dict_kpi_subgroups.csv': ('kpi_subgroups', get_database_path('db_kpis.db')),
-                'dict_kpi_indicators.csv': ('kpi_indicators', get_database_path('db_kpis.db')),
-                'dict_kpis.csv': ('kpis', get_database_path('db_kpis.db')),
-                'dict_kpi_plant_visibility.csv': ('kpi_plant_visibility', get_database_path('db_kpis.db')),
-                'all_annual_kpi_master_targets.csv': ('annual_targets', get_database_path('db_kpi_targets.db')),
-                'all_daily_kpi_targets.csv': ('daily_targets', get_database_path('db_kpi_days.db')),
-                'all_weekly_kpi_targets.csv': ('weekly_targets', get_database_path('db_kpi_weeks.db')),
-                'all_monthly_kpi_targets.csv': ('monthly_targets', get_database_path('db_kpi_months.db')),
-                'all_quarterly_kpi_targets.csv': ('quarterly_targets', get_database_path('db_kpi_quarters.db')),
-            }
+            import_order = [
+                ('raw_plants.csv', 'plants', get_database_path('db_plants.db')),
+                ('raw_kpi_nodes.csv', 'kpi_nodes', get_database_path('db_kpis.db')),
+                ('raw_kpi_indicators.csv', 'kpi_indicators', get_database_path('db_kpis.db')),
+                ('raw_kpis.csv', 'kpis', get_database_path('db_kpis.db')),
+                ('raw_kpi_plant_visibility.csv', 'kpi_plant_visibility', get_database_path('db_kpis.db')),
+                ('raw_kpi_indicator_templates.csv', 'kpi_indicator_templates', get_database_path('db_kpi_templates.db')),
+                ('raw_template_defined_indicators.csv', 'template_defined_indicators', get_database_path('db_kpi_templates.db')),
+                ('raw_global_kpi_splits.csv', 'global_kpi_splits', get_database_path('db_kpi_templates.db')),
+                ('raw_global_split_years.csv', 'global_split_years', get_database_path('db_kpi_templates.db')),
+                ('raw_global_split_indicators.csv', 'global_split_indicators', get_database_path('db_kpi_templates.db')),
+                ('raw_annual_targets.csv', 'annual_targets', get_database_path('db_kpi_targets.db')),
+                ('raw_kpi_annual_target_values.csv', 'kpi_annual_target_values', get_database_path('db_kpi_targets.db')),
+                ('raw_kpi_targets.csv', 'kpi_targets', get_database_path('db_kpi_targets.db')),
+                ('raw_daily_targets.csv', 'daily_targets', get_database_path('db_kpi_days.db')),
+                ('raw_weekly_targets.csv', 'weekly_targets', get_database_path('db_kpi_weeks.db')),
+                ('raw_monthly_targets.csv', 'monthly_targets', get_database_path('db_kpi_months.db')),
+                ('raw_quarterly_targets.csv', 'quarterly_targets', get_database_path('db_kpi_quarters.db')),
+                ('raw_actual_measurements.csv', 'actual_measurements', get_database_path('db_kpi_actuals.db')),
+            ]
 
-            for file_name, (table_name, db_path) in import_order.items():
+            for file_name, table_name, db_path in import_order:
                 if file_name not in zipf.namelist():
                     continue
 

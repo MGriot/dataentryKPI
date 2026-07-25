@@ -1,5 +1,6 @@
 # src/export_manager.py
 import csv
+import sqlite3
 import zipfile
 import io
 import traceback
@@ -9,7 +10,7 @@ import datetime
 
 # Configuration import
 try:
-    from src.config.settings import CSV_EXPORT_BASE_PATH
+    from src.config.settings import CSV_EXPORT_BASE_PATH, get_database_path
 except ImportError:
     print("CRITICAL WARNING: app_config.py not found. Using fallback for CSV_EXPORT_BASE_PATH.")
     CSV_EXPORT_BASE_PATH = "./fallback_csv_exports"
@@ -158,10 +159,76 @@ def export_single_table(table_key: str, base_export_path_str: str = None) -> str
     return f"Success: Exported {table_key} to {filename}"
 
 
-def package_all_csvs_as_zip(csv_base_path_str: str = None, output_zip_filepath_str: str = None, return_bytes_for_streamlit: bool = False):
-    """Packages all globally defined CSV files into a ZIP archive."""
+# --- Raw table dump for full-fidelity backup/restore ---
+# Unlike GLOBAL_CSV_FILES above (human-readable, joined/renamed columns -- not restorable),
+# these are 1:1 dumps of each table's actual columns (including primary/foreign keys), ordered
+# so a restore can apply them respecting foreign-key relationships. This is the format used by
+# the ZIP backup/restore flow, and import_manager.import_from_zip expects exactly these filenames.
+RAW_BACKUP_TABLES = [
+    ("plants", "db_plants.db", "raw_plants.csv"),
+    ("kpi_nodes", "db_kpis.db", "raw_kpi_nodes.csv"),
+    ("kpi_indicators", "db_kpis.db", "raw_kpi_indicators.csv"),
+    ("kpis", "db_kpis.db", "raw_kpis.csv"),
+    ("kpi_plant_visibility", "db_kpis.db", "raw_kpi_plant_visibility.csv"),
+    ("kpi_indicator_templates", "db_kpi_templates.db", "raw_kpi_indicator_templates.csv"),
+    ("template_defined_indicators", "db_kpi_templates.db", "raw_template_defined_indicators.csv"),
+    ("global_kpi_splits", "db_kpi_templates.db", "raw_global_kpi_splits.csv"),
+    ("global_split_years", "db_kpi_templates.db", "raw_global_split_years.csv"),
+    ("global_split_indicators", "db_kpi_templates.db", "raw_global_split_indicators.csv"),
+    ("annual_targets", "db_kpi_targets.db", "raw_annual_targets.csv"),
+    ("kpi_annual_target_values", "db_kpi_targets.db", "raw_kpi_annual_target_values.csv"),
+    ("kpi_targets", "db_kpi_targets.db", "raw_kpi_targets.csv"),
+    ("daily_targets", "db_kpi_days.db", "raw_daily_targets.csv"),
+    ("weekly_targets", "db_kpi_weeks.db", "raw_weekly_targets.csv"),
+    ("monthly_targets", "db_kpi_months.db", "raw_monthly_targets.csv"),
+    ("quarterly_targets", "db_kpi_quarters.db", "raw_quarterly_targets.csv"),
+    ("actual_measurements", "db_kpi_actuals.db", "raw_actual_measurements.csv"),
+]
+
+def export_raw_backup_csvs(base_export_path_str: str = None) -> list:
+    """Dumps each raw table (all columns, as-is) to its own CSV for ZIP backup/restore."""
+    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
+    target_export_path.mkdir(parents=True, exist_ok=True)
+
+    written_files = []
+    for table_name, db_filename, csv_filename in RAW_BACKUP_TABLES:
+        try:
+            db_path = get_database_path(db_filename)
+        except Exception as e:
+            print(f"WARNING: Could not resolve path for {db_filename}: {e}")
+            continue
+        if not Path(db_path).exists():
+            continue
+
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = [row[1] for row in cursor.fetchall()]
+                if not columns:
+                    continue
+                cursor.execute(f"SELECT {', '.join(columns)} FROM {table_name}")
+                rows = cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"WARNING: Could not dump table '{table_name}' from {db_filename}: {e}")
+            continue
+
+        output_path = target_export_path / csv_filename
+        with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(columns)
+            writer.writerows(rows)
+        written_files.append(csv_filename)
+
+    return written_files
+
+
+def package_all_csvs_as_zip(csv_base_path_str: str = None, output_zip_filepath_str: str = None, return_bytes_for_streamlit: bool = False, file_names: list = None):
+    """Packages CSV files into a ZIP archive. Defaults to the GLOBAL_CSV_FILES set; pass
+    file_names (e.g. the return value of export_raw_backup_csvs) to package a different set."""
     source_csv_path = Path(csv_base_path_str) if csv_base_path_str else _CSV_EXPORT_BASE_PATH_OBJ
-    files_to_zip = [source_csv_path / fname for fname in GLOBAL_CSV_FILES.values() if (source_csv_path / fname).exists()]
+    names_to_zip = file_names if file_names is not None else list(GLOBAL_CSV_FILES.values())
+    files_to_zip = [source_csv_path / fname for fname in names_to_zip if (source_csv_path / fname).exists()]
 
     if not files_to_zip:
         return False, "No CSV files found to package."

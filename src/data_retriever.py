@@ -471,3 +471,45 @@ def get_lean_targets() -> list[dict]:
         })
     return lean_data
 
+# --- Actuals & Performance Status Facade ---
+def get_actual_measurements(kpi_id: int, plant_id: int, start_date: str = None, end_date: str = None) -> list:
+    from src.services import actuals_service
+    return actuals_service.get_actual_measurements(kpi_id, plant_id, start_date, end_date)
+
+def get_kpi_performance_status(kpi_id: int, plant_id: int, target_value: float = None) -> dict:
+    from src.services import actuals_service
+    kpi_spec = get_kpi_detailed_by_id(kpi_id, plant_id)
+    if not kpi_spec:
+        return {"error": f"KPI Spec with ID {kpi_id} not found"}
+
+    if target_value is None:
+        target_value = 100.0  # Fallback baseline
+
+    return actuals_service.get_performance_status_for_kpi(
+        kpi_id=kpi_id,
+        plant_id=plant_id,
+        target_value=target_value,
+        direction=kpi_spec.get("direction", "Higher is Better"),
+        threshold_json=kpi_spec.get("threshold_json"),
+        time_filter_type=kpi_spec.get("time_filter_type", "None"),
+        time_filter_value=kpi_spec.get("time_filter_value")
+    )
+
+def get_modern_kpi_targets(kpi_id: int = None, plant_id: int = None) -> list:
+    """Queries the modern kpi_targets table."""
+    if _handle_db_connection_error("db_kpi_targets.db", "get_modern_kpi_targets"): return []
+    query = "SELECT * FROM kpi_targets WHERE 1=1"
+    params = []
+    if kpi_id is not None:
+        query += " AND kpi_id = ?"
+        params.append(kpi_id)
+    if plant_id is not None:
+        query += " AND plant_id = ?"
+        params.append(plant_id)
+
+    with sqlite3.connect(app_config.get_database_path("db_kpi_targets.db")) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, params).fetchall()
+        return [dict(r) for r in rows]
+
+

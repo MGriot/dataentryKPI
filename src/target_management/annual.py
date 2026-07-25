@@ -7,6 +7,7 @@ from src.config import settings as app_config
 from pathlib import Path
 from src import data_retriever as db_retriever
 from src.data_retriever import get_annual_target_entry
+from src.services import history_service
 
 
 # Configuration imports
@@ -51,6 +52,7 @@ def save_annual_targets(
     plant_id: int | list[int],
     targets_data_map: dict,
     initiator_kpi_spec_id: int = None,
+    changed_by: str = "system",
 ):
     """
     Saves annual targets for one or more plants.
@@ -60,12 +62,12 @@ def save_annual_targets(
     if not targets_data_map: return
 
     plant_ids = [plant_id] if isinstance(plant_id, int) else plant_id
-    
+
     for pid in plant_ids:
         print(f"INFO: Saving annual targets for Year: {year}, Plant: {pid}...")
-        _save_single_plant_annual_targets(year, pid, targets_data_map, initiator_kpi_spec_id)
+        _save_single_plant_annual_targets(year, pid, targets_data_map, initiator_kpi_spec_id, changed_by)
 
-def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiator_kpi_spec_id):
+def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiator_kpi_spec_id, changed_by="system"):
     db_targets_path = app_config.get_database_path("db_kpi_targets.db")
     
     kpis_needing_repartition_update = set()
@@ -135,8 +137,11 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                 form_in_raw = t_data.get('formula_inputs', '[]')
                 form_in = json.dumps(form_in_raw) if isinstance(form_in_raw, (list, dict)) else (form_in_raw or '[]')
 
+                old_tv = next((tv for tv in (record_dict.get('target_values') if record_dict else []) if tv['target_number'] == tn), None)
+                old_value = old_tv['target_value'] if old_tv else None
+
                 cursor.execute("""
-                    INSERT INTO kpi_annual_target_values 
+                    INSERT INTO kpi_annual_target_values
                     (annual_target_id, target_number, target_value, is_manual, is_formula_based, formula, formula_inputs)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(annual_target_id, target_number) DO UPDATE SET
@@ -151,6 +156,18 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                 if tn in [1, 2]:
                     cursor.execute(f"UPDATE annual_targets SET annual_target{tn}=?, is_target{tn}_manual=?, target{tn}_is_formula_based=?, target{tn}_formula=?, target{tn}_formula_inputs=? WHERE id=?",
                                    (t_val, is_man, is_form, form_str, form_in, at_id))
+
+                if old_value != t_val:
+                    history_service.record_target_change(
+                        kpi_id=current_kpi_spec_id,
+                        plant_id=plant_id,
+                        target_number=tn,
+                        period_start=f"{year}-01-01",
+                        period_end=f"{year}-12-31",
+                        old_value=old_value,
+                        new_value=t_val,
+                        changed_by=changed_by,
+                    )
 
                 kpis_needing_repartition_update.add(current_kpi_spec_id)
                 if is_form:

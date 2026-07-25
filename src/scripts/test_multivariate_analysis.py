@@ -34,14 +34,14 @@ def generate_test_data(file_path):
     return df
 
 def test_and_plot():
-    test_file = "test_multivariate_data.csv"
+    test_file = os.path.join("data", "test_multivariate_data.csv")
     df = generate_test_data(test_file)
     
     target_cols = ["hist_2023", "hist_2024"]
     feature_cols = ["driver_sales", "noise"]
     
     # Perform Analysis
-    weights, coefs, r2 = split_analyzer.analyze_seasonality_from_file(
+    weights, coefs, r2, plot_df, model_name = split_analyzer.analyze_seasonality_from_file(
         test_file, target_cols, feature_cols, "date", "Month"
     )
     
@@ -93,8 +93,8 @@ def test_and_plot():
     plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig("multivariate_test_results.png")
-    print("Test complete. Plot saved as 'multivariate_test_results.png'.")
+    plt.savefig(os.path.join("data", "multivariate_test_results.png"))
+    print("Test complete. Plot saved as 'data/multivariate_test_results.png'.")
     
     # Cleanup
     if os.path.exists(test_file):

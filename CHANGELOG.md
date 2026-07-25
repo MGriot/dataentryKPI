@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-07-25
+
+### Added
+- **React Web App** (`frontend/`): full-featured primary UI covering Target Entry (dynamic per-KPI target count, repartition/global-split controls, broadcast-to-all-plants), KPI Explorer (spec inspector, formula editor with quick-insert KPI/operator/function toolbar, plant visibility matrix, audit history viewer), Global Splits & multivariate ML predictor, Analysis, Facilities, and Data Utilities.
+- **FastAPI REST API** (`src/api.py`): ~70 endpoints exposing the full backend (KPI/hierarchy CRUD, annual targets + repartition trigger, global splits, templates, plants, multivariate analysis, CSV export, ZIP backup/restore, users/auth).
+- **MCP Server** (`src/mcp_server.py`): stdio transport (local clients) and a new HTTP transport (`--http`, API-key gated) for shared/containerized use.
+- **Accounts & login**: password-based registration/login required to use the React app and REST API (server-enforced via middleware, not just UI). Sessions, password hashing (PBKDF2-HMAC-SHA256), and a password-change flow under Data Utilities.
+- **Audit trail**: every target value and KPI definition change is attributed to the authenticated user and timestamped; visible in the KPI Explorer.
+- **MCP API keys**: separate per-user credential for the MCP HTTP transport, issued/revoked from Data Utilities; the resolved identity overrides any caller-claimed `changed_by`.
+- **Custom target labels**: each KPI can name its own target scenarios (e.g. "Budget"/"Committed") instead of the fixed "Target 1/2".
+- **Containerization**: `Dockerfile`s for backend and frontend, `compose.yml` (renamed from `podman-compose.yml` for tool auto-discovery) orchestrating backend + frontend + `mcp_server`, all three images built and verified end-to-end.
+
+### Changed
+- **Backup/restore**: replaced the human-readable CSV export (which never matched what restore expected) with a raw per-table dump/restore pair that actually round-trips, preserving primary keys and relationships.
+- **Container base image**: bumped from `python:3.10-slim` to `python:3.12-slim` (`requirements.txt`'s `numpy>=2.3.2` requires 3.11+; this previously made the backend image unbuildable).
+- **Repo hygiene**: moved `multivariate_test_results.png` into `data/` alongside its source CSV; test script now writes both there instead of the repo root.
+- Rewrote `README.md`, `frontend/README.md`, and `docs/` (architecture, database schema, new API reference, new code-depth guide) to reflect the current four-interface architecture; removed a stale, partly-fictional legacy spec doc.
+
+### Known gaps
+- Selecting a Global Split on a Target Entry card silently overrides that KPI's own Repartition Logic/Distribution Profile fields, but the UI still lets you edit them without saying so.
+- `target_granularity` is stored and editable per KPI but not yet read by any calculation logic — descriptive only for now.
+- No role-based access control yet: any logged-in user can create other accounts.
+
 ## [1.4.0] - 2026-04-01
 
 ### Added

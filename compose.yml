@@ -1,0 +1,51 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dataentrykpi-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - kpi_databases:/app/databases
+      - ./csv_exports:/app/csv_exports
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+    container_name: dataentrykpi-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: always
+
+  mcp_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dataentrykpi-mcp
+    # Stdio transport (the default when run locally, e.g. by Claude Desktop) can't be a
+    # shared container service -- nothing is attached to its stdin here. Run HTTP transport
+    # instead; callers authenticate with an API key minted via POST /users/{id}/api-keys
+    # on the backend, sent as 'Authorization: Bearer <key>'.
+    command: ["python", "src/mcp_server.py", "--http"]
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MCP_TRANSPORT=http
+      - MCP_PORT=8001
+    volumes:
+      - kpi_databases:/app/databases
+    restart: always
+
+volumes:
+  kpi_databases:
+    driver: local

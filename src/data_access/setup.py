@@ -143,10 +143,20 @@ def setup_databases():
                     name TEXT NOT NULL,
                     parent_id INTEGER,
                     node_type TEXT CHECK(node_type IN ('group', 'subgroup', 'folder')),
+                    custom_level_label TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (parent_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
                     UNIQUE (name, parent_id)
                 )"""
             )
+
+            # Migration check for kpi_nodes columns
+            cursor.execute("PRAGMA table_info(kpi_nodes)")
+            node_cols = {col[1] for col in cursor.fetchall()}
+            if "custom_level_label" not in node_cols:
+                cursor.execute("ALTER TABLE kpi_nodes ADD COLUMN custom_level_label TEXT")
+            if "is_active" not in node_cols:
+                cursor.execute("ALTER TABLE kpi_nodes ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
 
             # Migration: If kpi_groups and kpi_subgroups exist, migrate them to kpi_nodes
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='kpi_groups'")
@@ -163,11 +173,12 @@ def setup_databases():
                     name TEXT NOT NULL,
                     node_id INTEGER NOT NULL,
                     subgroup_id INTEGER,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
                     FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
                     UNIQUE (name, node_id)
                 )"""
             )
-            # Migration check: ensure node_id is populated from legacy subgroup_id if needed
+            # Migration check for kpi_indicators columns
             cursor.execute("PRAGMA table_info(kpi_indicators)")
             indicator_cols_info = {col[1]: col for col in cursor.fetchall()}
             
@@ -181,6 +192,7 @@ def setup_databases():
                         name TEXT NOT NULL,
                         node_id INTEGER NOT NULL,
                         subgroup_id INTEGER,
+                        is_active BOOLEAN NOT NULL DEFAULT 1,
                         FOREIGN KEY (node_id) REFERENCES kpi_nodes(id) ON DELETE CASCADE,
                         UNIQUE (name, node_id)
                     )"""
@@ -188,21 +200,34 @@ def setup_databases():
                 cursor.execute("INSERT INTO kpi_indicators (id, name, node_id, subgroup_id) SELECT id, name, node_id, subgroup_id FROM kpi_indicators_old")
                 cursor.execute("DROP TABLE kpi_indicators_old")
             
+            cursor.execute("PRAGMA table_info(kpi_indicators)")
+            indicator_cols = {col[1] for col in cursor.fetchall()}
+            if "is_active" not in indicator_cols:
+                cursor.execute("ALTER TABLE kpi_indicators ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1")
+
             # Ensure node_id is populated from subgroup_id if it's missing (legacy data)
-            if 'subgroup_id' in indicator_cols_info:
+            if 'subgroup_id' in indicator_cols:
                 cursor.execute("UPDATE kpi_indicators SET node_id = subgroup_id + 1000 WHERE (node_id IS NULL OR node_id = 0) AND subgroup_id IS NOT NULL")
             cursor.execute(
                 f"""CREATE TABLE IF NOT EXISTS kpis (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     indicator_id INTEGER NOT NULL,
                     description TEXT,
-                    calculation_type TEXT NOT NULL CHECK(calculation_type IN ('{CALC_TYPE_INCREMENTAL}', '{CALC_TYPE_AVERAGE}')),
+                    calculation_type TEXT NOT NULL DEFAULT '{CALC_TYPE_INCREMENTAL}',
                     unit_of_measure TEXT,
                     visible BOOLEAN NOT NULL DEFAULT 1,
                     formula_json TEXT,
                     formula_string TEXT,
                     is_calculated BOOLEAN NOT NULL DEFAULT 0,
                     default_distribution_profile TEXT,
+                    owner TEXT,
+                    direction TEXT DEFAULT 'Higher is Better',
+                    threshold_json TEXT,
+                    target_granularity TEXT DEFAULT 'Monthly',
+                    target_count INTEGER DEFAULT 1,
+                    time_filter_type TEXT DEFAULT 'None',
+                    time_filter_value TEXT,
+                    target_labels TEXT,
                     FOREIGN KEY (indicator_id) REFERENCES kpi_indicators(id) ON DELETE CASCADE,
                     UNIQUE (indicator_id)
                 )"""
@@ -219,16 +244,28 @@ def setup_databases():
                 cursor.execute("ALTER TABLE kpis ADD COLUMN is_calculated BOOLEAN NOT NULL DEFAULT 0")
             if "default_distribution_profile" not in kpi_columns_info:
                 cursor.execute("ALTER TABLE kpis ADD COLUMN default_distribution_profile TEXT")
+            if "owner" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN owner TEXT")
+            if "direction" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN direction TEXT DEFAULT 'Higher is Better'")
+            if "threshold_json" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN threshold_json TEXT")
+            if "target_granularity" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN target_granularity TEXT DEFAULT 'Monthly'")
+            if "target_count" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN target_count INTEGER DEFAULT 1")
+            if "time_filter_type" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN time_filter_type TEXT DEFAULT 'None'")
+            if "time_filter_value" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN time_filter_value TEXT")
+            if "target_labels" not in kpi_columns_info:
+                cursor.execute("ALTER TABLE kpis ADD COLUMN target_labels TEXT")
 
             # Check and add 'indicator_template_id' to 'kpi_subgroups' if missing
             cursor.execute("PRAGMA table_info(kpi_subgroups)")
             subgroup_columns = {col[1] for col in cursor.fetchall()}
             if "indicator_template_id" not in subgroup_columns:
                 try:
-                    # Note: SQLite does not support adding FK constraints via ALTER TABLE directly in older versions.
-                    # The FK is defined in CREATE TABLE. If altering, one would typically recreate the table.
-                    # However, adding a column that REFERENCES another table (without explicit constraint enforcement by ALTER) is fine.
-                    # The schema from CREATE TABLE already defines the FK.
                     cursor.execute(
                         "ALTER TABLE kpi_subgroups ADD COLUMN indicator_template_id INTEGER REFERENCES kpi_indicator_templates(id) ON DELETE SET NULL"
                     )
@@ -247,7 +284,7 @@ def setup_databases():
                     print("Added column 'unit_of_measure' to 'kpis'.")
                 except (
                     sqlite3.OperationalError
-                ) as e:  # Usually means it already exists or other schema issue
+                ) as e:
                     print(
                         f"WARN: Could not add 'unit_of_measure' to 'kpis', it might already exist or another issue occurred: {e}"
                     )
@@ -284,10 +321,11 @@ def setup_databases():
                     name TEXT NOT NULL UNIQUE,
                     description TEXT,
                     visible BOOLEAN NOT NULL DEFAULT 1,
-                    color TEXT NOT NULL DEFAULT '#000000'
+                    color TEXT NOT NULL DEFAULT '#000000',
+                    is_active BOOLEAN NOT NULL DEFAULT 1
                 )"""
             )
-            # Check and add 'description' to 'plants' if missing
+            # Check and add 'description', 'color', 'is_active' to 'plants' if missing
             cursor.execute("PRAGMA table_info(plants)")
             plants_cols = {col[1] for col in cursor.fetchall()}
             if "description" not in plants_cols:
@@ -300,7 +338,6 @@ def setup_databases():
                     print(
                         f"WARN: Could not add 'description' to 'plants', it might already exist or another issue occurred: {e}"
                     )
-            # Check and add 'color' column if missing
             if "color" not in plants_cols:
                 try:
                     cursor.execute(
@@ -311,13 +348,23 @@ def setup_databases():
                     print(
                         f"WARN: Could not add 'color' to 'plants', it might already exist or another issue occurred: {e}"
                     )
+            if "is_active" not in plants_cols:
+                try:
+                    cursor.execute(
+                        "ALTER TABLE plants ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"
+                    )
+                    print("Added column 'is_active' to 'plants'.")
+                except sqlite3.OperationalError as e:
+                    print(
+                        f"WARN: Could not add 'is_active' to 'plants', it might already exist or another issue occurred: {e}"
+                    )
             conn.commit()
         print(f"Table setup in {db_plants_path} completed.")
     except sqlite3.Error as e:
         print(f"ERROR during setup of {db_plants_path}: {e}")
         print(traceback.format_exc())
 
-    # --- DB_TARGETS Setup (Annual Targets) ---
+    # --- DB_TARGETS Setup (Annual Targets & Period Targets) ---
     db_targets_path = app_config.get_database_path("db_kpi_targets.db")
     print(f"Setting up tables in {db_targets_path}...")
     try:
@@ -342,7 +389,7 @@ def setup_databases():
                 if "table annual_targets already exists" not in str(e_create).lower():
                     raise
 
-            # --- New table for Normalized Annual Target Values ---
+            # --- Table for Normalized Annual Target Values ---
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS kpi_annual_target_values (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -355,6 +402,20 @@ def setup_databases():
                     formula_inputs TEXT DEFAULT '[]',
                     FOREIGN KEY (annual_target_id) REFERENCES annual_targets(id) ON DELETE CASCADE,
                     UNIQUE(annual_target_id, target_number)
+                )
+            """)
+
+            # --- Modern kpi_targets table for explicit start/end boundaries ---
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS kpi_targets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kpi_id INTEGER NOT NULL,
+                    plant_id INTEGER NOT NULL,
+                    target_number INTEGER NOT NULL,
+                    period_start TEXT NOT NULL,
+                    period_end TEXT NOT NULL,
+                    target_value REAL NOT NULL,
+                    UNIQUE(kpi_id, plant_id, target_number, period_start)
                 )
             """)
 
@@ -392,12 +453,64 @@ def setup_databases():
     except sqlite3.Error as e:
         print(f"ERROR during setup of {db_targets_path}: {e}")
         print(traceback.format_exc())
-    except (
-        NameError
-    ) as ne:  # Catches if PROFILE_ANNUAL_PROGRESSIVE or REPARTITION_LOGIC_YEAR are not imported
-        print(
-            f"Configuration ERROR (NameError) for DB_TARGETS: {ne}. Ensure constants are in app_config.py."
-        )
+
+    # --- DB_ACTUALS Setup (Actual Measurements) ---
+    db_actuals_path = app_config.get_database_path("db_kpi_actuals.db")
+    print(f"Setting up tables in {db_actuals_path}...")
+    try:
+        with sqlite3.connect(db_actuals_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS actual_measurements (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kpi_id INTEGER NOT NULL,
+                    plant_id INTEGER NOT NULL,
+                    measurement_date TEXT NOT NULL,
+                    actual_value REAL NOT NULL,
+                    UNIQUE(kpi_id, plant_id, measurement_date)
+                )
+            """)
+            conn.commit()
+        print(f"Table setup in {db_actuals_path} completed.")
+    except sqlite3.Error as e:
+        print(f"ERROR during setup of {db_actuals_path}: {e}")
+        print(traceback.format_exc())
+
+    # --- DB_HISTORY Setup (Audit & History Logs) ---
+    db_history_path = app_config.get_database_path("db_kpi_history.db")
+    print(f"Setting up tables in {db_history_path}...")
+    try:
+        with sqlite3.connect(db_history_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS kpi_definition_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kpi_id INTEGER NOT NULL,
+                    changed_at TEXT NOT NULL,
+                    changed_by TEXT,
+                    change_type TEXT NOT NULL,
+                    old_value_json TEXT,
+                    new_value_json TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS target_value_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    kpi_id INTEGER NOT NULL,
+                    plant_id INTEGER NOT NULL,
+                    target_number INTEGER NOT NULL,
+                    period_start TEXT NOT NULL,
+                    period_end TEXT NOT NULL,
+                    old_value REAL,
+                    new_value REAL,
+                    changed_at TEXT NOT NULL,
+                    changed_by TEXT
+                )
+            """)
+            conn.commit()
+        print(f"Table setup in {db_history_path} completed.")
+    except sqlite3.Error as e:
+        print(f"ERROR during setup of {db_history_path}: {e}")
         print(traceback.format_exc())
 
     # --- Setup Periodic Tables (Days, Weeks, Months, Quarters) ---
@@ -460,6 +573,65 @@ def setup_databases():
         except sqlite3.Error as e:
             print(f"ERROR during setup of {table_name} in {db_path}: {e}")
             print(traceback.format_exc())
+
+    # --- DB_USERS Setup (Named profiles & MCP API keys) ---
+    db_users_path = app_config.get_database_path("db_users.db")
+    print(f"Setting up tables in {db_users_path}...")
+    try:
+        with sqlite3.connect(db_users_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    email TEXT,
+                    color TEXT NOT NULL DEFAULT '#3b82f6',
+                    password_hash TEXT,
+                    password_salt TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                )"""
+            )
+            # Migration: add password columns to a users table created before login existed
+            cursor.execute("PRAGMA table_info(users)")
+            user_cols = {col[1] for col in cursor.fetchall()}
+            if "password_hash" not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            if "password_salt" not in user_cols:
+                cursor.execute("ALTER TABLE users ADD COLUMN password_salt TEXT")
+
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS api_keys (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    label TEXT NOT NULL,
+                    key_prefix TEXT NOT NULL,
+                    key_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    last_used_at TEXT,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )"""
+            )
+
+            # Login sessions -- separate from api_keys (long-lived, MCP-only). Sessions are
+            # short-lived and issued by /auth/login, used to authenticate the React app + REST API.
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )"""
+            )
+            conn.commit()
+        print(f"Table setup in {db_users_path} completed.")
+    except sqlite3.Error as e:
+        print(f"ERROR during setup of {db_users_path}: {e}")
+        print(traceback.format_exc())
 
     print("Database check and setup completed.")
 

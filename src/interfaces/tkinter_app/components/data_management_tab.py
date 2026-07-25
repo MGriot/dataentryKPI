@@ -94,9 +94,10 @@ class DataManagementTab(ttk.Frame):
 
     def create_backup(self):
         try:
-            # Update CSVs before zipping
-            export_manager.export_all_data_to_global_csvs()
-            
+            # Dump raw tables (restorable) before zipping -- not the enriched export_csvs() output,
+            # which is human-readable/joined and can't be restored by import_from_zip.
+            written_files = export_manager.export_raw_backup_csvs()
+
             path = filedialog.asksaveasfilename(
                 title="Save Backup",
                 initialdir=CSV_EXPORT_BASE_PATH,
@@ -106,7 +107,7 @@ class DataManagementTab(ttk.Frame):
             )
             if not path: return
 
-            success, msg = export_manager.package_all_csvs_as_zip(output_zip_filepath_str=path)
+            success, msg = export_manager.package_all_csvs_as_zip(output_zip_filepath_str=path, file_names=written_files)
             if success: messagebox.showinfo("Success", "Backup created successfully.")
             else: messagebox.showerror("Error", msg)
         except Exception as e: messagebox.showerror("Error", str(e))
