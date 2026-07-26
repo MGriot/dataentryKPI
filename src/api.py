@@ -108,6 +108,12 @@ class KPINodeCreateRequest(BaseModel):
 class KPISpecUpdateRequest(BaseModel):
     data_updates: Dict[str, Any]
 
+class UnitOfMeasureCreateRequest(BaseModel):
+    name: str
+
+class KpiGlobalSplitAssignRequest(BaseModel):
+    global_split_id: Optional[int] = None
+
 class PlantCreateRequest(BaseModel):
     name: str
     description: Optional[str] = ""
@@ -377,6 +383,32 @@ def update_kpi_spec(kpi_id: int, req: KPISpecUpdateRequest, current_user: dict =
         raise HTTPException(status_code=404, detail="KPI not found or no valid fields to update")
     return {"status": "success", "kpi_id": kpi_id}
 
+@app.get("/units-of-measure")
+def list_units_of_measure():
+    """Returns the registry of defined units of measure for KPI Explorer's UoM picker."""
+    return kpi_crud.get_all_units_of_measure()
+
+@app.post("/units-of-measure")
+def create_unit_of_measure(req: UnitOfMeasureCreateRequest):
+    """Adds a new unit of measure to the registry (or returns the existing one)."""
+    try:
+        return kpi_crud.add_unit_of_measure(req.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/kpis/{kpi_id}/global-split")
+def assign_kpi_global_split(kpi_id: int, req: KpiGlobalSplitAssignRequest):
+    """
+    Assigns (or clears) the single Global Split Template used to repartition this KPI's targets.
+    This is the consolidated home for repartition/split assignment -- Target Entry no longer
+    exposes per-target repartition controls, so this is the only place a user sets it.
+    """
+    kpi = data_retriever.get_kpi_detailed_by_id(kpi_id)
+    if not kpi:
+        raise HTTPException(status_code=404, detail="KPI not found")
+    splits_crud.set_kpi_global_split(kpi["indicator_id"], req.global_split_id)
+    return {"status": "success", "kpi_id": kpi_id, "global_split_id": req.global_split_id}
+
 @app.get("/kpis/{kpi_id}/visibility")
 def get_kpi_visibility(kpi_id: int):
     """Returns explicit plant visibility overrides for a KPI."""
@@ -423,6 +455,11 @@ def delete_plant(plant_id: int, force: bool = False):
 def list_global_splits(year: Optional[int] = None):
     return splits_crud.get_all_global_splits(year=year)
 
+@app.get("/global-splits/curve-preview")
+def preview_curve_weights(profile: str, logic: str, year: Optional[int] = None):
+    """Suggested per-period weights for a distribution curve, to pre-fill a new template's weight cells."""
+    return splits_crud.get_curve_weight_suggestions(profile, logic, year)
+
 @app.get("/global-splits/{split_id}")
 def get_global_split(split_id: int):
     split = splits_crud.get_global_split(split_id)
@@ -465,7 +502,10 @@ def update_global_split_indicators(split_id: int, req: GlobalSplitIndicatorsUpda
 
 @app.get("/kpis/{kpi_id}/global-splits")
 def get_global_splits_for_kpi(kpi_id: int):
-    return splits_crud.get_global_splits_for_indicator(kpi_id)
+    """Returns the Global Split Template(s) assigned to this KPI's indicator."""
+    kpi = data_retriever.get_kpi_detailed_by_id(kpi_id)
+    indicator_id = kpi["indicator_id"] if kpi else kpi_id
+    return splits_crud.get_global_splits_for_indicator(indicator_id)
 
 # --- Annual targets, repartition & periodic targets ---
 @app.get("/targets/annual-entry")
@@ -492,14 +532,21 @@ def save_annual_targets_endpoint(req: SaveAnnualTargetsRequest, current_user: di
     """
     targets_data_map = {}
     for kpi_id_str, kpi_input in req.targets_data_map.items():
-        entry = {
-            "repartition_logic": kpi_input.repartition_logic,
-            "repartition_values": json.dumps(kpi_input.repartition_values or {}),
-            "distribution_profile": kpi_input.distribution_profile,
-            "profile_params": json.dumps(kpi_input.profile_params or {}),
-            "global_split_id": kpi_input.global_split_id,
-            "targets": [t.dict() for t in kpi_input.targets],
-        }
+        # Repartition/split config is no longer set from Target Entry (it's assigned once on the
+        # KPI in KPI Explorer instead), so these keys are only included when actually provided --
+        # otherwise annual.py's "in data_dict_from_ui" check would fire on every save and null out
+        # the NOT NULL repartition_logic/distribution_profile columns on the existing row.
+        entry = {"targets": [t.dict() for t in kpi_input.targets]}
+        if kpi_input.repartition_logic is not None:
+            entry["repartition_logic"] = kpi_input.repartition_logic
+        if kpi_input.repartition_values:
+            entry["repartition_values"] = json.dumps(kpi_input.repartition_values)
+        if kpi_input.distribution_profile is not None:
+            entry["distribution_profile"] = kpi_input.distribution_profile
+        if kpi_input.profile_params:
+            entry["profile_params"] = json.dumps(kpi_input.profile_params)
+        if kpi_input.global_split_id is not None:
+            entry["global_split_id"] = kpi_input.global_split_id
         targets_data_map[kpi_id_str] = entry
 
     try:

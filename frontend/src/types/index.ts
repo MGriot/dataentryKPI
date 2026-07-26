@@ -67,6 +67,11 @@ export interface AnnualTargetEntry {
   [key: string]: any;
 }
 
+export interface UnitOfMeasure {
+  id: number;
+  name: string;
+}
+
 export interface GlobalSplit {
   id: number;
   name: string;

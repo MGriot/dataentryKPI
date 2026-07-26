@@ -62,6 +62,16 @@ def get_sinusoidal_proportions(num_periods, amplitude=0.5, phase_offset=0, min_v
     normalized_proportions = raw_proportions / np.sum(raw_proportions)
     return normalized_proportions.tolist()
 
+def get_weekday_biased_proportions(all_dates, weekday_weight=1.3, weekend_weight=0.7):
+    """
+    Generates per-day proportions that favor weekdays (Mon-Fri) over weekends. Sum of
+    proportions is 1. Unlike the other curves here, this needs actual calendar dates (not just
+    a period count) since it depends on which day of the week each date falls on.
+    """
+    if not all_dates: return []
+    raw = np.array([weekend_weight if d.weekday() >= 5 else weekday_weight for d in all_dates], dtype=float)
+    return (raw / raw.sum()).tolist()
+
 def get_date_ranges_for_quarters(year):
     """
     Returns a dictionary of quarter names (Q1, Q2, Q3, Q4) to tuples of (start_date, end_date).

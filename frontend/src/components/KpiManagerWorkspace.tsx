@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Layers, Folder, Plus, Trash2, Code, Shield, Save, Loader2, CheckCircle2, Gauge, History } from 'lucide-react';
+import { Layers, Folder, Plus, Trash2, Code, Shield, Save, Loader2, CheckCircle2, Gauge, History, SplitSquareHorizontal } from 'lucide-react';
 import type { KpiNode, KpiDetailedSpec, Plant } from '../types';
-import { DISTRIBUTION_PROFILE_OPTIONS, parseTargetLabels, targetLabel } from '../types';
+import { parseTargetLabels, targetLabel } from '../types';
 import {
   useCreateKpiNode,
   useCreateKpiIndicator,
@@ -11,6 +11,11 @@ import {
   useUpdateKpiVisibility,
   useKpiDefinitionHistory,
   useKpiTargetHistory,
+  useUnitsOfMeasure,
+  useCreateUnitOfMeasure,
+  useGlobalSplits,
+  useKpiGlobalSplits,
+  useSetKpiGlobalSplit,
 } from '../hooks';
 
 interface KpiManagerWorkspaceProps {
@@ -19,11 +24,81 @@ interface KpiManagerWorkspaceProps {
   plants: Plant[];
 }
 
+interface KpiTreeNodeProps {
+  node: KpiNode;
+  depth: number;
+  kpis: KpiDetailedSpec[];
+  selectedNodeId: number | null;
+  selectedKpiId: number | null;
+  onSelectNode: (id: number) => void;
+  onSelectKpi: (id: number) => void;
+}
+
+const KpiTreeNode: React.FC<KpiTreeNodeProps> = ({ node, depth, kpis, selectedNodeId, selectedKpiId, onSelectNode, onSelectKpi }) => {
+  const nodeKpis = kpis.filter((k) => k.node_id === node.id);
+  return (
+    <div style={{ marginBottom: '0.35rem' }}>
+      <div
+        onClick={() => onSelectNode(node.id)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.4rem 0.6rem',
+          marginLeft: `${depth * 0.9}rem`,
+          borderRadius: 'var(--radius-sm)',
+          cursor: 'pointer',
+          background: selectedNodeId === node.id ? 'var(--bg-surface-hover)' : 'transparent',
+          color: selectedNodeId === node.id ? 'var(--accent-primary)' : 'var(--text-primary)',
+          fontWeight: 500,
+          fontSize: '0.85rem',
+        }}
+      >
+        <Folder size={14} /> {node.name}
+      </div>
+
+      {nodeKpis.length > 0 && (
+        <div style={{ paddingLeft: `${1.25 + depth * 0.9}rem`, marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          {nodeKpis.map((kpi) => (
+            <div
+              key={kpi.id}
+              onClick={() => onSelectKpi(kpi.id)}
+              style={{
+                padding: '0.3rem 0.5rem',
+                fontSize: '0.8rem',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                background: selectedKpiId === kpi.id ? 'var(--accent-primary)' : 'transparent',
+                color: selectedKpiId === kpi.id ? '#ffffff' : 'var(--text-secondary)',
+              }}
+            >
+              • {kpi.indicator_name}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(node.children || []).map((child) => (
+        <KpiTreeNode
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          kpis={kpis}
+          selectedNodeId={selectedNodeId}
+          selectedKpiId={selectedKpiId}
+          onSelectNode={onSelectNode}
+          onSelectKpi={onSelectKpi}
+        />
+      ))}
+    </div>
+  );
+};
+
 export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, kpis, plants }) => {
   const [selectedKpiId, setSelectedKpiId] = useState<number | null>(kpis[0]?.id || null);
   const [newNodeName, setNewNodeName] = useState('');
   const [newKpiName, setNewKpiName] = useState('');
-  const [selectedNodeId, setSelectedNodeId] = useState<number>(tree[0]?.id || 1);
+  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
 
   const createNode = useCreateKpiNode();
   const createKpi = useCreateKpiIndicator();
@@ -43,7 +118,6 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
     visible: true,
     owner: '',
     target_granularity: 'Monthly',
-    default_distribution_profile: '',
     time_filter_type: 'None',
     time_filter_value: '',
     warning_margin: 0.05,
@@ -53,6 +127,26 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
   });
   const [specSaved, setSpecSaved] = useState(false);
   const [targetLabels, setTargetLabels] = useState<Record<string, string>>({});
+
+  // Units of Measure registry: replaces free-text entry so units stay consistent across KPIs.
+  const { data: unitsOfMeasure = [] } = useUnitsOfMeasure();
+  const createUnit = useCreateUnitOfMeasure();
+  const [newUnitName, setNewUnitName] = useState('');
+  const [addingUnit, setAddingUnit] = useState(false);
+
+  // Repartition/split profile: consolidated here (KPI Explorer) as the single place a KPI's
+  // periodic breakdown is configured, replacing the old per-target-entry repartition controls
+  // and the standalone "Default Distribution Profile" curve picker.
+  const { data: allGlobalSplits = [] } = useGlobalSplits();
+  const { data: assignedSplits = [] } = useKpiGlobalSplits(selectedKpiId);
+  const setKpiGlobalSplit = useSetKpiGlobalSplit();
+  const [selectedSplitId, setSelectedSplitId] = useState<number | null>(null);
+  const [splitSaved, setSplitSaved] = useState(false);
+
+  useEffect(() => {
+    setSelectedSplitId(assignedSplits[0]?.id ?? null);
+    setSplitSaved(false);
+  }, [assignedSplits, selectedKpiId]);
 
   useEffect(() => {
     if (selectedKpi) {
@@ -73,7 +167,6 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
         visible: selectedKpi.visible ?? true,
         owner: selectedKpi.owner || '',
         target_granularity: selectedKpi.target_granularity || 'Monthly',
-        default_distribution_profile: selectedKpi.default_distribution_profile || '',
         time_filter_type: selectedKpi.time_filter_type || 'None',
         time_filter_value: selectedKpi.time_filter_value || '',
         warning_margin: threshold.warning_margin ?? 0.05,
@@ -111,7 +204,7 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
 
   const handleCreateKpi = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newKpiName.trim()) return;
+    if (!newKpiName.trim() || selectedNodeId === null) return;
     createKpi.mutate({
       node_id: selectedNodeId,
       name: newKpiName.trim(),
@@ -146,7 +239,6 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
           visible: form.visible,
           owner: form.owner || null,
           target_granularity: form.target_granularity,
-          default_distribution_profile: form.default_distribution_profile || null,
           time_filter_type: form.time_filter_type,
           time_filter_value: form.time_filter_type === 'None' ? null : form.time_filter_value,
           threshold_json: JSON.stringify(threshold),
@@ -191,6 +283,26 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
     });
   };
 
+  const handleAddUnit = () => {
+    if (!newUnitName.trim()) return;
+    createUnit.mutate(newUnitName.trim(), {
+      onSuccess: (unit) => {
+        setForm((f) => ({ ...f, unit_of_measure: unit.name }));
+        setSpecSaved(false);
+        setNewUnitName('');
+        setAddingUnit(false);
+      },
+    });
+  };
+
+  const handleSaveSplit = () => {
+    if (!selectedKpi) return;
+    setKpiGlobalSplit.mutate(
+      { kpiId: selectedKpi.id, globalSplitId: selectedSplitId },
+      { onSuccess: () => setSplitSaved(true) }
+    );
+  };
+
   const handleSaveVisibility = () => {
     if (!selectedKpi) return;
     updateVisibility.mutate(
@@ -212,7 +324,7 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
           </div>
         </div>
 
-        <form onSubmit={handleCreateNode} style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
+        <form onSubmit={handleCreateNode} style={{ marginBottom: '0.35rem', display: 'flex', gap: '0.5rem' }}>
           <input
             type="text"
             placeholder="New folder/group..."
@@ -232,60 +344,41 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
             <Plus size={14} /> Add
           </button>
         </form>
+        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+          {selectedNodeId === null ? 'Creates a top-level folder.' : 'Creates a sub-folder inside the selected folder.'}
+        </div>
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-          {tree.map((node) => (
-            <div key={node.id} style={{ marginBottom: '0.5rem' }}>
-              <div
-                onClick={() => setSelectedNodeId(node.id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.4rem 0.6rem',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: 'pointer',
-                  background: selectedNodeId === node.id ? 'var(--bg-surface-hover)' : 'transparent',
-                  color: selectedNodeId === node.id ? 'var(--accent-primary)' : 'var(--text-primary)',
-                  fontWeight: 500,
-                  fontSize: '0.85rem',
-                }}
-              >
-                <Folder size={14} /> {node.name}
-              </div>
-
-              <div style={{ paddingLeft: '1.25rem', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                {kpis
-                  .filter((k) => k.node_id === node.id)
-                  .map((kpi) => (
-                    <div
-                      key={kpi.id}
-                      onClick={() => setSelectedKpiId(kpi.id)}
-                      style={{
-                        padding: '0.3rem 0.5rem',
-                        fontSize: '0.8rem',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        background: selectedKpiId === kpi.id ? 'var(--accent-primary)' : 'transparent',
-                        color: selectedKpiId === kpi.id ? '#ffffff' : 'var(--text-secondary)',
-                      }}
-                    >
-                      • {kpi.indicator_name}
-                    </div>
-                  ))}
-              </div>
+          {tree.length === 0 && (
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>
+              No folders yet. Add one above to get started.
             </div>
+          )}
+          {tree.map((node) => (
+            <KpiTreeNode
+              key={node.id}
+              node={node}
+              depth={0}
+              kpis={kpis}
+              selectedNodeId={selectedNodeId}
+              selectedKpiId={selectedKpiId}
+              onSelectNode={setSelectedNodeId}
+              onSelectKpi={setSelectedKpiId}
+            />
           ))}
         </div>
 
         <form onSubmit={handleCreateKpi} style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border-color)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>New Indicator in Folder #{selectedNodeId}:</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+            {selectedNodeId === null ? 'Select a folder to add an indicator into it:' : `New Indicator in Folder #${selectedNodeId}:`}
+          </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <input
               type="text"
               placeholder="Indicator name..."
               value={newKpiName}
               onChange={(e) => setNewKpiName(e.target.value)}
+              disabled={selectedNodeId === null}
               style={{
                 flex: 1,
                 background: 'var(--bg-primary)',
@@ -296,7 +389,7 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
                 color: 'var(--text-primary)',
               }}
             />
-            <button type="submit" className="btn btn-primary" style={{ padding: '0.35rem 0.6rem' }}>
+            <button type="submit" className="btn btn-primary" style={{ padding: '0.35rem 0.6rem' }} disabled={selectedNodeId === null}>
               <Plus size={14} /> KPI
             </button>
           </div>
@@ -340,13 +433,48 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
 
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Unit of Measure:</label>
-                <input
-                  type="text"
-                  value={form.unit_of_measure}
-                  onChange={(e) => { setForm({ ...form, unit_of_measure: e.target.value }); setSpecSaved(false); }}
-                  className="select-control"
-                  style={{ width: '100%' }}
-                />
+                {!addingUnit ? (
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <select
+                      className="select-control"
+                      style={{ flex: 1 }}
+                      value={form.unit_of_measure}
+                      onChange={(e) => { setForm({ ...form, unit_of_measure: e.target.value }); setSpecSaved(false); }}
+                    >
+                      <option value="">Select a unit...</option>
+                      {unitsOfMeasure.map((u) => (
+                        <option key={u.id} value={u.name}>
+                          {u.name}
+                        </option>
+                      ))}
+                      {form.unit_of_measure && !unitsOfMeasure.some((u) => u.name === form.unit_of_measure) && (
+                        <option value={form.unit_of_measure}>{form.unit_of_measure}</option>
+                      )}
+                    </select>
+                    <button type="button" className="btn btn-secondary" style={{ padding: '0.35rem 0.6rem', whiteSpace: 'nowrap' }} onClick={() => setAddingUnit(true)}>
+                      <Plus size={14} /> New
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="e.g. Metric Tons"
+                      value={newUnitName}
+                      onChange={(e) => setNewUnitName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUnit(); } }}
+                      className="select-control"
+                      style={{ flex: 1 }}
+                    />
+                    <button type="button" className="btn btn-primary" style={{ padding: '0.35rem 0.6rem' }} onClick={handleAddUnit} disabled={createUnit.isPending}>
+                      {createUnit.isPending ? <Loader2 size={14} className="spin" /> : <CheckCircle2 size={14} />}
+                    </button>
+                    <button type="button" className="btn btn-secondary" style={{ padding: '0.35rem 0.6rem' }} onClick={() => { setAddingUnit(false); setNewUnitName(''); }}>
+                      Cancel
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -416,23 +544,6 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Default Distribution Profile:</label>
-                <select
-                  className="select-control"
-                  style={{ width: '100%' }}
-                  value={form.default_distribution_profile}
-                  onChange={(e) => { setForm({ ...form, default_distribution_profile: e.target.value }); setSpecSaved(false); }}
-                >
-                  <option value="">Inherit / None</option>
-                  {DISTRIBUTION_PROFILE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Owner:</label>
                 <input
                   type="text"
@@ -479,6 +590,36 @@ export const KpiManagerWorkspace: React.FC<KpiManagerWorkspaceProps> = ({ tree, 
                   Default Visible
                 </label>
               </div>
+            </div>
+
+            <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, fontSize: '0.85rem' }}>
+                  <SplitSquareHorizontal size={16} color="var(--accent-primary)" /> Repartition / Split Profile
+                </div>
+                <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={handleSaveSplit} disabled={setKpiGlobalSplit.isPending}>
+                  {setKpiGlobalSplit.isPending ? <Loader2 size={12} className="spin" /> : splitSaved ? <CheckCircle2 size={12} /> : <Save size={12} />}
+                  {splitSaved ? 'Saved' : 'Save Split'}
+                </button>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                Determines how this KPI's annual targets break down into daily/weekly/monthly/quarterly periods. Templates are
+                defined (with fixed weights, a curve, or ML-calculated weights) on the Global Splits & ML page; assigning one here
+                is the only place a KPI's split is set -- Target Entry no longer has its own repartition controls.
+              </div>
+              <select
+                className="select-control"
+                style={{ width: '100%' }}
+                value={selectedSplitId ?? 'none'}
+                onChange={(e) => { setSelectedSplitId(e.target.value === 'none' ? null : Number(e.target.value)); setSplitSaved(false); }}
+              >
+                <option value="none">None (even distribution across the year)</option>
+                {allGlobalSplits.map((gs) => (
+                  <option key={gs.id} value={gs.id}>
+                    ⭐ {gs.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', marginBottom: '1rem' }}>

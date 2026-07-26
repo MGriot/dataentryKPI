@@ -11,6 +11,24 @@ def _get_kpis_db() -> sqlite3.Connection:
 def _get_targets_db() -> sqlite3.Connection:
     return sqlite3.connect(app_config.get_database_path("db_kpi_targets.db"))
 
+def get_all_units_of_measure() -> List[Dict[str, Any]]:
+    """Retrieves the registry of defined units of measure, for KPI Explorer's UoM picker."""
+    with _get_kpis_db() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT id, name FROM units_of_measure ORDER BY name").fetchall()
+        return [dict(r) for r in rows]
+
+def add_unit_of_measure(name: str) -> Dict[str, Any]:
+    """Adds a new unit of measure to the registry, or returns the existing one if it already exists."""
+    name = name.strip()
+    if not name:
+        raise ValueError("Unit of measure name cannot be empty.")
+    with _get_kpis_db() as conn:
+        conn.execute("INSERT OR IGNORE INTO units_of_measure (name) VALUES (?)", (name,))
+        conn.commit()
+        row = conn.execute("SELECT id, name FROM units_of_measure WHERE name = ?", (name,)).fetchone()
+        return {"id": row[0], "name": row[1]}
+
 def get_kpi_tree(root_id: Optional[int] = None, depth: Optional[int] = None) -> List[Dict[str, Any]]:
     """
     Constructs the KPI hierarchy tree starting from optional root_id up to max depth.
@@ -54,11 +72,23 @@ def get_kpi_tree(root_id: Optional[int] = None, depth: Optional[int] = None) -> 
 
     # Build recursive hierarchy
     nodes_by_id = {n["id"]: dict(n, children=[], indicators=node_indicators.get(n["id"], [])) for n in nodes}
-    tree = []
 
+    def creates_cycle(node_id: int, parent_id: int) -> bool:
+        # Walks the ancestor chain to guard against a corrupted parent_id (self- or
+        # mutually-referential) silently swallowing the node and its subtree.
+        seen = {node_id}
+        current: Optional[int] = parent_id
+        while current is not None:
+            if current in seen:
+                return True
+            seen.add(current)
+            current = nodes_by_id.get(current, {}).get("parent_id")
+        return False
+
+    tree = []
     for nid, node in nodes_by_id.items():
         parent_id = node.get("parent_id")
-        if parent_id and parent_id in nodes_by_id:
+        if parent_id and parent_id in nodes_by_id and not creates_cycle(nid, parent_id):
             nodes_by_id[parent_id]["children"].append(node)
         else:
             if root_id is None or nid == root_id:

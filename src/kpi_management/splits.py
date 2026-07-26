@@ -135,6 +135,28 @@ def update_global_split_indicators(split_id: int, indicators_data: list[dict]):
             print(f"ERROR updating global split indicators: {e}")
             raise
 
+def set_kpi_global_split(indicator_id: int, global_split_id: int | None):
+    """
+    Sets (or clears) the single Global Split Template assigned to an indicator from KPI Explorer.
+    This is the consolidated assignment point: repartition/split assignment now lives exclusively
+    on the KPI spec rather than being re-picked per target entry, so any prior assignment for this
+    indicator is replaced rather than appended to.
+    """
+    db_templates_path = app_config.get_database_path("db_kpi_templates.db")
+    with sqlite3.connect(db_templates_path) as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM global_split_indicators WHERE indicator_id = ?", (indicator_id,))
+            if global_split_id is not None:
+                cursor.execute(
+                    "INSERT INTO global_split_indicators (global_split_id, indicator_id, override_distribution_profile) VALUES (?, ?, NULL)",
+                    (global_split_id, indicator_id)
+                )
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"ERROR: Database error while assigning global split for indicator ID {indicator_id}. Details: {e}")
+            raise
+
 def get_global_split(split_id: int) -> dict:
     """Retrieves a single global KPI split template."""
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
@@ -166,11 +188,14 @@ def get_global_splits_for_indicator(indicator_id: int) -> list[dict]:
                 SELECT s.* FROM global_kpi_splits s
                 JOIN global_split_indicators i ON s.id = i.global_split_id
                 WHERE i.indicator_id = ?
+                ORDER BY i.id DESC
             """, (indicator_id,)).fetchall()
             
             results = []
             for row in rows:
                 res = dict(row)
+                res['repartition_values'] = json.loads(res['repartition_values'])
+                res['profile_params'] = json.loads(res['profile_params'])
                 # Fetch years for each
                 y_rows = conn.execute("SELECT year FROM global_split_years WHERE global_split_id = ?", (res['id'],)).fetchall()
                 res['years'] = [yr['year'] for yr in y_rows]
@@ -180,21 +205,63 @@ def get_global_splits_for_indicator(indicator_id: int) -> list[dict]:
             print(f"ERROR: {e}")
             return []
 
+def get_curve_weight_suggestions(profile: str, logic: str, year: int = None) -> dict:
+    """
+    Computes suggested per-period weight percentages (summing to ~100) for a given distribution
+    curve and repartition logic, using the same proportion functions the repartition engine
+    itself uses -- so a template's weight cells start out matching what the curve would actually
+    produce, as an editable starting point rather than blank inputs.
+    """
+    import datetime
+    import calendar as _calendar
+    from src.utils.repartition_utils import get_weighted_proportions, get_sinusoidal_proportions
+    from src.config import settings as app_config_local
+
+    year = year or datetime.date.today().year
+    C = app_config_local.CALCULATION_CONSTANTS
+
+    if logic == "Month":
+        keys = [_calendar.month_name[i] for i in range(1, 13)]
+    elif logic == "Quarter":
+        keys = ["Q1", "Q2", "Q3", "Q4"]
+    elif logic == "Week":
+        n_weeks = datetime.date(year, 12, 28).isocalendar()[1]
+        keys = [f"{year}-W{w:02d}" for w in range(1, n_weeks + 1)]
+    else:
+        return {}
+
+    n = len(keys)
+    if profile == C["PROFILE_ANNUAL_PROGRESSIVE"]:
+        props = get_weighted_proportions(n, 0.8, 1.2, decreasing=True)
+    elif profile == C["PROFILE_TRUE_ANNUAL_SINUSOIDAL"]:
+        props = get_sinusoidal_proportions(n, 0.1, 0.0)
+    else:
+        # Even, Weekday Bias, and Event Based only vary *within* a period (day-of-week bias,
+        # event date ranges) rather than across periods, so a flat per-period split is the
+        # correct suggestion for them at this granularity.
+        props = [1.0 / n] * n
+
+    return {k: round(p * 100, 4) for k, p in zip(keys, props)}
+
 def get_all_global_splits(year: int = None) -> list[dict]:
-    """Retrieves all global KPI split templates, optionally filtered by year."""
+    """
+    Retrieves all global KPI split templates, optionally filtered by year. Templates with no
+    year attached at all (e.g. the built-in curve presets) are treated as year-agnostic and are
+    always included, regardless of which year is being filtered for.
+    """
     db_templates_path = app_config.get_database_path("db_kpi_templates.db")
-    
+
     query = "SELECT * FROM global_kpi_splits"
     params = []
-    
+
     if year:
         query = """
             SELECT s.* FROM global_kpi_splits s
-            JOIN global_split_years y ON s.id = y.global_split_id
-            WHERE y.year = ?
+            WHERE NOT EXISTS (SELECT 1 FROM global_split_years y WHERE y.global_split_id = s.id)
+               OR EXISTS (SELECT 1 FROM global_split_years y WHERE y.global_split_id = s.id AND y.year = ?)
         """
         params.append(year)
-    
+
     query += " ORDER BY name"
 
     with sqlite3.connect(db_templates_path) as conn:

@@ -165,6 +165,14 @@ export function useUpdateGlobalSplit() {
   });
 }
 
+export function useCurveWeightSuggestions(profile: string, logic: string, year?: number) {
+  return useQuery({
+    queryKey: ['curve-weight-suggestions', profile, logic, year],
+    queryFn: () => api.getCurveWeightSuggestions(profile, logic, year),
+    enabled: logic === 'Month' || logic === 'Quarter' || logic === 'Week',
+  });
+}
+
 export function useDeleteGlobalSplit() {
   const qc = useQueryClient();
   return useMutation({
@@ -231,5 +239,34 @@ export function useKpiTargetHistory(kpiId: number | null, plantId?: number) {
     queryKey: ['kpi-target-history', kpiId, plantId],
     queryFn: () => api.getKpiTargetHistory(kpiId as number, plantId),
     enabled: kpiId !== null,
+  });
+}
+
+export function useUnitsOfMeasure() {
+  return useQuery({ queryKey: ['units-of-measure'], queryFn: () => api.getUnitsOfMeasure() });
+}
+
+export function useCreateUnitOfMeasure() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.createUnitOfMeasure(name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['units-of-measure'] }),
+  });
+}
+
+export function useKpiGlobalSplits(kpiId: number | null) {
+  return useQuery({
+    queryKey: ['kpi-global-splits', kpiId],
+    queryFn: () => api.getGlobalSplitsForKpi(kpiId as number),
+    enabled: kpiId !== null,
+  });
+}
+
+export function useSetKpiGlobalSplit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kpiId, globalSplitId }: { kpiId: number; globalSplitId: number | null }) =>
+      api.setKpiGlobalSplit(kpiId, globalSplitId),
+    onSuccess: (_data, vars) => qc.invalidateQueries({ queryKey: ['kpi-global-splits', vars.kpiId] }),
   });
 }

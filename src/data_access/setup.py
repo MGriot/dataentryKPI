@@ -1,5 +1,6 @@
 # src/db_core/setup.py
 import sqlite3
+import json
 import traceback  # For more detailed error reporting if needed
 from pathlib import Path  # To ensure CSV_EXPORT_BASE_PATH is handled as a Path object
 
@@ -120,6 +121,31 @@ def setup_databases():
                     UNIQUE(global_split_id, indicator_id)
                 )"""
             )
+            conn.commit()
+
+            # Seed the built-in distribution curves as ordinary (editable, deletable) Global
+            # Split Templates -- now that KPI Explorer only offers Global Split Templates rather
+            # than a standalone curve picker, these presets are how the old curve options stay
+            # available. year=NULL and no global_split_years rows means they're year-agnostic
+            # and show up under every year filter (see get_all_global_splits).
+            from src.utils.repartition_utils import get_weighted_proportions, get_sinusoidal_proportions
+            import calendar as _calendar_for_presets
+            _month_names = [_calendar_for_presets.month_name[i] for i in range(1, 13)]
+            _presets = [
+                ("Preset: Uniform / Even", "even_distribution", [1.0 / 12] * 12),
+                ("Preset: Annual Progressive", "annual_progressive", get_weighted_proportions(12, 0.8, 1.2, decreasing=True)),
+                ("Preset: Annual Progressive (Weekday Bias)", "annual_progressive_weekday_bias", [1.0 / 12] * 12),
+                ("Preset: Sinusoidal Seasonal Curve", "true_annual_sinusoidal", get_sinusoidal_proportions(12, 0.1, 0.0)),
+                ("Preset: Event Based (Shutdowns)", "event_based_spikes_or_dips", [1.0 / 12] * 12),
+            ]
+            for _name, _profile, _props in _presets:
+                _weights = {_month_names[i]: round(_props[i] * 100, 4) for i in range(12)}
+                cursor.execute(
+                    """INSERT OR IGNORE INTO global_kpi_splits
+                       (name, year, repartition_logic, repartition_values, distribution_profile, profile_params)
+                       VALUES (?, NULL, 'Month', ?, ?, '{}')""",
+                    (_name, json.dumps(_weights), _profile)
+                )
             conn.commit()
         print(f"Table setup in {db_kpi_templates_path} completed.")
     except sqlite3.Error as e:
@@ -289,6 +315,21 @@ def setup_databases():
                         f"WARN: Could not add 'unit_of_measure' to 'kpis', it might already exist or another issue occurred: {e}"
                     )
 
+            conn.commit()
+
+            # --- Units of Measure registry (KPI Explorer: replaces free-text UoM entry) ---
+            cursor.execute(
+                """CREATE TABLE IF NOT EXISTS units_of_measure (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE
+                )"""
+            )
+            cursor.execute("SELECT COUNT(*) FROM units_of_measure")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("SELECT DISTINCT unit_of_measure FROM kpis WHERE unit_of_measure IS NOT NULL AND TRIM(unit_of_measure) != ''")
+                existing_units = [r[0] for r in cursor.fetchall()]
+                for u in existing_units or ["Units"]:
+                    cursor.execute("INSERT OR IGNORE INTO units_of_measure (name) VALUES (?)", (u,))
             conn.commit()
 
             # --- New table for KPI-Plant Visibility ---

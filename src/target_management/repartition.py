@@ -18,6 +18,7 @@ from src.utils.repartition_utils import (
     get_weighted_proportions,
     get_parabolic_proportions,
     get_sinusoidal_proportions,
+    get_weekday_biased_proportions,
     get_date_ranges_for_quarters,
 )
 from src.interfaces.common_ui.helpers import get_kpi_display_name
@@ -172,40 +173,50 @@ def _get_raw_daily_values_for_repartition(
     raw_daily_values = np.zeros(days_in_year)
 
     if kpi_calc_type == app_config.CALC_TYPE_INCREMENTAL:
-        if distribution_profile == app_config.CALCULATION_CONSTANTS["PROFILE_EVEN"]:
-            if user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"] or not period_allocations_map:
-                raw_daily_values.fill(annual_target / days_in_year)
-            else:
-                for d_idx, date_val in enumerate(all_dates_in_year):
-                    if user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_MONTH"]:
-                        month_sum = period_allocations_map.get(date_val.month - 1, 0.0)
-                        _, days_in_month = calendar.monthrange(year, date_val.month)
-                        raw_daily_values[d_idx] = month_sum / days_in_month
-                    elif user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_QUARTER"]:
-                        q_idx = (date_val.month - 1) // 3
-                        q_sum = period_allocations_map.get(q_idx, 0.0)
-                        q_ranges = get_date_ranges_for_quarters(year)
-                        q_days = (q_ranges[q_idx+1][1] - q_ranges[q_idx+1][0]).days + 1
-                        raw_daily_values[d_idx] = q_sum / q_days
-                    elif user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_WEEK"]:
-                        wk_key = f"{date_val.isocalendar()[0]:04d}-W{date_val.isocalendar()[1]:02d}"
-                        wk_sum = period_allocations_map.get(wk_key, 0.0)
-                        wk_days = sum(1 for d in all_dates_in_year if f"{d.isocalendar()[0]:04d}-W{d.isocalendar()[1]:02d}" == wk_key)
-                        raw_daily_values[d_idx] = wk_sum / wk_days
+        has_period_weights = (
+            user_repartition_logic != app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"]
+            and bool(period_allocations_map)
+        )
+        if has_period_weights:
+            # Month/Quarter/Week weights (e.g. from a Global Split Template) take precedence over
+            # the distribution curve -- previously only the "Even" curve honored these, so any
+            # other curve (Annual Progressive, Sinusoidal, ...) silently ignored the assigned
+            # weights and fell back to a flat daily average. Spread each period's allocated share
+            # evenly across its own days regardless of which curve was selected.
+            for d_idx, date_val in enumerate(all_dates_in_year):
+                if user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_MONTH"]:
+                    month_sum = period_allocations_map.get(date_val.month - 1, 0.0)
+                    _, days_in_month = calendar.monthrange(year, date_val.month)
+                    raw_daily_values[d_idx] = month_sum / days_in_month
+                elif user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_QUARTER"]:
+                    q_idx = (date_val.month - 1) // 3
+                    q_sum = period_allocations_map.get(q_idx, 0.0)
+                    q_ranges = get_date_ranges_for_quarters(year)
+                    q_days = (q_ranges[q_idx+1][1] - q_ranges[q_idx+1][0]).days + 1
+                    raw_daily_values[d_idx] = q_sum / q_days
+                elif user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_WEEK"]:
+                    wk_key = f"{date_val.isocalendar()[0]:04d}-W{date_val.isocalendar()[1]:02d}"
+                    wk_sum = period_allocations_map.get(wk_key, 0.0)
+                    wk_days = sum(1 for d in all_dates_in_year if f"{d.isocalendar()[0]:04d}-W{d.isocalendar()[1]:02d}" == wk_key)
+                    raw_daily_values[d_idx] = wk_sum / wk_days
 
         elif distribution_profile == app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE"]:
-            if user_repartition_logic == app_config.CALCULATION_CONSTANTS["REPARTITION_LOGIC_YEAR"]:
-                props = get_weighted_proportions(days_in_year, 0.8, 1.2, decreasing=True)
-                raw_daily_values = np.array([annual_target * p for p in props])
-            else: raw_daily_values.fill(annual_target / days_in_year)
+            props = get_weighted_proportions(days_in_year, 0.8, 1.2, decreasing=True)
+            raw_daily_values = np.array([annual_target * p for p in props])
 
         elif distribution_profile == app_config.CALCULATION_CONSTANTS["PROFILE_TRUE_ANNUAL_SINUSOIDAL"]:
             amp = float(profile_params.get("sine_amplitude", 0.1))
             phase = float(profile_params.get("sine_phase", 0.0))
             props = get_sinusoidal_proportions(days_in_year, amp, phase)
             raw_daily_values = np.array([annual_target * p for p in props])
-        
-        else: # Default
+
+        elif distribution_profile == app_config.CALCULATION_CONSTANTS["PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS"]:
+            weekday_weight = float(profile_params.get("weekday_weight", 1.3))
+            weekend_weight = float(profile_params.get("weekend_weight", 0.7))
+            props = get_weekday_biased_proportions(all_dates_in_year, weekday_weight, weekend_weight)
+            raw_daily_values = np.array([annual_target * p for p in props])
+
+        else: # Even / default (also covers Event Based, which is a day-range overlay applied later)
             raw_daily_values.fill(annual_target / days_in_year)
 
     elif kpi_calc_type == app_config.CALC_TYPE_AVERAGE:
@@ -329,7 +340,14 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
 
     kpi_details = dict(get_kpi_detailed_by_id(kpi_spec_id) or {})
     kpi_calc_type = kpi_details.get("calculation_type", app_config.CALC_TYPE_INCREMENTAL)
-    
+    # The KPI editor's "Sum (Cumulative / Incremental)" option and the engine's own
+    # "Incremental" constant are the same cumulative semantics under two labels --
+    # without this, Sum-type KPIs (the editor's default) fall through every
+    # calc-type branch below and get distributed as a flat daily average instead
+    # of split across periods, silently ignoring any Global Split weights.
+    if kpi_calc_type == "Sum":
+        kpi_calc_type = app_config.CALC_TYPE_INCREMENTAL
+
     t_val_rec = next((tv for tv in target_info.get('target_values', []) if tv['target_number'] == target_number), None)
     annual_target_to_use = float(t_val_rec['target_value']) if t_val_rec and t_val_rec['target_value'] is not None else None
     
@@ -386,9 +404,29 @@ def calculate_and_save_all_repartitions(year: int, plant_id: int, kpi_spec_id: i
 
     # --- FALLBACK: RULE-BASED SPLIT ---
     if final_daily_values is None:
-        global_split_id = target_info.get("global_split_id")
-        gs = get_global_split(global_split_id) if global_split_id else None
-        
+        # Consolidated model: repartition/split assignment lives on the KPI (KPI Explorer) and
+        # is authoritative -- it must win even when an older per-target global_split_id is still
+        # sitting on this annual_targets row (e.g. set before the KPI Explorer consolidation, or
+        # via direct API/import), otherwise that stale value would silently keep applying with no
+        # way to clear it from the UI now that Target Entry no longer exposes the field.
+        gs = None
+        global_split_id = None
+        ind_id = kpi_details.get('indicator_id')
+        if ind_id:
+            try:
+                from src.kpi_management.splits import get_global_splits_for_indicator
+                assigned = get_global_splits_for_indicator(ind_id)
+                if assigned:
+                    gs = assigned[0]
+                    global_split_id = gs['id']
+            except Exception as e_assigned:
+                print(f"      WARNING: Could not look up KPI Explorer split assignment: {e_assigned}")
+
+        if not gs:
+            # Legacy fallback for any per-target override that predates KPI Explorer assignment.
+            global_split_id = target_info.get("global_split_id")
+            gs = get_global_split(global_split_id) if global_split_id else None
+
         if gs:
             logic, profile, vals, params = gs['repartition_logic'], gs['distribution_profile'], gs['repartition_values'], gs['profile_params']
             

@@ -4,6 +4,7 @@ import type {
   Plant,
   GlobalSplit,
   GlobalSplitIndicatorLink,
+  UnitOfMeasure,
   KpiTemplate,
   TemplateDefinedIndicator,
   VisibilityEntry,
@@ -226,6 +227,11 @@ export const api = {
   deleteGlobalSplit: (splitId: number) =>
     fetchJson<{ status: string }>(`/global-splits/${splitId}`, { method: 'DELETE' }),
 
+  getCurveWeightSuggestions: (profile: string, logic: string, year?: number) =>
+    fetchJson<Record<string, number>>(
+      `/global-splits/curve-preview?profile=${encodeURIComponent(profile)}&logic=${encodeURIComponent(logic)}${year ? `&year=${year}` : ''}`
+    ),
+
   getGlobalSplitIndicators: (splitId: number) =>
     fetchJson<GlobalSplitIndicatorLink[]>(`/global-splits/${splitId}/indicators`),
 
@@ -237,6 +243,21 @@ export const api = {
 
   getGlobalSplitsForKpi: (kpiId: number) =>
     fetchJson<GlobalSplit[]>(`/kpis/${kpiId}/global-splits`),
+
+  setKpiGlobalSplit: (kpiId: number, globalSplitId: number | null) =>
+    fetchJson<{ status: string; kpi_id: number; global_split_id: number | null }>(`/kpis/${kpiId}/global-split`, {
+      method: 'PUT',
+      body: JSON.stringify({ global_split_id: globalSplitId }),
+    }),
+
+  // Units of Measure registry
+  getUnitsOfMeasure: () => fetchJson<UnitOfMeasure[]>('/units-of-measure'),
+
+  createUnitOfMeasure: (name: string) =>
+    fetchJson<UnitOfMeasure>('/units-of-measure', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
 
   // Multivariate seasonality analysis
   runMultivariateAnalysis: async (

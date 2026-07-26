@@ -1,13 +1,28 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { GitFork, Upload, Cpu, Save, Plus, CheckCircle2, Trash2, Loader2 } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { GitFork, Upload, Cpu, Save, Plus, CheckCircle2, Trash2, Loader2, Pencil, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DISTRIBUTION_PROFILE_OPTIONS } from '../types';
-import type { MultivariateAnalysisResult } from '../types';
-import { useCreateGlobalSplit, useDeleteGlobalSplit, useGlobalSplits } from '../hooks';
+import type { GlobalSplit, MultivariateAnalysisResult } from '../types';
+import { useCreateGlobalSplit, useCurveWeightSuggestions, useDeleteGlobalSplit, useGlobalSplits, useUpdateGlobalSplit } from '../hooks';
 import { api } from '../services/api';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const QUARTERS = ['Q1', 'Q2', 'Q3', 'Q4'];
+const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 3 + i);
+
+function isoWeekNumber(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+function getIsoWeekKeysForYear(year: number): string[] {
+  // Dec 28 always falls in the year's last ISO week -- a standard trick for this calculation.
+  const weekCount = isoWeekNumber(new Date(year, 11, 28));
+  return Array.from({ length: weekCount }, (_, i) => `${year}-W${String(i + 1).padStart(2, '0')}`);
+}
 
 interface GlobalSplitsWorkspaceProps {
   selectedYear: number;
@@ -16,18 +31,79 @@ interface GlobalSplitsWorkspaceProps {
 export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ selectedYear }) => {
   const { data: splits = [], isLoading } = useGlobalSplits(selectedYear);
   const createSplit = useCreateGlobalSplit();
+  const updateSplit = useUpdateGlobalSplit();
   const deleteSplit = useDeleteGlobalSplit();
 
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [splitName, setSplitName] = useState('');
   const [selectedLogic, setSelectedLogic] = useState('Month');
   const [selectedProfile, setSelectedProfile] = useState('annual_progressive');
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [createSaved, setCreateSaved] = useState(false);
+  const [appliesToAllYears, setAppliesToAllYears] = useState(false);
+  const [selectedYears, setSelectedYears] = useState<number[]>([selectedYear]);
 
-  const periodKeys = selectedLogic === 'Month' ? MONTHS : selectedLogic === 'Quarter' ? QUARTERS : [];
+  const weekKeys = useMemo(() => getIsoWeekKeysForYear(selectedYear), [selectedYear]);
+  const periodKeys = selectedLogic === 'Month' ? MONTHS : selectedLogic === 'Quarter' ? QUARTERS : selectedLogic === 'Week' ? weekKeys : [];
+
+  const toggleYear = (y: number) => {
+    setSelectedYears((prev) => (prev.includes(y) ? prev.filter((x) => x !== y) : [...prev, y].sort()));
+  };
+
+  // Suggested weights for the selected curve -- only auto-applied while creating a new template,
+  // so editing an existing one doesn't silently overwrite its saved weights.
+  const { data: curveSuggestions } = useCurveWeightSuggestions(selectedProfile, selectedLogic, selectedYear);
+  useEffect(() => {
+    if (editingId !== null || !curveSuggestions) return;
+    setWeights(curveSuggestions);
+  }, [curveSuggestions, editingId]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setSplitName('');
+    setSelectedLogic('Month');
+    setSelectedProfile('annual_progressive');
+    setWeights({});
+    setCreateSaved(false);
+    setAppliesToAllYears(false);
+    setSelectedYears([selectedYear]);
+  };
+
+  const handleEditSplit = (s: GlobalSplit) => {
+    setEditingId(s.id);
+    setSplitName(s.name);
+    setSelectedLogic(s.repartition_logic);
+    setSelectedProfile(s.distribution_profile);
+    setWeights(s.repartition_values || {});
+    setCreateSaved(false);
+    const hasYears = !!s.years && s.years.length > 0;
+    setAppliesToAllYears(!hasYears);
+    setSelectedYears(hasYears ? s.years! : [selectedYear]);
+  };
 
   const handleCreateSplit = () => {
     if (!splitName.trim()) return;
+    if (!appliesToAllYears && selectedYears.length === 0) return;
+    const years = appliesToAllYears ? [] : selectedYears;
+
+    if (editingId !== null) {
+      updateSplit.mutate(
+        {
+          splitId: editingId,
+          payload: {
+            name: splitName.trim(),
+            repartition_logic: selectedLogic,
+            repartition_values: weights,
+            distribution_profile: selectedProfile,
+            profile_params: {},
+            years,
+          },
+        },
+        { onSuccess: () => setCreateSaved(true) }
+      );
+      return;
+    }
+
     createSplit.mutate(
       {
         name: splitName.trim(),
@@ -35,7 +111,7 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
         repartition_values: weights,
         distribution_profile: selectedProfile,
         profile_params: {},
-        years: [selectedYear],
+        years,
       } as any,
       {
         onSuccess: () => {
@@ -139,11 +215,17 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
                   <span className="badge badge-blue" style={{ marginLeft: '0.5rem' }}>
                     {s.repartition_logic}
                   </span>{' '}
-                  <span className="badge badge-purple">{s.distribution_profile}</span>
+                  <span className="badge badge-purple">{s.distribution_profile}</span>{' '}
+                  {(!s.years || s.years.length === 0) && <span className="badge badge-green">Preset · all years</span>}
                 </div>
-                <button className="btn btn-danger" style={{ fontSize: '0.75rem' }} onClick={() => deleteSplit.mutate(s.id)}>
-                  <Trash2 size={12} /> Delete
-                </button>
+                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                  <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={() => handleEditSplit(s)}>
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <button className="btn btn-danger" style={{ fontSize: '0.75rem' }} onClick={() => deleteSplit.mutate(s.id)}>
+                    <Trash2 size={12} /> Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -153,8 +235,16 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
       <div className="grid-2">
         {/* Left Column: Create Global Split Template */}
         <div className="card">
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Plus size={16} color="var(--accent-primary)" /> Create Global Split Template
+          <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {editingId !== null ? <Pencil size={16} color="var(--accent-primary)" /> : <Plus size={16} color="var(--accent-primary)" />}
+              {editingId !== null ? `Editing "${splitName}"` : 'Create Global Split Template'}
+            </span>
+            {editingId !== null && (
+              <button className="btn btn-secondary" style={{ fontSize: '0.75rem' }} onClick={resetForm}>
+                <X size={12} /> Cancel
+              </button>
+            )}
           </h3>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
@@ -168,6 +258,38 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
                 className="select-control"
                 style={{ width: '100%' }}
               />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Applies to Years:</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
+                <input
+                  type="checkbox"
+                  checked={appliesToAllYears}
+                  onChange={(e) => setAppliesToAllYears(e.target.checked)}
+                />
+                All years (preset -- always available, regardless of which year is selected)
+              </label>
+              {!appliesToAllYears && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {YEAR_OPTIONS.map((y) => (
+                    <button
+                      key={y}
+                      type="button"
+                      onClick={() => toggleYear(y)}
+                      className={selectedYears.includes(y) ? 'btn btn-primary' : 'btn btn-secondary'}
+                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                    >
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!appliesToAllYears && selectedYears.length === 0 && (
+                <div style={{ fontSize: '0.7rem', color: 'var(--accent-warning)', marginTop: '0.3rem' }}>
+                  Pick at least one year, or check "All years" above.
+                </div>
+              )}
             </div>
 
             <div className="grid-2">
@@ -194,11 +316,21 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
 
             {periodKeys.length > 0 && (
               <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>Weights (% of Annual Target):</div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${selectedLogic === 'Month' ? 6 : 4}, 1fr)`, gap: '0.5rem' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                  Weights (% of Annual Target){selectedLogic === 'Week' ? ` -- ${periodKeys.length} ISO weeks in ${selectedYear}` : ''}:
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${selectedLogic === 'Month' ? 6 : selectedLogic === 'Week' ? 10 : 4}, 1fr)`,
+                    gap: selectedLogic === 'Week' ? '0.3rem' : '0.5rem',
+                    maxHeight: selectedLogic === 'Week' ? '260px' : undefined,
+                    overflowY: selectedLogic === 'Week' ? 'auto' : undefined,
+                  }}
+                >
                   {periodKeys.map((k) => (
                     <div key={k}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{k.slice(0, 3)}:</span>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{selectedLogic === 'Week' ? k.slice(-3) : k.slice(0, 3)}:</span>
                       <input
                         type="number"
                         placeholder="0.0"
@@ -220,9 +352,15 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
               </div>
             )}
 
-            <button className="btn btn-primary" style={{ marginTop: '0.5rem' }} onClick={handleCreateSplit} disabled={createSplit.isPending}>
-              {createSplit.isPending ? <Loader2 size={16} className="spin" /> : createSaved ? <CheckCircle2 size={16} /> : <Save size={16} />}
-              {createSaved ? 'Saved' : 'Save Global Split Template'}
+            <button className="btn btn-primary" style={{ marginTop: '0.5rem' }} onClick={handleCreateSplit} disabled={createSplit.isPending || updateSplit.isPending}>
+              {createSplit.isPending || updateSplit.isPending ? (
+                <Loader2 size={16} className="spin" />
+              ) : createSaved ? (
+                <CheckCircle2 size={16} />
+              ) : (
+                <Save size={16} />
+              )}
+              {createSaved ? 'Saved' : editingId !== null ? 'Save Changes' : 'Save Global Split Template'}
             </button>
           </div>
         </div>

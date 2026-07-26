@@ -152,11 +152,6 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                     formula_inputs=excluded.formula_inputs
                 """, (at_id, tn, t_val, is_man, is_form, form_str, form_in))
 
-                # Also update legacy columns for backward compatibility
-                if tn in [1, 2]:
-                    cursor.execute(f"UPDATE annual_targets SET annual_target{tn}=?, is_target{tn}_manual=?, target{tn}_is_formula_based=?, target{tn}_formula=?, target{tn}_formula_inputs=? WHERE id=?",
-                                   (t_val, is_man, is_form, form_str, form_in, at_id))
-
                 if old_value != t_val:
                     history_service.record_target_change(
                         kpi_id=current_kpi_spec_id,
@@ -285,11 +280,6 @@ def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiato
                             "UPDATE kpi_annual_target_values SET target_value=?, is_manual=0 WHERE annual_target_id=? AND target_number=?",
                             (calculated_value, target_entry['id'], target_num_to_calculate)
                         )
-                        if target_num_to_calculate in [1, 2]:
-                            conn_upd.execute(
-                                f"UPDATE annual_targets SET annual_target{target_num_to_calculate}=?, is_target{target_num_to_calculate}_manual=0 WHERE id=?",
-                                (calculated_value, target_entry['id'])
-                            )
                         conn_upd.commit()
                     
                     calculated_this_pass_successfully.add(kpi_id_to_calc)

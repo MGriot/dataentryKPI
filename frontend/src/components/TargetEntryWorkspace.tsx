@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Target, Calendar, Save, History, Sliders, Layers, Globe, Loader2, CheckCircle2 } from 'lucide-react';
+import { Target, Calendar, Save, History, Layers, Globe, Loader2, CheckCircle2 } from 'lucide-react';
 import type { KpiDetailedSpec, Plant } from '../types';
-import { REPARTITION_LOGIC_OPTIONS, DISTRIBUTION_PROFILE_OPTIONS, targetLabel, parseTargetLabels } from '../types';
-import { useAnnualTargetEntry, useGlobalSplits, useSaveAnnualTargets } from '../hooks';
+import { targetLabel, parseTargetLabels } from '../types';
+import { useAnnualTargetEntry, useKpiGlobalSplits, useSaveAnnualTargets } from '../hooks';
 import type { AnnualTargetValueInput } from '../services/api';
 
 interface TargetEntryWorkspaceProps {
@@ -32,13 +32,10 @@ const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broa
   const { data: currentEntry } = useAnnualTargetEntry(year, plantId, kpi.id);
   const { data: y1Entry } = useAnnualTargetEntry(year - 1, plantId, kpi.id);
   const { data: y2Entry } = useAnnualTargetEntry(year - 2, plantId, kpi.id);
-  const { data: globalSplits = [] } = useGlobalSplits(year);
+  const { data: assignedSplits = [] } = useKpiGlobalSplits(kpi.id);
   const saveMutation = useSaveAnnualTargets();
 
   const [values, setValues] = useState<Record<number, string>>({});
-  const [logic, setLogic] = useState('Year');
-  const [profile, setProfile] = useState('even_distribution');
-  const [globalSplitId, setGlobalSplitId] = useState<number | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -48,9 +45,6 @@ const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broa
         nextValues[tv.target_number] = tv.target_value != null ? String(tv.target_value) : '';
       }
       setValues(nextValues);
-      setLogic(currentEntry.repartition_logic || 'Year');
-      setProfile(currentEntry.distribution_profile || 'even_distribution');
-      setGlobalSplitId(currentEntry.global_split_id ?? null);
     }
   }, [currentEntry]);
 
@@ -74,9 +68,6 @@ const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broa
         plant_id: plantIds,
         targets_data_map: {
           [kpi.id]: {
-            repartition_logic: logic,
-            distribution_profile: profile,
-            global_split_id: globalSplitId,
             targets,
           },
         },
@@ -99,6 +90,9 @@ const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broa
             {kpi.is_calculated && <span className="badge badge-purple">Formula Derived</span>}
             <span className="badge badge-green">{kpi.unit_of_measure || 'Units'}</span>
             <span className="badge badge-blue">{targetCount} target{targetCount > 1 ? 's' : ''}</span>
+            <span className="badge badge-purple" title="Repartition/split profile is assigned in KPI Explorer">
+              {assignedSplits.length > 0 ? `⭐ ${assignedSplits[0].name}` : 'Default even split'}
+            </span>
           </div>
           {kpi.hierarchy_path && (
             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{kpi.hierarchy_path}</div>
@@ -172,54 +166,6 @@ const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broa
             )}
           </div>
         ))}
-      </div>
-
-      {/* Repartition & Seasonal Curve Controls */}
-      <div style={{ background: 'rgba(0, 0, 0, 0.2)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
-          <Sliders size={14} /> Repartition & Seasonality Settings
-        </div>
-
-        <div className="grid-3">
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Global Split Template:</label>
-            <select
-              className="select-control"
-              style={{ width: '100%' }}
-              value={globalSplitId ?? 'none'}
-              onChange={(e) => setGlobalSplitId(e.target.value === 'none' ? null : Number(e.target.value))}
-            >
-              <option value="none">None (Custom)</option>
-              {globalSplits.map((gs) => (
-                <option key={gs.id} value={gs.id}>
-                  ⭐ {gs.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Repartition Logic:</label>
-            <select className="select-control" style={{ width: '100%' }} value={logic} onChange={(e) => setLogic(e.target.value)}>
-              {REPARTITION_LOGIC_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Distribution Profile Curve:</label>
-            <select className="select-control" style={{ width: '100%' }} value={profile} onChange={(e) => setProfile(e.target.value)}>
-              {DISTRIBUTION_PROFILE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
       </div>
     </div>
   );
