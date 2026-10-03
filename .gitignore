@@ -37,3 +37,6 @@ old/
 .claude/settings.local.json
 src/databases/
 src/csv_exports/
+
+# Optional local overrides for src/config/settings.py
+user_config/

@@ -1,14 +1,9 @@
 # tests/test_history_and_soft_delete.py
 import pytest
-from src.config import settings as app_config
-from src.data_access import setup
 from src.kpi_management import crud as kpi_crud
 from src.services import history_service
 
-@pytest.fixture(autouse=True)
-def setup_tmp_dbs(tmp_path, monkeypatch):
-    monkeypatch.setitem(app_config.SETTINGS, "database_base_dir", str(tmp_path))
-    setup.setup_databases()
+pytestmark = pytest.mark.usefixtures("db_dir")
 
 def test_kpi_creation_and_soft_delete():
     # 1. Create a root node

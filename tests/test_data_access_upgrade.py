@@ -1,13 +1,8 @@
 # tests/test_data_access_upgrade.py
 import sqlite3
-import pytest
-from pathlib import Path
 from src.config import settings as app_config
-from src.data_access import setup
 
-def test_database_setup(tmp_path, monkeypatch):
-    monkeypatch.setitem(app_config.SETTINGS, "database_base_dir", str(tmp_path))
-    setup.setup_databases()
+def test_database_setup(db_dir):
 
     # Check db_kpis.db tables and columns
     db_kpis = app_config.get_database_path("db_kpis.db")

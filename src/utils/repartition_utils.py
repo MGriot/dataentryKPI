@@ -1,93 +1,48 @@
-import numpy as np
-import datetime
+"""Curve helpers shared by the repartition engine and the split-template weight suggestions."""
 import calendar
+import datetime
 
-def get_weighted_proportions(num_periods, initial_factor=1.5, final_factor=0.5, decreasing=True):
-    """
-    Generates a list of proportions that are weighted, either increasing or decreasing.
-    The sum of proportions is 1.
-    """
-    if num_periods <= 0: return []
-    if num_periods == 1: return [1.0]
+import numpy as np
 
-    if decreasing:
-        weights = np.linspace(initial_factor, final_factor, num_periods)
-    else:
-        weights = np.linspace(final_factor, initial_factor, num_periods)
 
-    normalized_weights = weights / np.sum(weights)
-    return normalized_weights.tolist()
+def ramp_proportions(num_periods: int, start: float = 0.8, end: float = 1.2) -> list:
+    """Linear ramp from `start` to `end` (relative weights), normalized to sum to 1."""
+    if num_periods <= 0:
+        return []
+    if num_periods == 1:
+        return [1.0]
+    weights = np.linspace(start, end, num_periods)
+    return (weights / weights.sum()).tolist()
 
-def get_parabolic_proportions(num_periods, peak_at_center=True, min_value_epsilon=1e-9):
-    """
-    Generates proportions following a parabolic curve. Sum of proportions is 1.
-    """
-    if num_periods <= 0: return []
-    if num_periods == 1: return [1.0]
 
-    x = np.linspace(-1, 1, num_periods)
-    if peak_at_center:
-        y = 1 - x**2
-    else:
-        y = x**2
-
-    # Ensure no negative values and normalize
-    y[y < min_value_epsilon] = min_value_epsilon
-    normalized_y = y / np.sum(y)
-    return normalized_y.tolist()
-
-def get_sinusoidal_proportions(num_periods, amplitude=0.5, phase_offset=0, min_value_epsilon=1e-9):
-    """
-    Generates proportions following a sinusoidal curve. Sum of proportions is 1.
-    Amplitude is a fraction of the mean (e.g., 0.5 means +/- 50% of mean).
-    """
-    if num_periods <= 0: return []
-    if num_periods == 1: return [1.0]
-
-    # Base sine wave from 0 to 2*pi
+def sinusoidal_proportions(num_periods: int, amplitude: float = 0.1, phase: float = 0.0) -> list:
+    """One full sine cycle around 1.0 (+/- amplitude), normalized to sum to 1."""
+    if num_periods <= 0:
+        return []
+    if num_periods == 1:
+        return [1.0]
     x = np.linspace(0, 2 * np.pi, num_periods, endpoint=False)
-    # Shift and scale to ensure values are positive and sum to 1
-    # Mean value will be 1/num_periods, so sine wave modulates around it
-    # The amplitude is relative to the mean value for distribution
-    mean_prop = 1.0 / num_periods
-    
-    # Create a sine wave that modulates around 1.0, then scale by mean_prop
-    # The sine wave itself should range from (1-amplitude) to (1+amplitude)
-    # So, 1 + amplitude * sin(x + phase_offset)
-    raw_proportions = mean_prop * (1 + amplitude * np.sin(x + phase_offset))
+    weights = np.clip(1.0 + amplitude * np.sin(x + phase), 1e-9, None)
+    return (weights / weights.sum()).tolist()
 
-    # Ensure no values are too small or negative due to large amplitude
-    raw_proportions[raw_proportions < min_value_epsilon] = min_value_epsilon
 
-    normalized_proportions = raw_proportions / np.sum(raw_proportions)
-    return normalized_proportions.tolist()
+def weekday_weights(dates, weekday_weight: float = 1.3, weekend_weight: float = 0.7) -> np.ndarray:
+    """Per-day relative weights favouring Mon-Fri. Falls back to flat weights if both are <= 0."""
+    weekday_weight, weekend_weight = max(float(weekday_weight), 0.0), max(float(weekend_weight), 0.0)
+    if weekday_weight == 0 and weekend_weight == 0:
+        weekday_weight = weekend_weight = 1.0
+    return np.array([weekend_weight if d.weekday() >= 5 else weekday_weight for d in dates], dtype=float)
 
-def get_weekday_biased_proportions(all_dates, weekday_weight=1.3, weekend_weight=0.7):
-    """
-    Generates per-day proportions that favor weekdays (Mon-Fri) over weekends. Sum of
-    proportions is 1. Unlike the other curves here, this needs actual calendar dates (not just
-    a period count) since it depends on which day of the week each date falls on.
-    """
-    if not all_dates: return []
-    raw = np.array([weekend_weight if d.weekday() >= 5 else weekday_weight for d in all_dates], dtype=float)
-    return (raw / raw.sum()).tolist()
 
-def get_date_ranges_for_quarters(year):
-    """
-    Returns a dictionary of quarter names (Q1, Q2, Q3, Q4) to tuples of (start_date, end_date).
-    """
-    quarter_ranges = {}
-    for q in range(1, 5):
-        if q == 1:
-            start_month, end_month = 1, 3
-        elif q == 2:
-            start_month, end_month = 4, 6
-        elif q == 3:
-            start_month, end_month = 7, 9
-        else: # q == 4
-            start_month, end_month = 10, 12
-        
-        start_date = datetime.date(year, start_month, 1)
-        end_date = datetime.date(year, end_month, calendar.monthrange(year, end_month)[1])
-        quarter_ranges[q] = (start_date, end_date)
-    return quarter_ranges
+def quarter_of(date: datetime.date) -> int:
+    return (date.month - 1) // 3 + 1
+
+
+def days_of_year(year: int) -> list:
+    start = datetime.date(year, 1, 1)
+    return [start + datetime.timedelta(days=i) for i in range(366 if calendar.isleap(year) else 365)]
+
+
+def iso_week_label(date: datetime.date) -> str:
+    iso = date.isocalendar()
+    return f"{iso[0]:04d}-W{iso[1]:02d}"

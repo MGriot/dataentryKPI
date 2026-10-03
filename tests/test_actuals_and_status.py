@@ -1,13 +1,8 @@
 # tests/test_actuals_and_status.py
 import pytest
-from src.config import settings as app_config
-from src.data_access import setup
 from src.services import actuals_service
 
-@pytest.fixture(autouse=True)
-def setup_tmp_dbs(tmp_path, monkeypatch):
-    monkeypatch.setitem(app_config.SETTINGS, "database_base_dir", str(tmp_path))
-    setup.setup_databases()
+pytestmark = pytest.mark.usefixtures("db_dir")
 
 def test_actuals_recording_and_retrieval():
     actuals_service.record_actual_measurement(1, 1, "2026-07-01", 100.0)

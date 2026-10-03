@@ -1,96 +1,60 @@
-from pathlib import Path
+"""
+Runtime settings: where the SQLite databases and CSV exports live.
+
+Resolution order for each directory (first match wins):
+  1. Environment variable (KPI_DB_DIR / KPI_EXPORT_DIR) -- what the containers use.
+  2. Optional user_config/settings.json ("database_base_dir" / "csv_export_base_dir";
+     the legacy "database_path" key is still honoured as an alias).
+  3. <project root>/databases and <project root>/csv_exports.
+
+Paths are resolved on every call (not frozen at import time), so tests and settings
+reloads take effect immediately everywhere.
+"""
 import json
-CALC_TYPE_INCREMENTAL = "Incremental"
-CALC_TYPE_AVERAGE = "Average"
+import os
+from pathlib import Path
 
-# --- Settings File Path ---
-SETTINGS_FILE = Path(__file__).resolve().parents[2] / "user_config" / "settings.json"
-USER_CONSTANTS_FILE = Path(__file__).resolve().parents[2] / "user_config" / "user_constants.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SETTINGS_FILE = PROJECT_ROOT / "user_config" / "settings.json"
 
-# --- Default Settings ---
 DEFAULT_SETTINGS = {
-    "display_names": {
-        "target1": "Target 1",
-        "target2": "Target 2"
-    },
-    "database_base_dir": str(Path(__file__).resolve().parents[2] / "databases"),
-    "csv_export_base_dir": str(Path(__file__).resolve().parents[2] / "csv_exports"),
+    "database_base_dir": str(PROJECT_ROOT / "databases"),
+    "csv_export_base_dir": str(PROJECT_ROOT / "csv_exports"),
 }
 
-# --- Load Settings ---
-def load_settings():
+
+def load_settings() -> dict:
+    merged = DEFAULT_SETTINGS.copy()
     try:
-        with open(SETTINGS_FILE, 'r') as f:
-            settings = json.load(f)
-            # Merge with defaults to ensure new settings are present
-            merged_settings = DEFAULT_SETTINGS.copy()
-            merged_settings.update(settings)
-            return merged_settings
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            user_settings = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return DEFAULT_SETTINGS.copy()
+        return merged
+    if isinstance(user_settings, dict):
+        legacy_db_path = user_settings.get("database_path")
+        if legacy_db_path and not user_settings.get("database_base_dir"):
+            user_settings["database_base_dir"] = legacy_db_path
+        merged.update({k: v for k, v in user_settings.items() if v})
+    return merged
 
-# --- Load Calculation Constants ---
-def load_calculation_constants():
-    try:
-        with open(USER_CONSTANTS_FILE, 'r') as f:
-            user_constants = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        user_constants = {} # Start with empty dict if file not found or invalid
 
-    # Define default constants, including CALC_TYPEs
-    default_constants = {
-        'WEIGHT_INITIAL_FACTOR_INC': 1.6,
-        'WEIGHT_FINAL_FACTOR_INC': 0.4,
-        'WEIGHT_INITIAL_FACTOR_AVG': 1.6,
-        'WEIGHT_FINAL_FACTOR_AVG': 0.4,
-        'SINE_AMPLITUDE_INCREMENTAL': 0.3,
-        'SINE_AMPLITUDE_MEDIA': 0.2,
-        'SINE_PHASE_OFFSET': 0,
-        'WEEKDAY_BIAS_FACTOR_INCREMENTAL': 0.8,
-        'WEEKDAY_BIAS_FACTOR_MEDIA': 1.1,
-        'DEVIATION_SCALE_FACTOR_AVG': 0.2,
-        # Add CALC_TYPEs here
-        'CALC_TYPE_INCREMENTAL': CALC_TYPE_INCREMENTAL, # Use the directly defined constant
-        'CALC_TYPE_AVERAGE': CALC_TYPE_AVERAGE,       # Use the directly defined constant
-        # Add other PROFILE and REPARTITION_LOGIC constants here as well
-        'PROFILE_EVEN': "even_distribution",
-        'PROFILE_ANNUAL_PROGRESSIVE': "annual_progressive",
-        'PROFILE_ANNUAL_PROGRESSIVE_WEEKDAY_BIAS': "annual_progressive_weekday_bias",
-        'PROFILE_TRUE_ANNUAL_SINUSOIDAL': "true_annual_sinusoidal",
-        'PROFILE_MONTHLY_SINUSOIDAL': "monthly_sinusoidal",
-        'PROFILE_LEGACY_INTRA_PERIOD_PROGRESSIVE': "legacy_intra_period_progressive",
-        'PROFILE_QUARTERLY_PROGRESSIVE': "quarterly_progressive",
-        'PROFILE_QUARTERLY_SINUSOIDAL': "quarterly_sinusoidal",
-        'REPARTITION_LOGIC_YEAR': "Year",
-        'REPARTITION_LOGIC_MONTH': "Month",
-        'REPARTITION_LOGIC_QUARTER': "Quarter",
-        'REPARTITION_LOGIC_WEEK': "Week",
-    }
-
-    # Merge user constants over defaults
-    merged_constants = default_constants.copy()
-    merged_constants.update(user_constants)
-    return merged_constants
-
-# --- App Settings (Global Access) ---
 SETTINGS = load_settings()
-CALCULATION_CONSTANTS = load_calculation_constants()
+
 
 def reload_app_settings():
     global SETTINGS
-    global CALCULATION_CONSTANTS
     SETTINGS = load_settings()
-    CALCULATION_CONSTANTS = load_calculation_constants()
-    print(f"DEBUG: CALCULATION_CONSTANTS loaded: {CALCULATION_CONSTANTS}")
 
-# --- Dynamic Path Getters ---
+
+def get_database_dir() -> Path:
+    return Path(os.environ.get("KPI_DB_DIR") or SETTINGS["database_base_dir"])
+
+
 def get_database_path(db_name: str) -> Path:
     """Returns the full Path for a given database file name."""
-    return Path(SETTINGS["database_base_dir"]) / db_name
+    return get_database_dir() / db_name
+
 
 def get_csv_export_path() -> Path:
     """Returns the full Path for the CSV export directory."""
-    return Path(SETTINGS["csv_export_base_dir"])
-
-# --- Constants for Direct Import ---
-CSV_EXPORT_BASE_PATH = get_csv_export_path()
+    return Path(os.environ.get("KPI_EXPORT_DIR") or SETTINGS["csv_export_base_dir"])
