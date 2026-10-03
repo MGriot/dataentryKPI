@@ -1,5 +1,5 @@
 """
-Constants shared between GUIs (Tkinter/Streamlit).
+Shared domain constants (calculation types, repartition logics, distribution profiles).
 """
 
 # --- Calculation Types ---

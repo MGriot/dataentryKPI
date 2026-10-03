@@ -7,7 +7,7 @@ from pathlib import Path  # To ensure CSV_EXPORT_BASE_PATH is handled as a Path 
 # Import configurations from app_config.py
 from src.config import settings as app_config 
 
-from src.interfaces.common_ui.constants import (
+from src.config.constants import (
         CALC_TYPE_INCREMENTAL,
         CALC_TYPE_AVERAGE,
         REPARTITION_LOGIC_YEAR,

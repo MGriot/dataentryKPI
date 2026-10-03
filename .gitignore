@@ -32,3 +32,8 @@ csv_exports/
 # Project Specific - Logs & Backups
 *.log
 old/
+# Local tool state / stray data
+.omniscan/
+.claude/settings.local.json
+src/databases/
+src/csv_exports/

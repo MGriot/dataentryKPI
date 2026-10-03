@@ -11,7 +11,7 @@ from src.services import history_service
 
 
 # Configuration imports
-from src.interfaces.common_ui.constants import (
+from src.config.constants import (
     REPARTITION_LOGIC_YEAR,
     PROFILE_ANNUAL_PROGRESSIVE,
 )
