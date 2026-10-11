@@ -120,8 +120,11 @@ def _validate_spec_values(values: Dict[str, Any]) -> Dict[str, Any]:
         out["target_count"] = count
     if out.get("direction") is not None and out["direction"] not in DIRECTIONS:
         raise ValueError(f"direction must be one of: {', '.join(DIRECTIONS)}.")
-    if out.get("time_filter_type") is not None and out["time_filter_type"] not in TIME_FILTER_TYPES:
-        raise ValueError(f"time_filter_type must be one of: {', '.join(TIME_FILTER_TYPES)}.")
+    if out.get("time_filter_type") is not None:
+        canonical = {t.lower(): t for t in TIME_FILTER_TYPES}.get(str(out["time_filter_type"]).strip().lower())
+        if canonical is None:
+            raise ValueError(f"time_filter_type must be one of: {', '.join(TIME_FILTER_TYPES)}.")
+        out["time_filter_type"] = canonical
     if out.get("default_distribution_profile") and out["default_distribution_profile"] not in DISTRIBUTION_PROFILES:
         raise ValueError("Unknown default_distribution_profile.")
     for json_field in ("threshold_json", "target_labels", "formula_json"):

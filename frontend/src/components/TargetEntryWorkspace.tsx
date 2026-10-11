@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Target, Calendar, Save, History, Layers, Globe, Loader2, CheckCircle2 } from 'lucide-react';
-import type { KpiDetailedSpec, Plant } from '../types';
+import { Target, Calendar, Save, History, Layers, Globe, Loader2, CheckCircle2, Sigma } from 'lucide-react';
+import type { AnnualTargetEntry, KpiDetailedSpec, Plant } from '../types';
 import { targetLabel, parseTargetLabels } from '../types';
 import { useAnnualTargetEntry, useKpiGlobalSplits, useSaveAnnualTargets } from '../hooks';
-import type { AnnualTargetValueInput } from '../services/api';
+import { buildTargetsPayload } from '../utils/forms';
 
 interface TargetEntryWorkspaceProps {
   kpis: KpiDetailedSpec[];
@@ -18,6 +18,10 @@ function formatNum(n: number | null | undefined): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function valueOf(entry: AnnualTargetEntry | null | undefined, targetNumber: number): number | null {
+  return entry?.target_values?.find((t) => t.target_number === targetNumber)?.target_value ?? null;
+}
+
 interface CardProps {
   kpi: KpiDetailedSpec;
   year: number;
@@ -28,8 +32,9 @@ interface CardProps {
 
 const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broadcastAll }) => {
   const targetCount = kpi.target_count || 1;
+  const isCalculated = !!kpi.is_calculated;
   const customTargetLabels = parseTargetLabels(kpi.target_labels);
-  const { data: currentEntry } = useAnnualTargetEntry(year, plantId, kpi.id);
+  const entryQuery = useAnnualTargetEntry(year, plantId, kpi.id);
   const { data: y1Entry } = useAnnualTargetEntry(year - 1, plantId, kpi.id);
   const { data: y2Entry } = useAnnualTargetEntry(year - 2, plantId, kpi.id);
   const { data: assignedSplits = [] } = useKpiGlobalSplits(kpi.id);
@@ -37,157 +42,162 @@ const TargetEntryCard: React.FC<CardProps> = ({ kpi, year, plantId, plants, broa
 
   const [values, setValues] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
+  // Load (or clear) the inputs whenever the year/plant/KPI or the stored entry changes, so values
+  // from a previous selection can never be saved into a year or facility that has no data.
+  const currentEntry = entryQuery.data;
+  const entryLoaded = entryQuery.isSuccess;
   useEffect(() => {
-    if (currentEntry) {
-      const nextValues: Record<number, string> = {};
-      for (const tv of currentEntry.target_values || []) {
-        nextValues[tv.target_number] = tv.target_value != null ? String(tv.target_value) : '';
-      }
-      setValues(nextValues);
+    if (!entryLoaded) return;
+    const next: Record<number, string> = {};
+    for (const tv of currentEntry?.target_values ?? []) {
+      next[tv.target_number] = tv.target_value != null ? String(tv.target_value) : '';
     }
-  }, [currentEntry]);
+    setValues(next);
+    setSaved(false);
+    setLocalError(null);
+  }, [currentEntry, entryLoaded, year, plantId, kpi.id]);
 
   const handleValueChange = (targetNumber: number, value: string) => {
     setValues((prev) => ({ ...prev, [targetNumber]: value }));
     setSaved(false);
+    setLocalError(null);
   };
 
   const handleSave = () => {
-    const targets: AnnualTargetValueInput[] = Array.from({ length: targetCount }, (_, i) => i + 1).map((tn) => ({
-      target_number: tn,
-      target_value: values[tn] !== undefined && values[tn] !== '' ? parseFloat(values[tn]) : null,
-      is_manual: true,
-    }));
-
-    const plantIds = broadcastAll ? plants.filter((p) => p.visible).map((p) => p.id) : plantId;
-
+    const targets = buildTargetsPayload(values, targetCount);
+    if (typeof targets === 'string') {
+      setLocalError(targets);
+      return;
+    }
+    const visiblePlants = plants.filter((p) => p.visible);
+    if (broadcastAll) {
+      const ok = window.confirm(
+        `Save ${kpi.indicator_name} for ${year} to all ${visiblePlants.length} visible facilities? This replaces their current values.`
+      );
+      if (!ok) return;
+    }
     saveMutation.mutate(
       {
         year,
-        plant_id: plantIds,
-        targets_data_map: {
-          [kpi.id]: {
-            targets,
-          },
-        },
+        plant_id: broadcastAll ? visiblePlants.map((p) => p.id) : plantId,
+        targets_data_map: { [kpi.id]: { targets } },
         initiator_kpi_spec_id: kpi.id,
       },
       { onSuccess: () => setSaved(true) }
     );
   };
 
-  const y1Val = y1Entry?.target_values?.find((t: any) => t.target_number === 1)?.target_value ?? null;
-  const y2Val = y2Entry?.target_values?.find((t: any) => t.target_number === 2)?.target_value ?? null;
-  const y2Val1 = y2Entry?.target_values?.find((t: any) => t.target_number === 1)?.target_value ?? null;
+  const splitName = assignedSplits[0]?.name;
 
   return (
-    <div className="card" style={{ position: 'relative' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
+    <section className="card" aria-labelledby={`kpi-${kpi.id}-title`}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem', gap: '1rem' }}>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 600 }}>{kpi.indicator_name}</h3>
-            {kpi.is_calculated && <span className="badge badge-purple">Formula Derived</span>}
-            <span className="badge badge-green">{kpi.unit_of_measure || 'Units'}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <h3 id={`kpi-${kpi.id}-title`} style={{ fontSize: '1.05rem', fontWeight: 600 }}>{kpi.indicator_name}</h3>
+            {isCalculated && (
+              <span className="badge badge-purple" title={kpi.formula_string || 'Calculated from a formula'}>
+                <Sigma size={12} aria-hidden="true" /> Formula derived
+              </span>
+            )}
+            {kpi.unit_of_measure && <span className="badge badge-green">{kpi.unit_of_measure}</span>}
             <span className="badge badge-blue">{targetCount} target{targetCount > 1 ? 's' : ''}</span>
-            <span className="badge badge-purple" title="Repartition/split profile is assigned in KPI Explorer">
-              {assignedSplits.length > 0 ? `⭐ ${assignedSplits[0].name}` : 'Default even split'}
+            <span className="badge badge-purple" title="The split is assigned in KPI Explorer">
+              {splitName ? `⭐ ${splitName}` : 'Even split (default)'}
             </span>
           </div>
-          {kpi.hierarchy_path && (
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{kpi.hierarchy_path}</div>
-          )}
+          {kpi.hierarchy_path && <div className="field-hint">{kpi.hierarchy_path}</div>}
           {kpi.description && (
             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '4px' }}>💡 {kpi.description}</div>
           )}
         </div>
 
-        <button className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={handleSave} disabled={saveMutation.isPending}>
-          {saveMutation.isPending ? <Loader2 size={14} className="spin" /> : saved ? <CheckCircle2 size={14} /> : <Save size={14} />}
-          {saveMutation.isPending ? 'Saving...' : saved ? 'Saved & Repartitioned' : broadcastAll ? 'Save to All Facilities' : 'Save'}
-        </button>
-      </div>
-
-      {/* Dynamic target scenario grid: one block per target_count */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${Math.min(targetCount, 3)}, 1fr)`,
-          gap: '1rem',
-          marginBottom: '1rem',
-        }}
-      >
-        {Array.from({ length: targetCount }, (_, i) => i + 1).map((tn) => (
-          <div
-            key={tn}
-            style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
+        {!isCalculated && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+            onClick={handleSave}
+            disabled={saveMutation.isPending || !entryLoaded}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <span style={{ fontWeight: 600, fontSize: '0.85rem', color: tn === 1 ? 'var(--accent-primary)' : 'var(--accent-purple)' }}>
-                {targetLabel(tn, customTargetLabels)}
-              </span>
-              {tn === 1 && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Granularity: {kpi.target_granularity || 'Monthly'}</span>}
-            </div>
-
-            <input
-              type="number"
-              placeholder="Enter target value..."
-              value={values[tn] ?? ''}
-              disabled={kpi.is_calculated}
-              onChange={(e) => handleValueChange(tn, e.target.value)}
-              style={{
-                width: '100%',
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-sm)',
-                padding: '0.5rem',
-                color: 'var(--text-primary)',
-                fontSize: '1rem',
-                fontWeight: 600,
-              }}
-            />
-
-            {tn === 1 && (
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                <span>
-                  <History size={12} style={{ verticalAlign: 'middle' }} /> Y-1 ({year - 1}): <strong style={{ color: 'var(--text-secondary)' }}>{formatNum(y1Val)}</strong>
-                </span>
-                <span>
-                  Y-2 ({year - 2}): <strong style={{ color: 'var(--text-secondary)' }}>{formatNum(y2Val1)}</strong>
-                </span>
-              </div>
-            )}
-            {tn === 2 && (
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                <span>
-                  Y-2 T2 ({year - 2}): <strong style={{ color: 'var(--text-secondary)' }}>{formatNum(y2Val)}</strong>
-                </span>
-              </div>
-            )}
-          </div>
-        ))}
+            {saveMutation.isPending ? <Loader2 size={14} className="spin" aria-hidden="true" /> : saved ? <CheckCircle2 size={14} aria-hidden="true" /> : <Save size={14} aria-hidden="true" />}
+            {saveMutation.isPending ? 'Saving...' : saved ? 'Saved & repartitioned' : broadcastAll ? 'Save to all facilities' : 'Save'}
+          </button>
+        )}
       </div>
-    </div>
+
+      {isCalculated && (
+        <p className="field-hint" style={{ marginBottom: '0.75rem' }}>
+          Calculated automatically from <code>{kpi.formula_string || 'its formula'}</code> whenever its inputs are saved.
+        </p>
+      )}
+      {localError && (
+        <p role="alert" style={{ color: 'var(--accent-danger)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+          {localError}
+        </p>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(targetCount, 3)}, 1fr)`, gap: '1rem' }}>
+        {Array.from({ length: targetCount }, (_, i) => i + 1).map((tn) => {
+          const inputId = `target-${kpi.id}-${tn}`;
+          return (
+            <div
+              key={tn}
+              style={{ background: 'var(--bg-primary)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <label htmlFor={inputId} style={{ fontWeight: 600, fontSize: '0.85rem', color: tn === 1 ? 'var(--accent-primary)' : 'var(--accent-purple)' }}>
+                  {targetLabel(tn, customTargetLabels)}
+                </label>
+                {tn === 1 && <span className="field-hint">Granularity: {kpi.target_granularity || 'Monthly'}</span>}
+              </div>
+
+              <input
+                id={inputId}
+                type="number"
+                inputMode="decimal"
+                step="any"
+                placeholder={isCalculated ? 'Calculated' : entryLoaded ? 'Enter annual target...' : 'Loading...'}
+                value={values[tn] ?? ''}
+                readOnly={isCalculated}
+                disabled={!entryLoaded}
+                onChange={(e) => handleValueChange(tn, e.target.value)}
+                className="target-input"
+              />
+
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }} className="field-hint">
+                <span>
+                  <History size={12} style={{ verticalAlign: 'middle' }} aria-hidden="true" /> {year - 1}:{' '}
+                  <strong style={{ color: 'var(--text-secondary)' }}>{formatNum(valueOf(y1Entry, tn))}</strong>
+                </span>
+                <span>
+                  {year - 2}: <strong style={{ color: 'var(--text-secondary)' }}>{formatNum(valueOf(y2Entry, tn))}</strong>
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 };
 
 export const TargetEntryWorkspace: React.FC<TargetEntryWorkspaceProps> = ({ kpis, selectedYear, selectedPlantId, plants, searchQuery }) => {
   const [broadcastAll, setBroadcastAll] = useState(false);
-
+  const query = searchQuery.trim().toLowerCase();
   const filteredKpis = kpis.filter(
-    (k) =>
-      k.indicator_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (k.hierarchy_path && k.hierarchy_path.toLowerCase().includes(searchQuery.toLowerCase()))
+    (k) => k.indicator_name.toLowerCase().includes(query) || (k.hierarchy_path || '').toLowerCase().includes(query)
   );
-
   const currentPlant = plants.find((p) => p.id === selectedPlantId);
 
   if (!selectedPlantId) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-        <Target size={36} style={{ margin: '0 auto 1rem auto', opacity: 0.5 }} />
-        <h3>No facility selected</h3>
-        <p>Choose a facility from the header to begin entering targets.</p>
+      <div className="card empty-state">
+        <Target size={36} aria-hidden="true" />
+        <h2>No facility yet</h2>
+        <p>Add a facility on the Facilities tab, then choose it in the header to enter targets.</p>
       </div>
     );
   }
@@ -197,25 +207,26 @@ export const TargetEntryWorkspace: React.FC<TargetEntryWorkspaceProps> = ({ kpis
       <div className="glass-card" style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: 'var(--accent-primary)' }}>
-            <Calendar size={18} /> Year: {selectedYear}
+            <Calendar size={18} aria-hidden="true" /> Year: {selectedYear}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, color: currentPlant?.color || 'var(--text-primary)' }}>
-            <Target size={18} /> Facility: {currentPlant?.name || 'Unknown'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+            <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: currentPlant?.color }} />
+            Facility: {currentPlant?.name || 'Unknown'}
           </div>
-          <span className="badge badge-blue">{filteredKpis.length} Indicators Listed</span>
+          <span className="badge badge-blue">{filteredKpis.length} indicators</span>
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={broadcastAll} onChange={(e) => setBroadcastAll(e.target.checked)} />
-          <Globe size={14} /> Apply saves to all visible facilities
+          <Globe size={14} aria-hidden="true" /> Apply saves to all visible facilities
         </label>
       </div>
 
       {filteredKpis.length === 0 ? (
-        <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-          <Layers size={36} style={{ margin: '0 auto 1rem auto', opacity: 0.5 }} />
-          <h3>No matching KPI indicators found</h3>
-          <p>Try searching for a different keyword or update plant visibility settings.</p>
+        <div className="card empty-state">
+          <Layers size={36} aria-hidden="true" />
+          <h2>No matching KPI indicators</h2>
+          <p>Create KPIs in KPI Explorer, try another search, or check this facility's KPI visibility.</p>
         </div>
       ) : (
         filteredKpis.map((kpi) => (

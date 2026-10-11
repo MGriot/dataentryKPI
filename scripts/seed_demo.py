@@ -87,7 +87,7 @@ def main():
     print(f"KPIs: units={units} hours={hours} oee={oee} uph={uph}")
 
     # Formula KPI: Units per Hour = Units Produced / Hours Worked
-    call("PUT", f"/kpis/{uph}", {"data_updates": {"formula_string": f"[{units}] / [{hours}]", "is_calculated": 1}}, token=token)
+    call("PUT", f"/kpis/{uph}", {"data_updates": {"formula_string": f"[{units}] / [{hours}]"}}, token=token)
 
     splits = call("GET", "/global-splits", token=token)[1]
     if not any(s["name"] == "Demo Seasonal (Month)" for s in splits):

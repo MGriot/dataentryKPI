@@ -40,3 +40,4 @@ src/csv_exports/
 
 # Optional local overrides for src/config/settings.py
 user_config/
+.dev-data/
