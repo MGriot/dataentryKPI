@@ -58,3 +58,11 @@ def get_database_path(db_name: str) -> Path:
 def get_csv_export_path() -> Path:
     """Returns the full Path for the CSV export directory."""
     return Path(os.environ.get("KPI_EXPORT_DIR") or SETTINGS["csv_export_base_dir"])
+
+
+def max_upload_bytes() -> int:
+    """Upload cap for ML datasets and backup restores (REST and MCP): $MAX_UPLOAD_MB, default 20."""
+    try:
+        return max(int(os.environ.get("MAX_UPLOAD_MB", "20")), 1) * 1024 * 1024
+    except ValueError:
+        return 20 * 1024 * 1024

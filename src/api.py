@@ -18,6 +18,7 @@ from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
 from src import data_retriever, export_manager, import_manager
+from src.config import settings as app_settings
 from src.core.formula import FormulaError
 from src.data_access.setup import setup_databases
 from src.kpi_management import crud as kpi_crud
@@ -27,6 +28,7 @@ from src.kpi_management import visibility as visibility_crud
 from src.plants_management import crud as plants_crud
 from src.services import actuals_service, history_service, split_analyzer
 from src.target_management import annual as annual_management
+from src.user_management import access
 from src.user_management import crud as user_crud
 
 APP_VERSION = "2.1.0"
@@ -40,13 +42,6 @@ def _env_flag(name: str, default: bool = False) -> bool:
 def _cors_origins() -> List[str]:
     raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173")
     return [o.strip() for o in raw.split(",") if o.strip()]
-
-
-def _max_upload_bytes() -> int:
-    try:
-        return max(int(os.environ.get("MAX_UPLOAD_MB", "20")), 1) * 1024 * 1024
-    except ValueError:
-        return 20 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -84,6 +79,11 @@ app.add_middleware(
 @app.exception_handler(import_manager.RestoreError)
 async def _bad_request(_request: Request, exc: Exception):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(access.AccessDenied)
+async def _forbidden(_request: Request, exc: Exception):
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
 
 
 @app.exception_handler(Exception)
@@ -124,14 +124,8 @@ def get_current_user(request: Request) -> dict:
 
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin rights required.")
+    access.require_admin(user)
     return user
-
-
-def _require_self_or_admin(user: dict, user_id: int):
-    if user["id"] != user_id and not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="You can only manage your own account.")
 
 
 class _LoginRateLimiter:
@@ -783,7 +777,7 @@ def get_actuals(kpi_id: int, plant_id: int, start_date: Optional[str] = None, en
 # --- Uploads ---
 
 def _read_upload(file: UploadFile) -> bytes:
-    limit = _max_upload_bytes()
+    limit = app_settings.max_upload_bytes()
     data = file.file.read(limit + 1)
     if len(data) > limit:
         raise HTTPException(status_code=413, detail=f"File is larger than {limit // (1024 * 1024)} MB.")
@@ -958,29 +952,27 @@ def restore_from_backup(file: UploadFile = File(...), _admin: dict = Depends(req
     """Admin only. REPLACES all KPI data with the backup's contents (one transaction). The current
     databases are snapshotted to <databases>/backups/pre-restore-<timestamp>/ first."""
     data = _read_upload(file)
-    result = import_manager.restore_from_zip(data, max_uncompressed_bytes=_max_upload_bytes() * 25)
+    result = import_manager.restore_from_zip(data, max_uncompressed_bytes=app_settings.max_upload_bytes() * 25)
     detail = f"Restored {sum(result['tables'].values())} rows in {len(result['tables'])} tables."
     if result["warnings"]:
         detail += " Warnings: " + "; ".join(result["warnings"])
     return {"status": "success", "detail": detail, **result}
 
 
-# --- Users ---
+# --- Users (rules shared with the MCP server: src/user_management/access.py) ---
 
 @app.get("/users", tags=["users"])
 def list_users(active_only: bool = False, current_user: dict = Depends(get_current_user)):
     """Admins get full profiles; everyone else gets id/name/color only."""
-    users = user_crud.get_all_users(active_only=active_only)
-    if current_user.get("is_admin"):
-        return users
-    return [{"id": u["id"], "name": u["name"], "color": u["color"], "is_active": u["is_active"]} for u in users]
+    return access.list_users(current_user, active_only=active_only)
 
 
 @app.post("/users", tags=["users"])
-def create_user(req: UserCreateRequest, _admin: dict = Depends(require_admin)):
+def create_user(req: UserCreateRequest, current_user: dict = Depends(get_current_user)):
     """Admin only: creates an account (the user can change the password after logging in)."""
     try:
-        user_id = user_crud.add_user(req.name, req.password, req.email or "", req.color or "#3b82f6", is_admin=req.is_admin)
+        user_id = access.create_user(current_user, req.name, req.password, req.email or "", req.color or "#3b82f6",
+                                     is_admin=req.is_admin)
     except ValueError as e:
         _bad(e, 409)
     return {"id": user_id, "name": req.name.strip()}
@@ -989,30 +981,23 @@ def create_user(req: UserCreateRequest, _admin: dict = Depends(require_admin)):
 @app.put("/users/{user_id}", tags=["users"])
 def update_user(user_id: int, req: UserUpdateRequest, current_user: dict = Depends(get_current_user)):
     """Admins can edit anyone (incl. is_active / is_admin); users can edit their own name, email and color."""
-    _require_self_or_admin(current_user, user_id)
-    target = user_crud.get_user_by_id(user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
-    is_active, is_admin = req.is_active, req.is_admin
-    if not current_user.get("is_admin"):
-        if req.is_active is False:
-            raise HTTPException(status_code=403, detail="Only admins can deactivate accounts.")
-        if req.is_admin is not None and req.is_admin != target["is_admin"]:
-            raise HTTPException(status_code=403, detail="Only admins can change roles.")
-        is_active, is_admin = target["is_active"], None
     try:
-        user_crud.update_user(user_id, req.name, req.email or "", req.color or "#3b82f6", is_active, is_admin)
+        access.update_user(current_user, user_id, req.name, req.email or "", req.color or "#3b82f6",
+                           req.is_active, req.is_admin)
+    except LookupError as e:
+        _bad(e, 404)
     except ValueError as e:
         _bad(e, 409)
     return {"status": "success", "id": user_id}
 
 
 @app.post("/users/{user_id}/reset-password", tags=["users"])
-def reset_user_password(user_id: int, req: PasswordResetRequest, _admin: dict = Depends(require_admin)):
+def reset_user_password(user_id: int, req: PasswordResetRequest, current_user: dict = Depends(get_current_user)):
     """Admin only: sets a new password and signs the user out everywhere."""
     try:
-        if not user_crud.admin_reset_password(user_id, req.new_password):
-            raise HTTPException(status_code=404, detail="User not found")
+        access.reset_password(current_user, user_id, req.new_password)
+    except LookupError as e:
+        _bad(e, 404)
     except ValueError as e:
         _bad(e)
     return {"status": "success", "id": user_id}
@@ -1022,30 +1007,26 @@ def reset_user_password(user_id: int, req: PasswordResetRequest, _admin: dict = 
 
 @app.get("/users/{user_id}/api-keys", tags=["users"])
 def list_user_api_keys(user_id: int, current_user: dict = Depends(get_current_user)):
-    _require_self_or_admin(current_user, user_id)
-    return user_crud.list_api_keys(user_id=user_id)
+    return access.list_api_keys(current_user, user_id)
 
 
 @app.post("/users/{user_id}/api-keys", tags=["users"])
 def create_user_api_key(user_id: int, req: ApiKeyCreateRequest, current_user: dict = Depends(get_current_user)):
     """Creates an MCP API key for yourself (admins: for anyone). The raw key is returned ONCE."""
-    _require_self_or_admin(current_user, user_id)
-    target = user_crud.get_user_by_id(user_id)
-    if not target or not target["is_active"]:
-        raise HTTPException(status_code=404, detail="User not found")
     try:
-        return user_crud.create_api_key(user_id, req.label)
+        return access.create_api_key(current_user, user_id, req.label)
+    except LookupError as e:
+        _bad(e, 404)
     except ValueError as e:
         _bad(e)
 
 
 @app.delete("/api-keys/{key_id}", tags=["users"])
 def revoke_api_key(key_id: int, current_user: dict = Depends(get_current_user)):
-    key = user_crud.get_api_key(key_id)
-    if not key:
-        raise HTTPException(status_code=404, detail="API key not found")
-    _require_self_or_admin(current_user, key["user_id"])
-    user_crud.revoke_api_key(key_id)
+    try:
+        access.revoke_api_key(current_user, key_id)
+    except LookupError as e:
+        _bad(e, 404)
     return {"status": "success", "id": key_id}
 
 
