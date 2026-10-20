@@ -1,9 +1,11 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-ARG VITE_API_URL=http://localhost:8000
+# Leave empty so the app calls the API same-origin under /api (proxied by nginx below).
+# Set it only to point the bundle at an API on another origin.
+ARG VITE_API_URL=
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 

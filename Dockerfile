@@ -1,25 +1,28 @@
+# Backend image: the FastAPI REST API (default command) and, with a different command, the
+# MCP server (see compose.yml). All dependencies ship as wheels, so no compiler is needed.
 FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app \
+    KPI_DB_DIR=/app/databases
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Copy application source code
-COPY . .
+# Run unprivileged; the databases volume is the only path the app writes to.
+RUN useradd --create-home --uid 1000 app \
+    && mkdir -p /app/databases \
+    && chown app:app /app/databases
+COPY src ./src
+USER app
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
+EXPOSE 8000 8001
 
-EXPOSE 8000
-
-# Default command launches FastAPI backend
-CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# --proxy-headers: the frontend's nginx forwards the real client address (used by the
+# login rate limiter). Only trust it because the backend port is not exposed publicly.
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

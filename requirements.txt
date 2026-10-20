@@ -1,12 +1,10 @@
-streamlit>=1.48.0
-pandas>=2.3.1
-openpyxl>=3.1.5
-plotly>=6.2.0
-numpy>=2.3.2
-matplotlib>=3.10.5
-scikit-learn
-fastapi
-uvicorn
-python-multipart
-# Tkinter is part of the standard library, but may require 'python3-tk' on some systems
-# sqlite3 is part of the Python standard library
+# Runtime dependencies for the backend (src/api.py) and the MCP server (src/mcp_server.py).
+# Pinned to the versions the test suite runs against; keep in sync with pyproject.toml.
+fastapi==0.140.0
+uvicorn==0.51.0
+python-multipart==0.0.32
+mcp==2.3.0
+pandas==2.3.1
+numpy==2.3.2
+openpyxl==3.1.5
+scikit-learn==1.9.0

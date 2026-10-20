@@ -1,16 +1,24 @@
+# Only requirements.txt and src/ are copied into the backend image.
 .git
 .venv
 venv
 env
+.claude
+.vscode
+.dev-data
 __pycache__/
 *.pyc
 .pytest_cache/
 .mypy_cache/
 databases/
 csv_exports/
+user_config/
 *.db
 *.sqlite
 *.log
-frontend/node_modules
-frontend/dist
+.env
+frontend/
+docs/
+scripts/
 tests/
+*.md
