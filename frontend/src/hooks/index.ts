@@ -167,7 +167,23 @@ export const useUpdateKpiSpec = () =>
     api.updateKpiSpec(kpiId, dataUpdates)
   );
 
-export const useSoftDeleteKpi = () => useDataMutation((kpiId: number) => api.softDeleteKpi(kpiId));
+// Queries about one KPI ([key, kpiId, ...]).
+const PER_KPI_KEYS = new Set(['kpi-visibility', 'kpi-definition-history', 'kpi-target-history', 'kpi-global-splits']);
+
+export function useSoftDeleteKpi() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (kpiId: number) => api.softDeleteKpi(kpiId),
+    // Refresh everything except the deleted KPI's own queries: its inspector is still mounted
+    // while the list refreshes, and refetching them would only 404.
+    onSuccess: (_result, kpiId) => {
+      const isDeletedKpis = (key: readonly unknown[]) => PER_KPI_KEYS.has(String(key[0])) && key[1] === kpiId;
+      return qc.invalidateQueries({
+        predicate: (query) => !SESSION_KEYS.has(String(query.queryKey[0])) && !isDeletedKpis(query.queryKey),
+      });
+    },
+  });
+}
 
 export const useUpdateKpiVisibility = () =>
   useDataMutation(({ kpiId, visibilityData }: { kpiId: number; visibilityData: VisibilityEntry[] }) =>
