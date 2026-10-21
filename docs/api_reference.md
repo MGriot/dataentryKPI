@@ -1,114 +1,153 @@
-# REST & MCP API Reference
+# REST API reference
 
-The FastAPI backend (`src/api.py`) is the single source of truth for request/response shapes — every endpoint below is documented interactively at **`http://localhost:8000/docs`** (Swagger UI) once the backend is running. This page is a map of what exists and which underlying function it calls, so you know where to look in the code.
+The FastAPI backend (`src/api.py`) is the source of truth for request and response shapes. Every route is documented interactively in **Swagger UI at `/docs`** (ReDoc at `/redoc`). To call protected routes from Swagger UI:
+1. Use **POST /auth/login** to get a token.
+2. Click **Authorize** and paste the token.
 
-CORS is wide open (`allow_origins=["*"]`). **Every route requires a valid session** (`Authorization: Bearer <token>`, minted by `/auth/login` or `/auth/register`) except the auth endpoints themselves, `/health`, and the docs routes — enforced by an `@app.middleware("http")` gate, not by decorating each route individually, so nothing can accidentally ship unauthenticated. Swagger UI's "Try it out" doesn't have a security-scheme "Authorize" button wired up (the gate is header-based middleware, not a FastAPI `Security()` dependency), so to call a protected endpoint from `/docs` you'd need to add the `Authorization` header manually per request.
+This page maps the routes to what they do and who may call them. AI agents should use the [MCP server](mcp.md), which exposes the same features as tools.
 
-Handlers that log `changed_by` (KPI spec/target edits) derive it from the authenticated session via `Depends(get_current_user)` — they do **not** trust a `changed_by` value in the request body. This is the same "identity comes from the token, not the caller's claim" rule the MCP HTTP transport uses (see below).
+## Authentication and roles
+
+- **Sessions.** Every route needs `Authorization: Bearer <session token>`, except `/`, `/health`, `/auth/status`, `/auth/register`, `/auth/login`, `/auth/logout` and the docs routes.
+  - This is enforced by one HTTP middleware, so a new route can't accidentally ship unauthenticated.
+  - Tokens come from `/auth/login` or `/auth/register` and last 30 days. Only their SHA-256 hash is stored.
+- **Passwords** use PBKDF2-HMAC-SHA256 with 260,000 iterations and a per-user salt. They must be 8–256 characters.
+- **Roles.**
+  - The first account ever created is the **admin**.
+  - Self-registration then closes, unless `ALLOW_REGISTRATION=true`, which lets people register *non-admin* accounts.
+  - Admins can create users, edit anyone (including `is_active` and `is_admin`), reset passwords, manage anyone's API keys, and restore backups.
+  - Everyone else can edit only their own profile and keys.
+  - The last active admin can't be demoted or deactivated.
+  - These rules live in `src/user_management/access.py` and are shared with the MCP server. A violation returns **403**.
+- **Login throttling.** Failed logins are rate-limited per client and name (8) and per client (40) in a 15-minute window, returning **429**. Unknown names cost the same hashing time as known ones.
+- **Password changes and deactivation.** Changing your password signs out your other sessions. Deactivating a user revokes their sessions and API keys.
+- **Audit identity.** Writes record `changed_by` from the session, never from the request body.
+- **CORS** only allows `CORS_ORIGINS`. The bundled frontend calls the API same-origin through its `/api` proxy, so it doesn't need CORS.
+- **Errors.** Invalid input returns 400 or 422 with a `detail` message. Unexpected errors return a generic 500, and the traceback stays in the server log.
 
 ## Auth
 
-| Endpoint | Calls | Notes |
-|---|---|---|
-| `POST /auth/register` | `user_management.crud.add_user` + `create_session` | `{name, password, email?, color?}` — 8+ char password, creates the account and logs it in (returns a token) in one call. Public. |
-| `POST /auth/login` | `verify_password` + `create_session` | `{name, password}` → `{token, expires_at, user}`. Public. |
-| `POST /auth/logout` | `revoke_session` | Public (reads the token itself; a bogus/expired token is a harmless no-op). |
-| `GET /auth/me` | `get_current_user` | Returns the authenticated user — what the frontend calls on load to verify a stored session is still valid. |
-| `POST /auth/change-password` | `change_password` | `{current_password, new_password}` — verifies the current password first. |
-
-Sessions: `secrets.token_urlsafe(32)`, only the SHA-256 hash is stored (`sessions` table), 30-day expiry (`user_management.crud.SESSION_TTL_DAYS`). Passwords: PBKDF2-HMAC-SHA256, 260,000 iterations, random 16-byte salt per user (`hashlib`, no extra dependency).
-
-## KPIs & Hierarchy
-
-| Endpoint | Calls | Notes |
-|---|---|---|
-| `GET /kpis` | `data_retriever.get_all_kpis_detailed` | `?only_visible=&plant_id=` |
-| `GET /kpis/tree` | `kpi_crud.get_kpi_tree` | Recursive hierarchy, `?root_id=&depth=` |
-| `GET /kpis/{id}` | `data_retriever.get_kpi_detailed_by_id` | |
-| `POST /kpis` | `kpi_crud.create_kpi_indicator` | Creates the indicator + its spec in one call; `changed_by` is the authenticated user |
-| `PUT /kpis/{id}` | `kpi_crud.update_kpi_spec_extended` | `{data_updates: {...}}` — any subset of the `kpis` columns (including `target_labels`, a JSON string like `{"1": "Budget", "2": "Committed"}`), logs to history as the authenticated user |
-| `DELETE /kpis/{id}` | `kpi_crud.soft_delete_kpi` | Sets `is_active=0`, preserves history |
-| `POST /kpis/nodes` | `kpi_crud.add_kpi_node` | New Group/Subgroup/Folder |
-| `GET /kpis/{id}/status` | `data_retriever.get_kpi_performance_status` | Actual vs. target, threshold status, trend |
-| `GET /kpis/{id}/history` | `history_service.get_definition_history` | Spec edit audit trail |
-| `GET /kpis/{id}/target-history` | `history_service.get_target_history` | Target value edit audit trail, `?plant_id=` |
-| `GET`/`PUT /kpis/{id}/visibility` | `kpi_management.visibility.*` | Per-plant visibility overrides |
-
-## Plants
-
-| Endpoint | Calls |
+| Route | Notes |
 |---|---|
-| `GET /plants` | `data_retriever.get_all_plants` (`?visible_only=`) |
-| `POST /plants` | `plants_management.crud.add_plant` |
-| `PUT /plants/{id}` | `plants_management.crud.update_plant` |
-| `DELETE /plants/{id}` | `plants_management.crud.delete_plant` (`?force=` to delete even if referenced by targets) |
+| `GET /auth/status` | Public. `{has_users, registration_open}`, used by the login screen. |
+| `POST /auth/register` | Public. `{name, password, email?, color?}`. Creates an account and returns `{token, expires_at, user}`. 403 when registration is closed. |
+| `POST /auth/login` | Public. `{name, password}`, returns `{token, expires_at, user}` |
+| `POST /auth/logout` | Revokes the presented token |
+| `GET /auth/me` | The signed-in user (includes `is_admin`) |
+| `POST /auth/change-password` | `{current_password, new_password}`. Signs out your other sessions. |
 
-## Targets & Repartition
+## KPIs and hierarchy
 
-> There are two target systems (see [database_schema.md](database_schema.md)). **`/targets/annual`** is the one that actually drives repartition — use it unless you specifically need the flat `/targets` table.
+`kpi_id` is the KPI's spec id: the `id` from `GET /kpis`.
 
-| Endpoint | Calls | Notes |
-|---|---|---|
-| `GET /targets/annual-entry` | `data_retriever.get_annual_target_entry` | `?year=&plant_id=&kpi_id=` — the annual record + all its `target_number` values |
-| `GET /targets/annual` | `data_retriever.get_annual_targets` | All KPIs' annual records for a `plant_id`+`year` |
-| `POST /targets/annual` | `target_management.annual.save_annual_targets` | **Primary save path.** `plant_id` may be a single ID or a list (broadcast). Logs history, cascades formula recalculation, triggers repartition in dependency order. |
-| `GET /targets/available-numbers` | `data_retriever.get_available_target_numbers_for_kpi` | Which `target_number`s exist for a KPI/plant/year |
-| `GET /kpis/{id}/periodic-targets` | `data_retriever.get_periodic_targets_for_kpi` | One KPI/plant, `?period_type=Day|Week|Month|Quarter|Year&target_number=` |
-| `GET /kpis/{id}/periodic-targets/all-plants` | `data_retriever.get_periodic_targets_for_kpi_all_plants` | Same, across every plant — used for the Analysis chart |
-| `GET`/`POST /targets` | `data_retriever.get_modern_kpi_targets` / `kpi_crud.update_target_value` | The flat, non-repartitioned system |
-| `GET /targets/lean` | `data_retriever.get_lean_targets` | Minimal flat export for BI tools |
-
-## Global Splits
-
-Standard CRUD at `/global-splits`, `/global-splits/{id}`, `/global-splits/{id}/indicators` (affiliated indicators + per-indicator profile override), `/kpis/{id}/global-splits` (splits affiliated with one KPI) — all thin wrappers over `kpi_management.splits`.
-
-## Multivariate Seasonality Predictor
-
-`POST /analysis/multivariate` — multipart upload (`file`, `target_cols`, `feature_cols`, `date_col`, `period_type`). Calls `services.split_analyzer.analyze_seasonality_from_file`, which races OLS/Ridge/RandomForest with cross-validation and a Monte Carlo confidence band, and returns `{weights, coefficients, r_squared, plot_data, winning_model}`. The frontend lets you publish the result straight into a new Global Split.
-
-## Templates
-
-Standard CRUD at `/templates`, `/templates/{id}/indicators`, `/templates/indicators/{def_id}` — KPI *definition* templates (`kpi_management.templates`), not to be confused with Global Split templates above.
-
-## Data Utilities
-
-| Endpoint | Calls | Notes |
-|---|---|---|
-| `GET /years` | `data_retriever.get_distinct_years` | |
-| `GET /export/lean` | `export_manager.export_lean_data_to_csv` | |
-| `GET /export/csv/{table_key}` | `export_manager.export_single_table` | `table_key` ∈ Plants / KPI Hierarchy / KPI Definitions / Plant Visibility / Annual Targets / Periodic Targets — human-readable, **not** restorable |
-| `GET /export/all` | `export_manager.export_raw_backup_csvs` + `package_all_csvs_as_zip` | Raw per-table dump, ZIP — this is the restorable format |
-| `POST /import/restore` | `import_manager.import_from_zip` | Multipart ZIP upload; `INSERT OR IGNORE` per table in FK-safe order, idempotent |
-
-## Users & MCP API Keys
-
-| Endpoint | Calls | Notes |
-|---|---|---|
-| `GET /users` | `user_management.crud.get_all_users` | `?active_only=` |
-| `POST /users` | `add_user` | `{name, password, email?, color?}` — admin-style creation (same requirements as `/auth/register`, but doesn't log the caller in); requires a valid session like everything else, so only a logged-in user can create another account |
-| `PUT /users/{id}` | `update_user` | Name/email/color/active — does not touch the password; use `/auth/change-password` for that |
-| `GET /users/{id}/api-keys` | `list_api_keys` | Never returns the raw key, only `key_prefix` |
-| `POST /users/{id}/api-keys` | `create_api_key` | `{label}` → `{raw_key, ...}` — **shown once**, store it now |
-| `DELETE /api-keys/{id}` | `revoke_api_key` | Soft-revoke (`is_active=0`), key stays listed |
-
-Note the naming: `api_keys` (long-lived, MCP-only, tied to a user) and `sessions` (30-day, login-only) are separate tables and mechanisms — see [database_schema.md](database_schema.md).
-
-## MCP Server (`src/mcp_server.py`)
-
-Two transports, same tool registry and dispatcher underneath:
-
-- **stdio** (default: `python src/mcp_server.py`) — one JSON-RPC 2.0 request per line on stdin, response on stdout. No authentication; intended for a local client (e.g. Claude Desktop) that spawns the process directly. `changed_by` in tool arguments is whatever the caller sends (default `"mcp_agent"`).
-- **HTTP** (`python src/mcp_server.py --http`, or `MCP_TRANSPORT=http`) — `POST /mcp` on port 8001 (`MCP_PORT`), body is a JSON-RPC 2.0 request, requires `Authorization: Bearer <api_key>`. The key is resolved via `user_management.crud.validate_api_key`; the resolved user's `name` **overwrites** any `changed_by` the caller sent, so a compromised/misused key can't misattribute its own writes. `GET /health` for container healthchecks. This is what the `mcp_server` container in `compose.yml` runs.
-
-### Tools
-
-| Tool | Wraps |
+| Route | Notes |
 |---|---|
-| `get_kpi_tree` | `kpi_crud.get_kpi_tree` |
-| `add_kpi_node` | `kpi_crud.add_kpi_node` |
-| `create_kpi_indicator` | `kpi_crud.create_kpi_indicator` |
-| `update_target_value` | `kpi_crud.update_target_value` (the flat `kpi_targets` system, not `/targets/annual` — no repartition) |
-| `get_performance_status` | `data_retriever.get_kpi_performance_status` |
-| `soft_delete_kpi` | `kpi_crud.soft_delete_kpi` |
+| `GET /kpis` | Active KPIs. `?only_visible=` and `?plant_id=` (omits KPIs disabled for that plant). |
+| `GET /kpis/tree` | Folder hierarchy with KPIs. `?root_id=&depth=` |
+| `GET /kpis/{id}` | One KPI (404 if missing or deleted) |
+| `POST /kpis` | Create a KPI in a folder: `{node_id, name, calculation_type, unit_of_measure, direction, threshold_json, target_count, ...}` |
+| `PUT /kpis/{id}` | `{data_updates: {...}}`. Only the fields in `kpi_crud.UPDATABLE_SPEC_FIELDS`. A `formula_string` is validated (syntax, known KPIs, no cycles). Formula, aggregation-type and target-count changes recalculate stored targets. |
+| `DELETE /kpis/{id}` | Soft delete: hidden everywhere, data kept |
+| `POST /kpis/nodes` | Create a folder `{name, parent_id?}` |
+| `GET /kpis/{id}/status` | `?plant_id=&target_value=`. Latest actual against target, and the trend. |
+| `GET /kpis/{id}/history` | Definition audit trail |
+| `GET /kpis/{id}/target-history` | Target value audit trail, `?plant_id=` |
+| `GET` / `PUT /kpis/{id}/visibility` | Per-plant enable/disable overrides `[{plant_id, is_enabled}]` |
+| `GET /kpis/{id}/global-splits` | The split template assigned to the KPI |
+| `PUT /kpis/{id}/global-split` | `{global_split_id}` (null clears it). Recalculates the KPI. |
+| `GET` / `POST /units-of-measure` | Units registry |
 
-`tools/list` returns the full JSON Schema for each tool's parameters; `tools/call` invokes one.
+## Facilities
+
+| Route | Notes |
+|---|---|
+| `GET /plants` | `?visible_only=` |
+| `POST /plants` | `{name, description?, visible?, color?}`. 409 if the name exists. |
+| `PUT /plants/{id}` | Full update |
+| `DELETE /plants/{id}` | 409 if the plant has targets or actuals, unless `?force=true` (which deletes them too) |
+
+## Targets
+
+| Route | Notes |
+|---|---|
+| `POST /targets/annual` | **The save path.** `{year, plant_id: int or [int], targets_data_map: {"<kpi_id>": {targets: [{target_number, target_value}], repartition_logic?, repartition_values?, distribution_profile?, profile_params?, global_split_id?}}}`. Blank (`null`) values are left unchanged. Values for calculated KPIs are rejected. Everything (values, audit rows, formula KPIs, periodic targets) is committed in one transaction. |
+| `GET /targets/annual-entry` | `?year=&plant_id=&kpi_id=`. The annual record with every scenario's value. |
+| `GET /targets/annual` | `?plant_id=&year=`. All KPIs' annual records. |
+| `GET /targets/available-numbers` | Scenario numbers that have values |
+| `GET /kpis/{id}/periodic-targets` | `?plant_id=&year=&period_type=Day\|Week\|Month\|Quarter\|Year&target_number=`. Returns `[{period, target_value}]` in chronological order; an unknown `period_type` returns 400. |
+| `GET /kpis/{id}/periodic-targets/all-plants` | The same across plants (`plant_id`, `plant_name`, `target_number`, `period`, `target_value`) |
+| `GET /targets/lean` | Every periodic target as flat rows for BI tools |
+| `GET` / `POST /targets` | *Deprecated.* A legacy flat target table that repartition doesn't use. |
+
+## Actuals
+
+| Route | Notes |
+|---|---|
+| `POST /actuals` | `{kpi_id, plant_id, measurement_date: YYYY-MM-DD, actual_value}`. Upserts per day. |
+| `GET /actuals` | `?kpi_id=&plant_id=&start_date=&end_date=` |
+
+## Split templates
+
+| Route | Notes |
+|---|---|
+| `GET /global-splits` | `?year=` limits the list to templates covering that year (year-agnostic ones are always included) |
+| `GET /global-splits/curve-preview` | `?profile=&logic=&year=`. Suggested starting weights. |
+| `GET /global-splits/{id}` | One template |
+| `POST /global-splits` | `{name, repartition_logic, repartition_values, distribution_profile, profile_params?, years?, afflicted_indicators?}` |
+| `PUT /global-splits/{id}` | Partial update. Every KPI using the template, before or after the change, is recalculated. |
+| `DELETE /global-splits/{id}` | Its KPIs fall back to an even split and are recalculated |
+| `GET` / `PUT /global-splits/{id}/indicators` | Linked indicators `[{indicator_id, override_distribution_profile?}]` |
+
+Weights are percentages keyed by month name, `Q1`..`Q4`, or `W01`..`W53`.
+
+## Seasonality predictor
+
+`POST /analysis/multivariate` takes a multipart form:
+
+| Field | Value |
+|---|---|
+| `file` | `.csv` or `.xlsx`, at most `MAX_UPLOAD_MB` |
+| `target_cols` | Comma-separated target columns |
+| `feature_cols` | Optional driver columns |
+| `date_col` | The date column |
+| `period_type` | `Month`, `Quarter` or `Week` |
+
+It returns `{weights, coefficients, r_squared, plot_data, winning_model, period_type}`. The `weights` are ready to be posted as a template's `repartition_values`. The work runs in FastAPI's thread pool, so other requests aren't blocked.
+
+## KPI definition templates
+
+| Route | Notes |
+|---|---|
+| `GET` / `POST /templates` | List or create (`{name, description?}`) |
+| `DELETE /templates/{id}` | Unlinks its folders. KPIs created from it are kept. |
+| `GET` / `POST /templates/{id}/indicators` | Definitions in a template. Adding one creates the KPI in every linked folder. |
+| `PUT` / `DELETE /templates/indicators/{definition_id}` | Edit or remove. Changes propagate; removal soft-deletes the KPIs created from it. |
+| `POST /templates/{id}/apply` | `{node_id}`. Links a folder and creates the KPIs. |
+
+## Data utilities
+
+| Route | Notes |
+|---|---|
+| `GET /years` | Years with targets |
+| `GET /export/lean` | Lean CSV |
+| `GET /export/csv/{table_key}` | `Plants`, `KPI Hierarchy`, `KPI Definitions`, `Plant Visibility`, `Annual Targets` or `Periodic Targets`. Human-readable, **not** restorable. |
+| `GET /export/all` | Raw backup ZIP: every table 1:1 plus a manifest, NULL written as `\N`. User accounts are excluded. |
+| `POST /import/restore` | **Admin only.** Multipart `file`. Validates the ZIP (known files, size cap, columns), snapshots the databases to `databases/backups/pre-restore-<timestamp>/`, then **replaces** the contents of every table in the backup, in one transaction. Returns `{tables, snapshot, warnings}`. |
+
+## Users and MCP API keys
+
+| Route | Who | Notes |
+|---|---|---|
+| `GET /users` | anyone | Admins get full profiles; others get id, name, colour and active flag |
+| `POST /users` | admin | `{name, password, email?, color?, is_admin?}` |
+| `PUT /users/{id}` | self or admin | `{name, email?, color?, is_active?, is_admin?}`. Only admins can change `is_active` and `is_admin`. |
+| `POST /users/{id}/reset-password` | admin | `{new_password}`. Signs the user out everywhere. |
+| `GET /users/{id}/api-keys` | self or admin | Prefix, label, last use. Never the key itself. |
+| `POST /users/{id}/api-keys` | self or admin | `{label}`, returns `{raw_key, ...}` **once** |
+| `DELETE /api-keys/{id}` | key owner or admin | Revokes immediately |
+
+Login sessions (`sessions` table) and MCP API keys (`api_keys`) are separate credentials: neither works in place of the other. See [mcp.md](mcp.md).
+
+## System
+
+`GET /health` is public and returns `{status, version}`.

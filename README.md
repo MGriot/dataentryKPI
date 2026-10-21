@@ -1,119 +1,205 @@
 # Data Entry KPI Target Manager
 
-A platform for defining KPIs, entering annual targets, and automatically distributing them into daily/weekly/monthly/quarterly values across facilities. The system is built around one shared Python core (SQLite data layer, repartition engine, ML seasonality predictor) exposed through **four** interfaces:
+Define KPIs, enter annual targets per facility, and let the system split them into daily, weekly, monthly and quarterly targets, using seasonal curves you design or derive from historical data with a small ML model race.
 
-| Interface | What it's for | Where it lives |
+![Target Entry: annual targets per KPI, with named target scenarios and the assigned seasonal split](docs/images/target-entry.png)
+
+One Python core (SQLite storage, repartition engine, formula engine, seasonality predictor) is exposed three ways:
+
+| Interface | Use it for | Code |
 |---|---|---|
-| **React web app** | Primary UI — KPI definition, target entry, global splits, analysis, facilities, data utilities, user profiles | `frontend/` (talks to the FastAPI backend) |
-| **FastAPI REST API** | Backend for the React app; also usable directly (Swagger UI at `/docs`) | `src/api.py` |
-| **MCP server** | Lets AI agents/tools query and edit KPI data (stdio for local clients, HTTP+API-key for shared/remote use) | `src/mcp_server.py` |
-| **Tkinter / Streamlit** | Original desktop and web GUIs, still functional, share the same databases | `src/interfaces/tkinter_app/`, `src/interfaces/streamlit_app/` |
+| **React web app** | Everyday work: KPI definitions, target entry, splits, analysis, facilities, backups, accounts | `frontend/` |
+| **REST API** | The app's backend; also scripts and BI tools (Swagger UI at `/docs`) | `src/api.py` |
+| **MCP server** | AI agents (Claude Desktop, Claude Code, any MCP client). 60 tools covering everything the API does | `src/mcp_server.py` |
 
-All four read and write the same SQLite databases in `databases/`, so data entered in one is immediately visible in the others.
+All three share the same databases and the same rules (validation, roles, audit trail), so a target saved by an agent shows up in the app immediately and is attributed to the agent's user.
 
-## Core capabilities
+![Architecture](docs/images/architecture.svg)
 
-- **KPI hierarchy** — nested Groups/Subgroups/Folders, each holding indicators with a description, unit, calculation type, formula (string or visual DAG), directional goal, performance thresholds, target granularity, and a **per-KPI target count** (1..N target scenarios — Base/Stretch/etc., not hardcoded to two).
-- **Target entry & repartition** — enter an annual target and it's automatically split into daily/weekly/monthly/quarterly values using a chosen logic (Year/Month/Quarter/Week) and distribution profile (even, progressive, sinusoidal, weekday-biased, event-based). Calculated (formula-based) KPIs are recomputed and repartitioned in dependency order — a KPI's drivers are always repartitioned before the KPI itself.
-- **Global Split templates** — reusable seasonal weight curves that can be linked to one or more indicators; when linked, the template's logic/profile/weights override the KPI's own settings.
-- **Multivariate seasonality predictor** — upload a CSV/Excel of historical drivers and the backend races OLS, Ridge, and Random Forest models (with cross-validation and Monte Carlo confidence bands) to derive seasonal weights, which can be published straight into a Global Split.
-- **Plants** — facility CRUD with per-plant visibility, accent colors, and broadcast-to-all-facilities target saves.
-- **Data utilities** — CSV export (lean or per-table), full ZIP backup/restore (raw table dumps, preserves IDs/relationships so restore is a true round-trip), formula/DAG editor.
-- **Accounts & audit trail** — password-based login is required before entering or modifying anything (register/sign in gate the whole app, not just a UI overlay — the REST API itself rejects unauthenticated requests). Every save is stamped with the logged-in user's name automatically; full history of who changed a target value or a KPI's definition, and when, is visible in the KPI Explorer. Password changes live under Data Utilities. MCP callers authenticate separately, with a per-user API key rather than a login session.
-- **Custom target names** — each KPI can name its own target scenarios (e.g. "Budget" / "Committed" instead of "Target 1" / "Target 2") from the KPI Explorer, independent of how many targets it has.
+## Features
 
-## Project structure
+- **KPI hierarchy.** Folders of KPIs. Each KPI has:
+  - a unit, a direction (higher, lower or range) and alert thresholds;
+  - a number of target scenarios with your own names (e.g. *Budget* / *Stretch*);
+  - an aggregation type: **Sum** and **Count** split the target across periods, while **Average**, **Last**, **Min** and **Max** treat it as a level.
+- **Formula KPIs.** `[1] / [2]` computes *Units per Hour* from *Units Produced* and *Hours Worked*. Formulas are recalculated automatically, in dependency order, whenever an input changes. They're evaluated by a whitelisted AST walker (no `eval`), and cycles are rejected when you save.
+- **Repartition.** Every saved annual target becomes day, week, month and quarter targets:
+  - Month, Quarter or ISO-week weights decide how much each period gets.
+  - A *day shape* spreads each period over its days: even, progressive, weekday-biased, sinusoidal, or with event spikes and dips.
+  - The result is reconciled exactly to the annual figure.
+- **Global split templates.** Reusable seasonal curves, assigned to KPIs, optionally limited to specific years. Editing a template recalculates every KPI that uses it.
+- **ML seasonality predictor.** Upload historical data (CSV or Excel) with optional driver columns, such as temperature or promotions. OLS, Ridge and Random Forest are raced, and the winner's seasonal weights, with a 5–95% band, can be published as a template.
+- **Facilities.** Per-plant visibility of KPIs, chart colours, and "apply to all facilities" saves.
+- **Analysis.** Multi-plant charts and an annual summary table, with a periodic-target CSV export.
+- **Accounts and audit trail.**
+  - The first account becomes the administrator, and self-registration then closes.
+  - Admins manage users, password resets and restores; everyone else manages only their own account.
+  - Every target value and definition change records who made it and when.
+- **Data utilities.** Human-readable CSV exports and a full ZIP backup. Restore *replaces* the data in one transaction, after snapshotting the current databases.
 
-```
-dataentryKPI/
-├── frontend/                    # React + TypeScript + Vite web app (primary UI)
-│   ├── src/components/          # One workspace component per tab (TargetEntry, KpiManager, GlobalSplits, ...)
-│   ├── src/hooks/                # React Query hooks wrapping the API client
-│   ├── src/services/api.ts       # REST client
-│   └── Dockerfile, nginx.conf    # Container build (served on :80 / mapped to :3000)
-│
-├── src/
-│   ├── api.py                   # FastAPI REST API (backend for the React app)
-│   ├── mcp_server.py             # MCP server: stdio (local) or HTTP (--http, API-key gated)
-│   ├── main.py                   # Launcher for the legacy GUIs (tkinter | streamlit)
-│   ├── core/                     # DAG/formula engine, rollup aggregation
-│   ├── services/                 # actuals, history, ML seasonality predictor
-│   ├── interfaces/               # Tkinter desktop app, Streamlit web app, shared UI constants
-│   ├── data_access/               # DB setup + migrations (setup.py) — additive, safe to re-run
-│   ├── kpi_management/            # Hierarchy/indicator/spec/template/global-split/visibility CRUD
-│   ├── target_management/         # annual.py (save + orchestration), repartition.py (the math)
-│   ├── plants_management/         # Facility CRUD
-│   ├── user_management/           # Named profiles + API key issuance/validation
-│   ├── data_retriever.py          # Read-only query facade
-│   ├── export_manager.py          # CSV export + raw-table ZIP backup dump
-│   └── import_manager.py          # ZIP restore (matches export_manager's raw table format)
-│
-├── databases/                    # SQLite files, one per domain (kpis, targets, plants, users, ...)
-├── docs/                          # Architecture, schema, API reference, GUI manuals
-├── tests/                         # pytest suite
-├── Dockerfile, compose.yml # backend + frontend + mcp_server containers
-└── requirements.txt
-```
+See the **[user guide](docs/user_guide.md)** for a tour of every screen.
 
-## Running it
+## Quick start
 
-### Option A — React app + API (recommended)
+### Option A: local development
+
+Requires Python 3.12+ and Node 22+.
 
 ```bash
-pip install -r requirements.txt
-python -m uvicorn src.api:app --reload          # backend on :8000, http://localhost:8000/docs for Swagger UI
+python -m venv .venv
 ```
 ```bash
-cd frontend
-npm install
-npm run dev                                      # frontend on :5173, talks to the backend above
+.venv/Scripts/python -m pip install -r requirements.txt
 ```
-
-### Option B — Docker / Podman Compose (backend + frontend + MCP, all three containers)
+On macOS or Linux, use `.venv/bin/python` instead.
 
 ```bash
-podman compose up --build
-# frontend  -> http://localhost:3000
-# backend   -> http://localhost:8000
-# mcp_server -> http://localhost:8001 (HTTP transport, requires an API key -- see below)
+.venv/Scripts/python scripts/dev_backend.py
 ```
-
-### Option C — Legacy desktop/web GUIs
+This runs the API on http://127.0.0.1:8000 (Swagger UI at `/docs`), using a throwaway database in `.dev-data/`. To use `databases/` instead, run `python -m uvicorn src.api:app`.
 
 ```bash
-pip install -r requirements.txt
-python src/main.py tkinter      # desktop app
-python src/main.py streamlit    # web app on the Streamlit dev server
+npm --prefix frontend install
+```
+```bash
+npm --prefix frontend run dev
+```
+This serves the app on http://localhost:5173. Vite proxies `/api` to the backend.
+
+Open the app and **create the first account. It becomes the administrator.** Optionally, load demo data (two plants, KPIs, a formula KPI, a seasonal split, and two years of targets):
+
+```bash
+.venv/Scripts/python scripts/seed_demo.py
 ```
 
-### Logging in
+### Option B: containers (Podman or Docker Compose)
 
-The REST API rejects every request without a valid session (`Authorization: Bearer <token>`), except `/auth/register`, `/auth/login`, `/health`, and the docs routes — this is enforced server-side, not just hidden in the UI. The React app shows a Sign In / Register screen until you authenticate; register once (name + password, 8+ characters) to get in, and change your password any time under **Data Utilities → Password Management**. Sessions last 30 days and are stored client-side in `localStorage`.
+```bash
+podman compose up --build -d
+```
 
-### MCP server for AI agents
+| Service | URL | Notes |
+|---|---|---|
+| `frontend` | http://localhost:3000 | nginx serves the app and proxies `/api` to the backend. Set `FRONTEND_PORT` to change the port. |
+| `backend` | http://127.0.0.1:8000 | Loopback only by default (`BACKEND_BIND_ADDRESS`) |
+| `mcp_server` | http://127.0.0.1:8001/mcp | Loopback only by default (`MCP_BIND_ADDRESS`); needs an API key |
 
-MCP authentication is a **separate mechanism from login** — a session token from `/auth/login` will not work against the MCP server, and vice versa.
+How the containers run:
+- They run as a non-root user and have healthchecks.
+- Data lives in the `kpi_databases` volume.
+- The backend runs the migrations; the MCP server waits until the backend is healthy.
 
-- **Local (stdio)** — the default: `python src/mcp_server.py`. Point a local MCP client (e.g. Claude Desktop) at this command; no auth, since it's a private subprocess pipe.
-- **Shared (HTTP)** — `python src/mcp_server.py --http` (or `MCP_TRANSPORT=http`, which is what the Docker container runs). Every request needs `Authorization: Bearer <key>`. Mint a key for a user via `POST /users/{id}/api-keys` on the backend (or the "MCP API Keys" panel under Data Utilities in the React app) — the key is shown once, and the user it belongs to is force-stamped as `changed_by` on anything that key writes, regardless of what the caller claims.
+Copy `.env.example` to `.env` to change settings.
 
-## Documentation
+> **Windows:** Hyper-V sometimes reserves port 3000. Check with `netsh interface ipv4 show excludedportrange protocol=tcp`; if 3000 is in a listed range, set `FRONTEND_PORT=8080`.
 
-- **[Documentation Index](docs/index.md)**
-- **[System Architecture](docs/architecture.md)** — layers, data flow, how the four interfaces share one core.
-- **[REST & MCP API Reference](docs/api_reference.md)** — endpoint list, request/response shapes, MCP tools.
-- **[Database Schema](docs/database_schema.md)** — the partitioned SQLite schema.
-- **[Tkinter Manual](docs/gui_tkinter.md)** / **[Streamlit Manual](docs/gui_streamlit.md)** — legacy interface guides.
-- **[Core Logic & Algorithms](docs/features.md)** — formula engine, repartition math, ML predictor.
-- **[Code-Level Deep Dive](docs/code_depth.md)** — DAG engine, reconciliation math, trend calc, CSV layouts, with code references.
+> **Upgrading from 2.0 containers:** the images no longer run as root. If the existing `kpi_databases` volume was created by root, give it to uid 1000 once:
+> `podman run --rm -v dataentrykpi_kpi_databases:/data alpine chown -R 1000:1000 /data`
+
+## Connecting an AI agent (MCP)
+
+The MCP server exposes every REST feature as a tool. That covers KPIs, targets, splits, the ML predictor, templates, actuals, history, backups, users and API keys. See **[docs/mcp.md](docs/mcp.md)** for the full list.
+
+**Local, over stdio.** The client starts the server itself, using the repo's `databases/` folder (or `KPI_DB_DIR`), and writes are attributed to `MCP_STDIO_USER`. For Claude Code:
+
+```bash
+claude mcp add kpi --env MCP_STDIO_USER=claude-code -- /path/to/dataentryKPI/.venv/bin/python /path/to/dataentryKPI/src/mcp_server.py
+```
+
+For Claude Desktop, add this to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kpi": {
+      "command": "C:\\path\\to\\dataentryKPI\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\dataentryKPI\\src\\mcp_server.py"],
+      "env": { "MCP_STDIO_USER": "claude-desktop" }
+    }
+  }
+}
+```
+
+**Shared, over HTTP** (the `mcp_server` container, or `python -m src.mcp_server --http`):
+1. Create an API key in **Data Utilities → MCP API keys**.
+2. Point the client at the server:
+
+```bash
+claude mcp add --transport http kpi http://127.0.0.1:8001/mcp --header "Authorization: Bearer kpi_mcp_..."
+```
+
+The key's owner is recorded as `changed_by` on every write, and their role decides access to the admin tools.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `KPI_DB_DIR` | `./databases` | Where the SQLite files live |
+| `CORS_ORIGINS` | localhost:3000/5173 | Origins allowed to call the REST API directly |
+| `ALLOW_REGISTRATION` | `false` | Let anyone register (non-admin) accounts after the first one |
+| `MAX_UPLOAD_MB` | `20` | Size cap for ML datasets and backup restores (REST and MCP) |
+| `LOG_LEVEL` | `INFO` | Backend log level |
+| `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8001` | HTTP transport bind address |
+| `MCP_PUBLIC_URL` | `http://localhost:8001` | URL clients use (advertised in auth metadata) |
+| `MCP_ALLOWED_HOSTS` | `localhost:*,127.0.0.1:*` | Host headers accepted when binding to a non-loopback address |
+| `MCP_STDIO_USER` | `mcp_agent` | Who stdio writes are attributed to |
+| `MCP_STDIO_ADMIN` | `true` | Whether the local stdio operator may use admin tools |
+| `FRONTEND_PORT`, `BACKEND_BIND_ADDRESS`, `MCP_BIND_ADDRESS` | `3000`, `127.0.0.1`, `127.0.0.1` | Compose port publishing |
 
 ## Tests
 
 ```bash
-python -m pytest tests/ -q
+.venv/Scripts/python -m pytest tests -q
+```
+```bash
+npm --prefix frontend run typecheck
+```
+```bash
+npm --prefix frontend run lint
+```
+```bash
+npm --prefix frontend test
 ```
 
-## License & History
+The backend suite (147 tests) covers:
+- auth and the authorization matrix;
+- formula sandboxing;
+- repartition math, including leap years and ISO-week boundaries;
+- the backup round trip and legacy-schema migrations;
+- the MCP server, including a parity test that fails when a REST route has no MCP tool.
 
-- MIT License — see [LICENSE](LICENSE).
-- [CHANGELOG.md](CHANGELOG.md) for release history.
+## Project layout
+
+```
+frontend/                 React + TypeScript + Vite app (one workspace component per tab)
+src/
+  api.py                  FastAPI REST API
+  mcp_server.py           MCP server (stdio / Streamable HTTP)
+  core/                   formula.py (safe formula evaluator), node_engine.py (formula DAG)
+  target_management/      annual.py (save + recalculation pipeline), repartition.py (the math)
+  kpi_management/         KPIs, folders, splits, templates, visibility
+  plants_management/      facilities
+  user_management/        accounts, sessions, API keys; access.py = who may do what
+  services/               actuals & status, audit history, ML seasonality predictor
+  data_access/            db.py (connections, ATTACH), setup.py (schema + migrations)
+  export_manager.py       CSV exports + raw backup ZIP
+  import_manager.py       validated, transactional restore
+scripts/                  dev_backend.py, seed_demo.py, capture_screenshots.py
+tests/                    pytest suite
+docs/                     guides, reference, screenshots
+```
+
+## Documentation
+
+- **[User guide](docs/user_guide.md)**: every screen, with screenshots.
+- **[MCP server](docs/mcp.md)**: transports, authentication, roles, and all 60 tools.
+- **[REST API reference](docs/api_reference.md)**: every route, auth and roles.
+- **[Architecture](docs/architecture.md)**: components, data flow, deployment.
+- **[Core logic](docs/features.md)**: repartition, formulas, seasonality predictor, performance status.
+- **[Code-level deep dive](docs/code_depth.md)**: the engine internals, with code references.
+- **[Database schema](docs/database_schema.md)**: the SQLite files and tables.
+- [CHANGELOG](CHANGELOG.md) · [Audit report](AUDIT.md) · [TODO](TODO.md)
+
+## License
+
+MIT, see [LICENSE](LICENSE).
