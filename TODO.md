@@ -7,6 +7,7 @@ Open work, roughly by priority. Completed items are recorded in [CHANGELOG.md](C
 - **Password reset without an admin.** There is no "forgot password" flow; an admin resets passwords.
 
 ## Features
+- **Performance status target.** `GET /kpis/{id}/status` (and MCP `get_performance_status`) compares against 100 unless `target_value` is passed. It should look up the KPI's stored target for the plant and period.
 - **Actuals in the UI.** Actuals and the performance status (`/actuals`, `/kpis/{id}/status`, and the matching MCP tools) have no screen in the web app yet. Add actuals entry or import, and show the status in Target Entry and Analysis.
 - **KPI definition templates in the UI.** Templates work through the API and MCP, but the web app has no screen for them yet (the API client already has the read calls).
 - **Move and rename** folders and KPIs (there is no API for it yet).

@@ -5,6 +5,7 @@ The Data Entry KPI Target Manager turns annual KPI targets into daily, weekly, m
 ![Architecture](images/architecture.svg)
 
 ## Guides
+- **[Illustrated guide (HTML)](guide/index.html)**: the complete manual, with numbered callouts on every screenshot. Open it in a browser.
 - **[User guide](user_guide.md)**: every screen of the web app, with screenshots.
 - **[MCP server](mcp.md)**: connecting Claude Desktop, Claude Code or any MCP client; transports, API keys, roles, and all 60 tools.
 - **[REST API reference](api_reference.md)**: routes, authentication, roles and errors.

@@ -2,6 +2,8 @@
 
 A tour of the web app. The screenshots use the demo data from `scripts/seed_demo.py`, and you can regenerate them with `scripts/capture_screenshots.py`.
 
+> For the complete manual, with numbered callouts on every screenshot, open the [illustrated HTML guide](guide/index.html) in a browser.
+
 The header is the same on every screen:
 - tabs for the six workspaces;
 - a quick search over KPIs;
