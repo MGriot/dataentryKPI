@@ -6,7 +6,9 @@ import type { GlobalSplitPayload, KpiCreatePayload, SaveAnnualTargetsPayload } f
 import type { VisibilityEntry } from '../types';
 import { setSession } from '../utils/session';
 
-const SESSION_KEYS = new Set(['auth-me', 'auth-status']);
+/** Query key of the public sign-in/registration status (what the login screen shows). */
+export const AUTH_STATUS_KEY = 'auth-status';
+const SESSION_KEYS = new Set(['auth-me', AUTH_STATUS_KEY]);
 
 /**
  * Saves on the server cascade (formula KPIs, periodic targets, history, badges...), so after
@@ -24,7 +26,7 @@ function useDataMutation<TVars, TResult>(mutationFn: (vars: TVars) => Promise<TR
 // --- Auth ---
 
 export function useAuthStatus() {
-  return useQuery({ queryKey: ['auth-status'], queryFn: () => api.getAuthStatus(), staleTime: 0 });
+  return useQuery({ queryKey: [AUTH_STATUS_KEY], queryFn: () => api.getAuthStatus(), staleTime: 0 });
 }
 
 export function useLogin() {

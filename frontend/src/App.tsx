@@ -10,7 +10,7 @@ import { TargetEntryWorkspace } from './components/TargetEntryWorkspace';
 import { KpiManagerWorkspace } from './components/KpiManagerWorkspace';
 import { PlantsWorkspace } from './components/PlantsWorkspace';
 import { SettingsWorkspace } from './components/SettingsWorkspace';
-import { invalidateData, useKpis, useKpiTree, usePlants } from './hooks';
+import { AUTH_STATUS_KEY, invalidateData, useKpis, useKpiTree, usePlants } from './hooks';
 import { ApiError, api, errorMessage } from './services/api';
 import { getSessionToken, subscribeToSession } from './utils/session';
 import type { User } from './types';
@@ -105,9 +105,12 @@ function AuthGate() {
   const token = useSyncExternalStore(subscribeToSession, getSessionToken);
 
   // Signing out (here or in another tab) drops every cached query, so the next user never
-  // sees the previous user's data.
+  // sees the previous user's data. The login screen's own status query is already mounted
+  // and fetching by the time this runs: removing it would discard its result.
   useEffect(() => {
-    if (!token) queryClient.clear();
+    if (token) return;
+    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== AUTH_STATUS_KEY });
+    queryClient.getMutationCache().clear();
   }, [token]);
 
   const meQuery = useQuery({
