@@ -1,4 +1,5 @@
 # Only requirements.txt and src/ are copied into the backend image.
+# Patterns match from the context root, so nested paths need a leading **/.
 .git
 .venv
 venv
@@ -6,16 +7,21 @@ env
 .claude
 .vscode
 .dev-data
-__pycache__/
-*.pyc
+.omniscan/
+old/
+**/__pycache__
+**/*.py[cod]
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 databases/
+src/databases/
 csv_exports/
+data/
 user_config/
-*.db
-*.sqlite
-*.log
+**/*.db
+**/*.sqlite
+**/*.log
 .env
 frontend/
 docs/

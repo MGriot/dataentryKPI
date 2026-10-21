@@ -198,7 +198,7 @@ docs/                     guides, reference, screenshots
 - **[Core logic](docs/features.md)**: repartition, formulas, seasonality predictor, performance status.
 - **[Code-level deep dive](docs/code_depth.md)**: the engine internals, with code references.
 - **[Database schema](docs/database_schema.md)**: the SQLite files and tables.
-- [CHANGELOG](CHANGELOG.md) · [Audit report](AUDIT.md) · [TODO](TODO.md)
+- [CHANGELOG](CHANGELOG.md) · [Audit report](docs/audit.md) · [TODO](TODO.md)
 
 ## License
 

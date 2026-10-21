@@ -1,6 +1,6 @@
 # TODO
 
-Open work, roughly by priority. Completed items are recorded in [CHANGELOG.md](CHANGELOG.md) and [AUDIT.md](AUDIT.md).
+Open work, roughly by priority. Completed items are recorded in [CHANGELOG.md](CHANGELOG.md) and the [audit report](docs/audit.md).
 
 ## Security
 - **Session token storage (AUDIT SEC-08).** The 30-day token lives in `localStorage`; a CSP now limits the impact of XSS. Moving to an HttpOnly, SameSite cookie would also need CSRF protection on the API.

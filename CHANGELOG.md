@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [2.1.0] - 2026-10-21
 
-A security, correctness and operability release, from the audit in [AUDIT.md](AUDIT.md). That file has the per-finding status and commits.
+A security, correctness and operability release, from the [audit report](docs/audit.md). That file has the per-finding status and commits.
 
 ### Security
 - **Formulas no longer use `eval`.** They are parsed with `ast` and walked through a strict whitelist, which closes a remote-code-execution hole. Formulas are validated when saved: syntax, known KPIs, no self-reference, no cycles.
@@ -57,6 +57,7 @@ A security, correctness and operability release, from the audit in [AUDIT.md](AU
 - Compose gained healthchecks, start ordering, and configurable ports (`FRONTEND_PORT`, `BACKEND_BIND_ADDRESS`, `MCP_BIND_ADDRESS`).
 - Containers no longer run as root. Existing volumes may need `chown -R 1000:1000` (see the README).
 - New scripts: `scripts/dev_backend.py` (throwaway dev database), `scripts/seed_demo.py` (demo data), `scripts/capture_screenshots.py` (doc screenshots).
+- `.dockerignore` patterns now match nested paths (`**/__pycache__`, `**/*.db`), so bytecode caches and stray `src/databases/` files no longer end up in the backend image.
 
 ### Removed
 - The Tkinter and Streamlit GUIs. They bypassed login, wrote to SQLite directly, and Streamlit no longer started.
@@ -64,6 +65,7 @@ A security, correctness and operability release, from the audit in [AUDIT.md](AU
 ### Docs
 - Rewrote the README and every guide.
 - New [user guide](docs/user_guide.md) with screenshots of every screen, a new [MCP guide](docs/mcp.md), and an architecture diagram.
+- Moved the audit report from the repository root to [docs/audit.md](docs/audit.md).
 
 ## [2.0.0] - 2026-07-25
 

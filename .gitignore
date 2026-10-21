@@ -1,43 +1,41 @@
-# Python artifacts
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Distribution / packaging
+# Packaging
 build/
 dist/
 *.egg-info/
 
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 
-# Testing and Linters
-.mypy_cache/
+# Test and lint caches
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .coverage
 htmlcov/
 
-# Project Specific - Data
+# App data (see src/config/settings.py): databases, exports, the optional
+# user_config/settings.json override, and the dev_backend.py throwaway database
+databases/
+csv_exports/
+user_config/
+.dev-data/
 *.db
 *.sqlite
-databases/
-
-# Project Specific - Exports
 *.csv
-csv_exports/
-
-# Project Specific - Logs & Backups
 *.log
-old/
-# Local tool state / stray data
-.omniscan/
-.claude/settings.local.json
+
+# Stray copies created by running the app from inside src/
 src/databases/
 src/csv_exports/
 
-# Optional local overrides for src/config/settings.py
-user_config/
-.dev-data/
+# Local tool state
+.omniscan/
+.claude/settings.local.json

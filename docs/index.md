@@ -34,5 +34,5 @@ The [repository README](../README.md) has the full setup, configuration and MCP 
 
 ## Project history
 - [CHANGELOG](../CHANGELOG.md)
-- [Audit report](../AUDIT.md): the findings of the October 2026 review and how each was resolved.
+- [Audit report](audit.md): the findings of the October 2026 review and how each was resolved.
 - `archive/`: older planning documents and per-task changelogs, kept for reference.
