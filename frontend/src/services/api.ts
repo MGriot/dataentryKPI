@@ -16,44 +16,79 @@ import type {
   NewApiKeyResult,
   DefinitionHistoryEntry,
   TargetHistoryEntry,
+  AnnualTargetEntry,
+  AuthStatus,
 } from '../types';
 import { getSessionToken, clearSession } from '../utils/session';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Same-origin by default: nginx (container) and the Vite dev server proxy /api to the backend,
+// so the app works from any host. Override with VITE_API_URL to call the API directly.
+export const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+
+/** An HTTP error from the API, with the server's `detail` message when it sent one. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** A user-facing message for any error thrown by the API client. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof TypeError) return 'Could not reach the server. Check your connection and try again.';
+  if (error instanceof Error) return error.message;
+  return 'Something went wrong.';
+}
 
 function authHeaders(): Record<string, string> {
   const token = getSessionToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function handleUnauthorized(res: Response) {
-  if (res.status === 401) {
-    // Session expired/revoked server-side -- drop it so the app falls back to the login screen.
-    clearSession();
+function detailFrom(body: string, fallback: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    const detail = parsed?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      // FastAPI validation errors: [{loc: [...], msg: '...'}]
+      return detail.map((d) => `${(d.loc || []).filter((p: unknown) => p !== 'body').join('.')}: ${d.msg}`).join('; ');
+    }
+  } catch {
+    // not JSON
   }
+  return body || fallback;
 }
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...options?.headers },
-    ...options,
-  });
+async function request(url: string, options: RequestInit = {}, json = true): Promise<Response> {
+  const headers: Record<string, string> = {
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+    ...authHeaders(),
+    ...((options.headers as Record<string, string>) || {}),
+  };
+  const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
   if (!res.ok) {
-    await handleUnauthorized(res);
-    const errText = await res.text();
-    throw new Error(`API Error ${res.status}: ${errText || res.statusText}`);
+    // Only an actual 401 means the session is gone; network errors and 5xx must not log users out.
+    if (res.status === 401 && getSessionToken()) clearSession();
+    throw new ApiError(res.status, detailFrom(await res.text(), res.statusText || `HTTP ${res.status}`));
   }
-  return res.json();
+  return res;
+}
+
+export async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  return (await request(url, options)).json();
 }
 
 async function fetchBlob(url: string): Promise<Blob> {
-  const res = await fetch(`${API_BASE}${url}`, { headers: { ...authHeaders() } });
-  if (!res.ok) {
-    await handleUnauthorized(res);
-    const errText = await res.text();
-    throw new Error(`API Error ${res.status}: ${errText || res.statusText}`);
-  }
-  return res.blob();
+  return (await request(url, {}, false)).blob();
+}
+
+async function postForm<T>(url: string, form: FormData): Promise<T> {
+  return (await request(url, { method: 'POST', body: form }, false)).json();
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -69,19 +104,10 @@ export function downloadBlob(blob: Blob, filename: string) {
 
 export interface AnnualTargetValueInput {
   target_number: number;
-  target_value: number | null;
-  is_manual?: boolean;
-  is_formula_based?: boolean;
-  formula?: string | null;
-  formula_inputs?: any;
+  target_value: number;
 }
 
 export interface AnnualTargetKpiInput {
-  repartition_logic?: string | null;
-  repartition_values?: Record<string, any>;
-  distribution_profile?: string | null;
-  profile_params?: Record<string, any>;
-  global_split_id?: number | null;
   targets: AnnualTargetValueInput[];
 }
 
@@ -92,24 +118,36 @@ export interface SaveAnnualTargetsPayload {
   initiator_kpi_spec_id?: number | null;
 }
 
+export interface GlobalSplitPayload {
+  name: string;
+  repartition_logic: string;
+  repartition_values: Record<string, number>;
+  distribution_profile: string;
+  profile_params?: Record<string, unknown>;
+  years?: number[];
+}
+
+export interface KpiCreatePayload {
+  node_id: number;
+  name: string;
+  calculation_type?: string;
+  unit_of_measure?: string | null;
+  direction?: string;
+}
+
+const q = encodeURIComponent;
+
 export const api = {
   // KPI Tree & Specifications
-  getKpis: (onlyVisible = false, plantId?: number) =>
+  getKpis: (onlyVisible = false, plantId?: number | null) =>
     fetchJson<KpiDetailedSpec[]>(`/kpis?only_visible=${onlyVisible}${plantId ? `&plant_id=${plantId}` : ''}`),
 
-  getKpiTree: (rootId?: number) =>
-    fetchJson<KpiNode[]>(`/kpis/tree${rootId ? `?root_id=${rootId}` : ''}`),
+  getKpiTree: () => fetchJson<KpiNode[]>('/kpis/tree'),
 
-  getKpiById: (kpiId: number, plantId?: number) =>
-    fetchJson<KpiDetailedSpec>(`/kpis/${kpiId}${plantId ? `?plant_id=${plantId}` : ''}`),
+  createKpiIndicator: (payload: KpiCreatePayload) =>
+    fetchJson<{ indicator_id: number; kpi_id: number; name: string }>('/kpis', { method: 'POST', body: JSON.stringify(payload) }),
 
-  createKpiIndicator: (payload: Partial<KpiDetailedSpec> & { node_id: number; name: string }) =>
-    fetchJson<{ indicator_id: number; kpi_id: number; name: string }>('/kpis', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  updateKpiSpec: (kpiId: number, dataUpdates: Record<string, any>) =>
+  updateKpiSpec: (kpiId: number, dataUpdates: Record<string, unknown>) =>
     fetchJson<{ status: string; kpi_id: number }>(`/kpis/${kpiId}`, {
       method: 'PUT',
       body: JSON.stringify({ data_updates: dataUpdates }),
@@ -118,22 +156,17 @@ export const api = {
   addKpiNode: (name: string, parentId?: number | null, customLevelLabel?: string) =>
     fetchJson<{ node_id: number; name: string }>('/kpis/nodes', {
       method: 'POST',
-      body: JSON.stringify({ name, parent_id: parentId, custom_level_label: customLevelLabel }),
+      body: JSON.stringify({ name, parent_id: parentId ?? null, custom_level_label: customLevelLabel }),
     }),
 
-  softDeleteKpi: (kpiId: number) =>
-    fetchJson<{ status: string; kpi_id: number }>(`/kpis/${kpiId}`, {
-      method: 'DELETE',
-    }),
+  softDeleteKpi: (kpiId: number) => fetchJson<{ status: string; kpi_id: number }>(`/kpis/${kpiId}`, { method: 'DELETE' }),
 
-  getKpiHistory: (kpiId: number) =>
-    fetchJson<DefinitionHistoryEntry[]>(`/kpis/${kpiId}/history`),
+  getKpiHistory: (kpiId: number) => fetchJson<DefinitionHistoryEntry[]>(`/kpis/${kpiId}/history`),
 
   getKpiTargetHistory: (kpiId: number, plantId?: number) =>
     fetchJson<TargetHistoryEntry[]>(`/kpis/${kpiId}/target-history${plantId ? `?plant_id=${plantId}` : ''}`),
 
-  getKpiVisibility: (kpiId: number) =>
-    fetchJson<VisibilityEntry[]>(`/kpis/${kpiId}/visibility`),
+  getKpiVisibility: (kpiId: number) => fetchJson<VisibilityEntry[]>(`/kpis/${kpiId}/visibility`),
 
   updateKpiVisibility: (kpiId: number, visibilityData: VisibilityEntry[]) =>
     fetchJson<{ status: string }>(`/kpis/${kpiId}/visibility`, {
@@ -142,107 +175,56 @@ export const api = {
     }),
 
   // Plants
-  getPlants: (visibleOnly = false) =>
-    fetchJson<Plant[]>(`/plants?visible_only=${visibleOnly}`),
+  getPlants: (visibleOnly = false) => fetchJson<Plant[]>(`/plants?visible_only=${visibleOnly}`),
 
   createPlant: (payload: { name: string; description?: string; visible?: boolean; color?: string }) =>
-    fetchJson<{ plant_id: number; name: string }>('/plants', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    fetchJson<{ plant_id: number; name: string }>('/plants', { method: 'POST', body: JSON.stringify(payload) }),
 
   updatePlant: (plantId: number, payload: { name: string; description?: string; visible: boolean; color: string }) =>
-    fetchJson<{ status: string }>(`/plants/${plantId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
+    fetchJson<{ status: string }>(`/plants/${plantId}`, { method: 'PUT', body: JSON.stringify(payload) }),
 
   deletePlant: (plantId: number, force = false) =>
     fetchJson<{ status: string }>(`/plants/${plantId}?force=${force}`, { method: 'DELETE' }),
 
-  // Targets (legacy simple system)
-  getTargets: (kpiId?: number, plantId?: number) =>
-    fetchJson<any[]>(`/targets?${kpiId ? `kpi_id=${kpiId}&` : ''}${plantId ? `plant_id=${plantId}` : ''}`),
-
-  saveTargetValue: (payload: {
-    kpi_id: number;
-    plant_id: number;
-    target_number: number;
-    period_start: string;
-    period_end: string;
-    target_value: number;
-  }) =>
-    fetchJson<{ status: string }>('/targets', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
-
-  getLeanTargets: () => fetchJson<any[]>('/targets/lean'),
-
-  // Annual targets + repartition engine (primary Target Entry save path)
+  // Annual targets + repartition engine
   getAnnualTargetEntry: (year: number, plantId: number, kpiId: number) =>
-    fetchJson<any | null>(`/targets/annual-entry?year=${year}&plant_id=${plantId}&kpi_id=${kpiId}`),
+    fetchJson<AnnualTargetEntry | null>(`/targets/annual-entry?year=${year}&plant_id=${plantId}&kpi_id=${kpiId}`),
 
   getAnnualTargets: (plantId: number, year: number) =>
-    fetchJson<any[]>(`/targets/annual?plant_id=${plantId}&year=${year}`),
-
-  getAvailableTargetNumbers: (year: number, plantId: number, kpiId: number) =>
-    fetchJson<number[]>(`/targets/available-numbers?year=${year}&plant_id=${plantId}&kpi_id=${kpiId}`),
+    fetchJson<AnnualTargetEntry[]>(`/targets/annual?plant_id=${plantId}&year=${year}`),
 
   saveAnnualTargets: (payload: SaveAnnualTargetsPayload) =>
-    fetchJson<{ status: string }>('/targets/annual', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    fetchJson<{ status: string }>('/targets/annual', { method: 'POST', body: JSON.stringify(payload) }),
 
   getKpiPeriodicTargets: (kpiId: number, plantId: number, year: number, periodType: string, targetNumber: number) =>
     fetchJson<PeriodicTargetRecord[]>(
-      `/kpis/${kpiId}/periodic-targets?plant_id=${plantId}&year=${year}&period_type=${periodType}&target_number=${targetNumber}`
+      `/kpis/${kpiId}/periodic-targets?plant_id=${plantId}&year=${year}&period_type=${q(periodType)}&target_number=${targetNumber}`
     ),
 
   getKpiPeriodicTargetsAllPlants: (kpiId: number, periodType: string, year?: number) =>
     fetchJson<PeriodicTargetAllPlantsRecord[]>(
-      `/kpis/${kpiId}/periodic-targets/all-plants?period_type=${periodType}${year ? `&year=${year}` : ''}`
+      `/kpis/${kpiId}/periodic-targets/all-plants?period_type=${q(periodType)}${year ? `&year=${year}` : ''}`
     ),
 
   // Global Splits
-  getGlobalSplits: (year?: number) =>
-    fetchJson<GlobalSplit[]>(`/global-splits${year ? `?year=${year}` : ''}`),
+  getGlobalSplits: (year?: number) => fetchJson<GlobalSplit[]>(`/global-splits${year ? `?year=${year}` : ''}`),
 
-  getGlobalSplit: (splitId: number) =>
-    fetchJson<GlobalSplit>(`/global-splits/${splitId}`),
+  createGlobalSplit: (payload: GlobalSplitPayload) =>
+    fetchJson<{ split_id: number; name: string }>('/global-splits', { method: 'POST', body: JSON.stringify(payload) }),
 
-  createGlobalSplit: (payload: Partial<GlobalSplit> & { name: string; repartition_logic: string; distribution_profile: string; years?: number[] }) =>
-    fetchJson<{ split_id: number; name: string }>('/global-splits', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  updateGlobalSplit: (splitId: number, payload: Partial<GlobalSplitPayload>) =>
+    fetchJson<{ status: string }>(`/global-splits/${splitId}`, { method: 'PUT', body: JSON.stringify(payload) }),
 
-  updateGlobalSplit: (splitId: number, payload: Partial<GlobalSplit> & { years?: number[] }) =>
-    fetchJson<{ status: string }>(`/global-splits/${splitId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
-
-  deleteGlobalSplit: (splitId: number) =>
-    fetchJson<{ status: string }>(`/global-splits/${splitId}`, { method: 'DELETE' }),
+  deleteGlobalSplit: (splitId: number) => fetchJson<{ status: string }>(`/global-splits/${splitId}`, { method: 'DELETE' }),
 
   getCurveWeightSuggestions: (profile: string, logic: string, year?: number) =>
     fetchJson<Record<string, number>>(
-      `/global-splits/curve-preview?profile=${encodeURIComponent(profile)}&logic=${encodeURIComponent(logic)}${year ? `&year=${year}` : ''}`
+      `/global-splits/curve-preview?profile=${q(profile)}&logic=${q(logic)}${year ? `&year=${year}` : ''}`
     ),
 
-  getGlobalSplitIndicators: (splitId: number) =>
-    fetchJson<GlobalSplitIndicatorLink[]>(`/global-splits/${splitId}/indicators`),
+  getGlobalSplitIndicators: (splitId: number) => fetchJson<GlobalSplitIndicatorLink[]>(`/global-splits/${splitId}/indicators`),
 
-  updateGlobalSplitIndicators: (splitId: number, indicators: Array<{ indicator_id: number; override_distribution_profile?: string | null }>) =>
-    fetchJson<{ status: string }>(`/global-splits/${splitId}/indicators`, {
-      method: 'PUT',
-      body: JSON.stringify({ indicators }),
-    }),
-
-  getGlobalSplitsForKpi: (kpiId: number) =>
-    fetchJson<GlobalSplit[]>(`/kpis/${kpiId}/global-splits`),
+  getGlobalSplitsForKpi: (kpiId: number) => fetchJson<GlobalSplit[]>(`/kpis/${kpiId}/global-splits`),
 
   setKpiGlobalSplit: (kpiId: number, globalSplitId: number | null) =>
     fetchJson<{ status: string; kpi_id: number; global_split_id: number | null }>(`/kpis/${kpiId}/global-split`, {
@@ -254,50 +236,22 @@ export const api = {
   getUnitsOfMeasure: () => fetchJson<UnitOfMeasure[]>('/units-of-measure'),
 
   createUnitOfMeasure: (name: string) =>
-    fetchJson<UnitOfMeasure>('/units-of-measure', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    }),
+    fetchJson<UnitOfMeasure>('/units-of-measure', { method: 'POST', body: JSON.stringify({ name }) }),
 
   // Multivariate seasonality analysis
-  runMultivariateAnalysis: async (
-    file: File,
-    targetCols: string[],
-    featureCols: string[],
-    dateCol: string,
-    periodType: string
-  ): Promise<MultivariateAnalysisResult> => {
+  runMultivariateAnalysis: (file: File, targetCols: string[], featureCols: string[], dateCol: string, periodType: string) => {
     const form = new FormData();
     form.append('file', file);
     form.append('target_cols', JSON.stringify(targetCols));
     form.append('feature_cols', JSON.stringify(featureCols));
     form.append('date_col', dateCol);
     form.append('period_type', periodType);
-    const res = await fetch(`${API_BASE}/analysis/multivariate`, { method: 'POST', body: form, headers: authHeaders() });
-    if (!res.ok) {
-      await handleUnauthorized(res);
-      const errText = await res.text();
-      throw new Error(`API Error ${res.status}: ${errText || res.statusText}`);
-    }
-    return res.json();
+    return postForm<MultivariateAnalysisResult>('/analysis/multivariate', form);
   },
 
   // Templates
   getTemplates: () => fetchJson<KpiTemplate[]>('/templates'),
-  createTemplate: (name: string, description = '') =>
-    fetchJson<{ template_id: number; name: string }>('/templates', {
-      method: 'POST',
-      body: JSON.stringify({ name, description }),
-    }),
-  deleteTemplate: (templateId: number) =>
-    fetchJson<{ status: string }>(`/templates/${templateId}`, { method: 'DELETE' }),
-  getTemplateIndicators: (templateId: number) =>
-    fetchJson<TemplateDefinedIndicator[]>(`/templates/${templateId}/indicators`),
-  addTemplateIndicator: (templateId: number, payload: Omit<TemplateDefinedIndicator, 'id' | 'template_id'>) =>
-    fetchJson<{ status: string }>(`/templates/${templateId}/indicators`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  getTemplateIndicators: (templateId: number) => fetchJson<TemplateDefinedIndicator[]>(`/templates/${templateId}/indicators`),
 
   // Data utilities: CSV export & ZIP backup/restore
   getYears: () => fetchJson<Array<{ year: number }>>('/years'),
@@ -305,28 +259,21 @@ export const api = {
   downloadLeanExport: async () => downloadBlob(await fetchBlob('/export/lean'), 'lean_target_data.csv'),
 
   downloadCsvTable: async (tableKey: string) =>
-    downloadBlob(await fetchBlob(`/export/csv/${encodeURIComponent(tableKey)}`), `${tableKey.replace(/\s+/g, '_')}.csv`),
+    downloadBlob(await fetchBlob(`/export/csv/${q(tableKey)}`), `${tableKey.replace(/\s+/g, '_')}.csv`),
 
   downloadFullBackup: async () => downloadBlob(await fetchBlob('/export/all'), 'kpi_backup.zip'),
 
-  restoreFromBackup: async (file: File) => {
+  restoreFromBackup: (file: File) => {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`${API_BASE}/import/restore`, { method: 'POST', body: form, headers: authHeaders() });
-    if (!res.ok) {
-      await handleUnauthorized(res);
-      const errText = await res.text();
-      throw new Error(`API Error ${res.status}: ${errText || res.statusText}`);
-    }
-    return res.json() as Promise<{ status: string; detail: string }>;
+    return postForm<{ status: string; detail: string; snapshot: string; warnings: string[] }>('/import/restore', form);
   },
 
-  // Auth (login required before anything else works)
+  // Auth
+  getAuthStatus: () => fetchJson<AuthStatus>('/auth/status'),
+
   register: (payload: { name: string; password: string; email?: string; color?: string }) =>
-    fetchJson<{ token: string; expires_at: string; user: User }>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    fetchJson<{ token: string; expires_at: string; user: User }>('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
 
   login: (name: string, password: string) =>
     fetchJson<{ token: string; expires_at: string; user: User }>('/auth/login', {
@@ -344,28 +291,25 @@ export const api = {
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     }),
 
-  // Users (named profiles for audit attribution) & MCP API keys
+  // Users & MCP API keys
   getUsers: (activeOnly = false) => fetchJson<User[]>(`/users?active_only=${activeOnly}`),
 
-  createUser: (payload: { name: string; password: string; email?: string; color?: string }) =>
-    fetchJson<{ id: number; name: string }>('/users', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  createUser: (payload: { name: string; password: string; email?: string; color?: string; is_admin?: boolean }) =>
+    fetchJson<{ id: number; name: string }>('/users', { method: 'POST', body: JSON.stringify(payload) }),
 
-  updateUser: (userId: number, payload: { name: string; email?: string; color?: string; is_active: boolean }) =>
-    fetchJson<{ status: string }>(`/users/${userId}`, {
-      method: 'PUT',
-      body: JSON.stringify(payload),
+  updateUser: (userId: number, payload: { name: string; email?: string; color?: string; is_active: boolean; is_admin?: boolean }) =>
+    fetchJson<{ status: string }>(`/users/${userId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+
+  resetUserPassword: (userId: number, newPassword: string) =>
+    fetchJson<{ status: string }>(`/users/${userId}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ new_password: newPassword }),
     }),
 
   getUserApiKeys: (userId: number) => fetchJson<ApiKey[]>(`/users/${userId}/api-keys`),
 
   createUserApiKey: (userId: number, label: string) =>
-    fetchJson<NewApiKeyResult>(`/users/${userId}/api-keys`, {
-      method: 'POST',
-      body: JSON.stringify({ label }),
-    }),
+    fetchJson<NewApiKeyResult>(`/users/${userId}/api-keys`, { method: 'POST', body: JSON.stringify({ label }) }),
 
   revokeApiKey: (keyId: number) => fetchJson<{ status: string }>(`/api-keys/${keyId}`, { method: 'DELETE' }),
 };

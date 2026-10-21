@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 660" width="1000" height="660" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title>Data Entry KPI Target Manager architecture</title>
+  <desc>Browsers reach the React app through nginx, which proxies /api to the FastAPI REST API. Scripts call the REST API directly. AI agents use the MCP server over stdio or Streamable HTTP with an API key. The REST API and MCP server share one Python core, which stores everything in SQLite files through one connection layer.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font-size: 20px; font-weight: 700; fill: #0f172a; }
+      .h { font-size: 15px; font-weight: 600; fill: #0f172a; }
+      .s { font-size: 12.5px; fill: #475569; }
+      .hb { font-size: 13.5px; font-weight: 600; fill: #0f172a; }
+      .xs { font-size: 11.5px; fill: #334155; }
+      .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; fill: #64748b; }
+      .edge { stroke: #475569; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .label { font-size: 11.5px; fill: #475569; }
+    </style>
+  </defs>
+
+  <rect width="1000" height="660" rx="12" fill="#ffffff"/>
+  <text x="40" y="40" class="title">Data Entry KPI Target Manager — architecture</text>
+
+  <!-- Clients -->
+  <text x="40" y="74" class="tag">CLIENTS</text>
+  <rect x="40" y="84" width="280" height="56" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+  <text x="180" y="107" text-anchor="middle" class="h">Web browser</text>
+  <text x="180" y="127" text-anchor="middle" class="s">React app (frontend/)</text>
+
+  <rect x="360" y="84" width="280" height="56" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+  <text x="500" y="107" text-anchor="middle" class="h">Scripts &amp; BI tools</text>
+  <text x="500" y="127" text-anchor="middle" class="s">HTTP + session token</text>
+
+  <rect x="680" y="84" width="280" height="56" rx="8" fill="#eef2ff" stroke="#6366f1"/>
+  <text x="820" y="107" text-anchor="middle" class="h">AI agents</text>
+  <text x="820" y="127" text-anchor="middle" class="s">Claude Desktop / Code, any MCP client</text>
+
+  <!-- Entry points -->
+  <text x="40" y="186" class="tag">ENTRY POINTS</text>
+  <rect x="40" y="196" width="280" height="78" rx="8" fill="#ecfeff" stroke="#0891b2"/>
+  <text x="180" y="220" text-anchor="middle" class="h">frontend container (nginx)</text>
+  <text x="180" y="240" text-anchor="middle" class="s">serves the built app, proxies /api</text>
+  <text x="180" y="259" text-anchor="middle" class="s">CSP + security headers · :3000</text>
+
+  <rect x="360" y="196" width="280" height="78" rx="8" fill="#ecfeff" stroke="#0891b2"/>
+  <text x="500" y="220" text-anchor="middle" class="h">REST API — src/api.py</text>
+  <text x="500" y="240" text-anchor="middle" class="s">FastAPI · password login · admin role</text>
+  <text x="500" y="259" text-anchor="middle" class="s">:8000 · Swagger UI at /docs</text>
+
+  <rect x="680" y="196" width="280" height="78" rx="8" fill="#f5f3ff" stroke="#7c3aed"/>
+  <text x="820" y="220" text-anchor="middle" class="h">MCP server — src/mcp_server.py</text>
+  <text x="820" y="240" text-anchor="middle" class="s">60 tools · stdio or Streamable HTTP</text>
+  <text x="820" y="259" text-anchor="middle" class="s">:8001/mcp · per-user API keys</text>
+
+  <path class="edge" d="M180,140 L180,194"/>
+  <path class="edge" d="M320,235 L358,235"/>
+  <text x="339" y="227" text-anchor="middle" class="label">/api</text>
+  <path class="edge" d="M500,140 L500,194"/>
+  <path class="edge" d="M820,140 L820,194"/>
+
+  <!-- Core -->
+  <rect x="40" y="320" width="920" height="168" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="60" y="344" class="tag">SHARED PYTHON CORE (src/) — same rules for REST and MCP</text>
+
+  <g>
+    <rect x="60" y="356" width="280" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="74" y="378" class="hb">user_management</text>
+    <text x="74" y="398" class="xs">accounts, sessions, API keys, roles (access.py)</text>
+
+    <rect x="360" y="356" width="280" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="374" y="378" class="hb" style="font-size:12.5px">kpi_management · plants_management</text>
+    <text x="374" y="398" class="xs">hierarchy, specs, splits, templates, visibility</text>
+
+    <rect x="660" y="356" width="280" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="674" y="378" class="hb">target_management</text>
+    <text x="674" y="398" class="xs">annual save → formula KPIs → repartition</text>
+
+    <rect x="60" y="420" width="280" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="74" y="442" class="hb">core/formula.py · node_engine.py</text>
+    <text x="74" y="462" class="xs">AST-whitelisted formulas, dependency DAG</text>
+
+    <rect x="360" y="420" width="280" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="374" y="442" class="hb">services</text>
+    <text x="374" y="462" class="xs">actuals &amp; status, audit history, ML predictor</text>
+
+    <rect x="660" y="420" width="280" height="56" rx="6" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="674" y="442" class="hb">export_manager · import_manager</text>
+    <text x="674" y="462" class="xs">CSV exports, ZIP backup and restore</text>
+  </g>
+
+  <path class="edge" d="M500,274 L500,318"/>
+  <path class="edge" d="M820,274 L820,318"/>
+
+  <!-- Data -->
+  <rect x="40" y="534" width="920" height="100" rx="10" fill="#fffbeb" stroke="#d97706"/>
+  <text x="60" y="558" class="tag">DATA — data_access/db.py: one connection, ATTACHed files, atomic multi-file writes</text>
+  <g font-size="11.5" text-anchor="middle">
+    <rect x="60" y="572" width="102" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="111" y="590" class="xs" text-anchor="middle">db_kpis</text>
+    <text x="111" y="606" class="xs" text-anchor="middle" fill="#64748b">KPIs, folders</text>
+
+    <rect x="172" y="572" width="102" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="223" y="590" class="xs" text-anchor="middle">db_plants</text>
+    <text x="223" y="606" class="xs" text-anchor="middle" fill="#64748b">facilities</text>
+
+    <rect x="284" y="572" width="102" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="335" y="590" class="xs" text-anchor="middle">db_kpi_targets</text>
+    <text x="335" y="606" class="xs" text-anchor="middle" fill="#64748b">annual targets</text>
+
+    <rect x="396" y="572" width="152" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="472" y="590" class="xs" text-anchor="middle">db_kpi_days / weeks /</text>
+    <text x="472" y="606" class="xs" text-anchor="middle">months / quarters</text>
+
+    <rect x="558" y="572" width="102" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="609" y="590" class="xs" text-anchor="middle">db_kpi_templates</text>
+    <text x="609" y="606" class="xs" text-anchor="middle" fill="#64748b">splits, templates</text>
+
+    <rect x="670" y="572" width="88" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="714" y="590" class="xs" text-anchor="middle">db_kpi_actuals</text>
+    <text x="714" y="606" class="xs" text-anchor="middle" fill="#64748b">measured</text>
+
+    <rect x="768" y="572" width="88" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="812" y="590" class="xs" text-anchor="middle">db_kpi_history</text>
+    <text x="812" y="606" class="xs" text-anchor="middle" fill="#64748b">audit trail</text>
+
+    <rect x="866" y="572" width="74" height="44" rx="6" fill="#ffffff" stroke="#f59e0b"/>
+    <text x="903" y="590" class="xs" text-anchor="middle">db_users</text>
+    <text x="903" y="606" class="xs" text-anchor="middle" fill="#64748b">accounts</text>
+  </g>
+
+  <path class="edge" d="M500,488 L500,532"/>
+</svg>

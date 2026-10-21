@@ -1,7 +1,5 @@
-from .groups import *
-from .subgroups import *
-from .indicators import *
-from .specs import *
-from .templates import *
-from .visibility import *
-from .splits import *
+"""KPI hierarchy, specs, templates, splits and visibility.
+
+Import the submodules directly (e.g. `from src.kpi_management import crud`); this package
+intentionally has no star-imports so importing one submodule doesn't load them all.
+"""

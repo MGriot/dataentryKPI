@@ -1,93 +1,195 @@
 # src/api.py
-import json
-import tempfile
+"""REST API for the React app (and anyone with a session token). Swagger UI at /docs."""
+import logging
 import os
+import shutil
+import tempfile
+import threading
+import time
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Request, Depends
+from typing import Any, Dict, List, Optional, Union
+
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Security, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any, Union
-from src import data_retriever
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.security import HTTPBearer
+from pydantic import BaseModel, Field, field_validator
+
+from src import data_retriever, export_manager, import_manager
+from src.config import settings as app_settings
+from src.core.formula import FormulaError
+from src.data_access.setup import setup_databases
 from src.kpi_management import crud as kpi_crud
 from src.kpi_management import splits as splits_crud
 from src.kpi_management import templates as templates_crud
 from src.kpi_management import visibility as visibility_crud
 from src.plants_management import crud as plants_crud
-from src.target_management import annual as annual_management
-from src.target_management import repartition as repartition_module
 from src.services import actuals_service, history_service, split_analyzer
-from src import export_manager, import_manager
-from src.config import settings as app_config
-from src.data_access.setup import setup_databases
+from src.target_management import annual as annual_management
+from src.user_management import access
 from src.user_management import crud as user_crud
 
-app = FastAPI(title="Data Entry KPI Target Manager API", description="Consolidated REST API & Backend Services for KPI targets, actuals, performance, and history.")
+APP_VERSION = "2.1.0"
+log = logging.getLogger("kpi.api")
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    return os.environ.get(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _cors_origins() -> List[str]:
+    raw = os.environ.get("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173")
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    setup_databases()
+    user_crud.purge_expired_sessions()
+    yield
+
+
+bearer_scheme = HTTPBearer(auto_error=False, description="Session token from POST /auth/login")
+
+app = FastAPI(
+    title="Data Entry KPI Target Manager API",
+    description="REST API for KPI definitions, targets, repartition, splits, plants, users and backups. "
+                "Log in with POST /auth/login, then click Authorize and paste the token.",
+    version=APP_VERSION,
+    lifespan=lifespan,
+    dependencies=[Security(bearer_scheme)],
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins(),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
-@app.on_event("startup")
-def _run_db_migrations():
-    """Ensures database schema is up to date (same migration used by the Tkinter/Streamlit apps)."""
-    setup_databases()
+
+# --- Errors -> HTTP ---
+
+@app.exception_handler(annual_management.TargetValidationError)
+@app.exception_handler(FormulaError)
+@app.exception_handler(import_manager.RestoreError)
+async def _bad_request(_request: Request, exc: Exception):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(access.AccessDenied)
+async def _forbidden(_request: Request, exc: Exception):
+    return JSONResponse(status_code=403, content={"detail": str(exc)})
+
+
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error. See the server log for details."})
+
+
+def _bad(exc: Exception, status: int = 400):
+    raise HTTPException(status_code=status, detail=str(exc)) from exc
+
 
 # --- Auth gate ---
-# Every route requires a valid session (Authorization: Bearer <token>, minted by POST /auth/login or
-# /auth/register) except this small allowlist. This is what makes "must log in before entering or
-# modifying anything" actually true at the API layer, not just a client-side UI gate.
-# NOTE: only register/login/logout are exempt -- /auth/me and /auth/change-password still need a
-# validated session (they use Depends(get_current_user), which reads request.state.user, which only
-# the branch below sets).
-_PUBLIC_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc", "/auth/register", "/auth/login", "/auth/logout"}
+# Every route needs a valid session (Authorization: Bearer <token>) except this allowlist.
+_PUBLIC_PATHS = {"/", "/health", "/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc",
+                 "/auth/register", "/auth/login", "/auth/logout", "/auth/status"}
+
 
 @app.middleware("http")
 async def _require_session(request: Request, call_next):
-    if request.method == "OPTIONS":
-        return await call_next(request)  # CORS preflight never carries Authorization
-    path = request.url.path
-    if path in _PUBLIC_PATHS:
+    if request.method == "OPTIONS" or request.url.path in _PUBLIC_PATHS:
         return await call_next(request)
-
     auth_header = request.headers.get("authorization", "")
-    raw_token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+    raw_token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else None
     user = user_crud.validate_session(raw_token) if raw_token else None
     if not user:
         return JSONResponse(status_code=401, content={"detail": "Not authenticated. Log in via POST /auth/login."})
-
     request.state.user = user
+    request.state.session_token = raw_token
     return await call_next(request)
 
+
 def get_current_user(request: Request) -> dict:
-    """Typed accessor for the user the _require_session middleware already authenticated."""
     user = getattr(request.state, "user", None)
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return user
 
-# --- Pydantic Data Models ---
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    access.require_admin(user)
+    return user
+
+
+class _LoginRateLimiter:
+    """Failed-login throttle: per (client, name) and per client, sliding window, in memory."""
+
+    def __init__(self, per_name: int = 8, per_client: int = 40, window_seconds: int = 900):
+        self.per_name, self.per_client, self.window = per_name, per_client, window_seconds
+        self._failures: Dict[tuple, deque] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def _recent(self, key) -> deque:
+        q, cutoff = self._failures[key], time.monotonic() - self.window
+        while q and q[0] < cutoff:
+            q.popleft()
+        return q
+
+    def check(self, client: str, name: str):
+        with self._lock:
+            if len(self._recent((client, name.lower()))) >= self.per_name or len(self._recent((client,))) >= self.per_client:
+                raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in a few minutes.")
+
+    def failed(self, client: str, name: str):
+        now = time.monotonic()
+        with self._lock:
+            self._recent((client, name.lower())).append(now)
+            self._recent((client,)).append(now)
+
+    def succeeded(self, client: str, name: str):
+        with self._lock:
+            self._failures.pop((client, name.lower()), None)
+
+
+login_limiter = _LoginRateLimiter()
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+# --- Models ---
+
+_HEX = r"^#[0-9a-fA-F]{6}$"
+Name = Field(..., min_length=1, max_length=200)
+
+
 class ActualMeasurementRequest(BaseModel):
     kpi_id: int
     plant_id: int
-    measurement_date: str
+    measurement_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     actual_value: float
+
 
 class TargetUpdateRequest(BaseModel):
     kpi_id: int
     plant_id: int
-    target_number: int
+    target_number: int = Field(..., ge=1)
     period_start: str
     period_end: str
     target_value: float
 
+
 class KPIIndicatorCreateRequest(BaseModel):
     node_id: int
-    name: str
+    name: str = Name
     description: Optional[str] = None
     calculation_type: Optional[str] = "Sum"
     unit_of_measure: Optional[str] = None
@@ -96,71 +198,83 @@ class KPIIndicatorCreateRequest(BaseModel):
     direction: Optional[str] = "Higher is Better"
     threshold_json: Optional[str] = None
     target_granularity: Optional[str] = "Monthly"
-    target_count: Optional[int] = 1
+    target_count: int = Field(1, ge=1, le=10)
     time_filter_type: Optional[str] = "None"
     time_filter_value: Optional[str] = None
 
+
 class KPINodeCreateRequest(BaseModel):
     parent_id: Optional[int] = None
-    name: str
+    name: str = Name
     custom_level_label: Optional[str] = None
+
 
 class KPISpecUpdateRequest(BaseModel):
     data_updates: Dict[str, Any]
 
+
 class UnitOfMeasureCreateRequest(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=50)
+
 
 class KpiGlobalSplitAssignRequest(BaseModel):
     global_split_id: Optional[int] = None
 
-class PlantCreateRequest(BaseModel):
-    name: str
-    description: Optional[str] = ""
-    visible: bool = True
-    color: str = "#000000"
 
-class PlantUpdateRequest(BaseModel):
-    name: str
+class PlantRequest(BaseModel):
+    name: str = Name
     description: Optional[str] = ""
     visible: bool = True
-    color: str = "#000000"
+    color: str = Field("#3b82f6", pattern=_HEX)
+
 
 class VisibilityEntry(BaseModel):
     plant_id: int
     is_enabled: bool
 
+
 class VisibilityUpdateRequest(BaseModel):
     visibility_data: List[VisibilityEntry]
 
+
+class SplitIndicatorLink(BaseModel):
+    indicator_id: int
+    override_distribution_profile: Optional[str] = None
+
+
 class GlobalSplitCreateRequest(BaseModel):
-    name: str
+    name: str = Name
     repartition_logic: str
     repartition_values: Dict[str, Any] = {}
     distribution_profile: str
     profile_params: Dict[str, Any] = {}
     years: Optional[List[int]] = None
-    afflicted_indicators: Optional[List[Dict[str, Any]]] = None
+    afflicted_indicators: Optional[List[SplitIndicatorLink]] = None
+
 
 class GlobalSplitUpdateRequest(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
     repartition_logic: Optional[str] = None
     repartition_values: Optional[Dict[str, Any]] = None
     distribution_profile: Optional[str] = None
     profile_params: Optional[Dict[str, Any]] = None
     years: Optional[List[int]] = None
-    afflicted_indicators: Optional[List[Dict[str, Any]]] = None
+    afflicted_indicators: Optional[List[SplitIndicatorLink]] = None
+
 
 class GlobalSplitIndicatorsUpdateRequest(BaseModel):
-    indicators: List[Dict[str, Any]]
+    indicators: List[SplitIndicatorLink]
+
 
 class AnnualTargetValueInput(BaseModel):
-    target_number: int
+    target_number: int = Field(..., ge=1, le=10)
     target_value: Optional[float] = None
+    # Accepted for backwards compatibility; per-target formulas are rejected (set them on the KPI).
     is_manual: bool = True
     is_formula_based: bool = False
     formula: Optional[str] = None
-    formula_inputs: Optional[Any] = "[]"
+    formula_inputs: Optional[Any] = None
+
 
 class AnnualTargetKpiInput(BaseModel):
     repartition_logic: Optional[str] = None
@@ -170,587 +284,753 @@ class AnnualTargetKpiInput(BaseModel):
     global_split_id: Optional[int] = None
     targets: List[AnnualTargetValueInput] = []
 
+
 class SaveAnnualTargetsRequest(BaseModel):
-    year: int
+    year: int = Field(..., ge=1900, le=2200)
     plant_id: Union[int, List[int]]
     targets_data_map: Dict[str, AnnualTargetKpiInput]
     initiator_kpi_spec_id: Optional[int] = None
 
+
 class TemplateCreateRequest(BaseModel):
-    name: str
+    name: str = Name
     description: Optional[str] = ""
 
+
 class TemplateIndicatorCreateRequest(BaseModel):
-    indicator_name_in_template: str
-    default_calculation_type: str
+    indicator_name_in_template: str = Name
+    default_calculation_type: str = "Sum"
     default_unit_of_measure: Optional[str] = None
     default_visible: bool = True
     default_description: Optional[str] = ""
 
+
 class TemplateIndicatorUpdateRequest(BaseModel):
     template_id: int
-    name: str
+    name: str = Name
     calc_type: str
     unit: Optional[str] = None
     visible: bool = True
     description: Optional[str] = ""
 
+
+class TemplateApplyRequest(BaseModel):
+    node_id: int
+
+
 class UserCreateRequest(BaseModel):
-    name: str
-    password: str
+    name: str = Name
+    password: str = Field(..., min_length=8, max_length=256)
     email: Optional[str] = ""
-    color: Optional[str] = "#3b82f6"
+    color: Optional[str] = Field("#3b82f6", pattern=_HEX)
+    is_admin: bool = False
+
 
 class UserUpdateRequest(BaseModel):
-    name: str
+    name: str = Name
     email: Optional[str] = ""
-    color: Optional[str] = "#3b82f6"
+    color: Optional[str] = Field("#3b82f6", pattern=_HEX)
     is_active: bool = True
+    is_admin: Optional[bool] = None
+
+
+class PasswordResetRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=256)
+
 
 class ApiKeyCreateRequest(BaseModel):
-    label: str
+    label: str = Field(..., min_length=1, max_length=100)
+
 
 class RegisterRequest(BaseModel):
-    name: str
-    password: str
+    name: str = Name
+    password: str = Field(..., min_length=8, max_length=256)
     email: Optional[str] = ""
-    color: Optional[str] = "#3b82f6"
+    color: Optional[str] = Field("#3b82f6", pattern=_HEX)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Name cannot be blank")
+        return v.strip()
+
 
 class LoginRequest(BaseModel):
-    name: str
-    password: str
+    name: str = Field(..., max_length=200)
+    password: str = Field(..., max_length=256)
+
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(..., max_length=256)
+    new_password: str = Field(..., min_length=8, max_length=256)
 
-@app.get("/health")
+
+# --- Health & auth ---
+
+@app.get("/health", tags=["system"])
 def health_check():
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": APP_VERSION}
 
-# --- Auth: register / login / logout / me / change-password ---
-@app.post("/auth/register")
-def register(req: RegisterRequest):
-    """Creates a new user account and logs them in immediately (returns a session token)."""
+
+def _registration_open() -> bool:
+    return user_crud.count_users() == 0 or _env_flag("ALLOW_REGISTRATION")
+
+
+@app.get("/auth/status", tags=["auth"])
+def auth_status():
+    """Public: whether self-registration is open (always true until the first account exists)."""
+    has_users = user_crud.count_users() > 0
+    return {"has_users": has_users, "registration_open": not has_users or _env_flag("ALLOW_REGISTRATION")}
+
+
+@app.post("/auth/register", tags=["auth"])
+def register(req: RegisterRequest, request: Request):
+    """Creates an account and logs it in. The first account becomes admin; afterwards registration
+    is closed unless ALLOW_REGISTRATION=true (admins can always create users via POST /users)."""
+    if not _registration_open():
+        raise HTTPException(status_code=403, detail="Registration is closed. Ask an admin to create your account.")
+    login_limiter.check(_client_ip(request), req.name)
     try:
         user_id = user_crud.add_user(req.name, req.password, req.email or "", req.color or "#3b82f6")
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        login_limiter.failed(_client_ip(request), req.name)
+        raise HTTPException(status_code=409, detail=str(e)) from e
     session = user_crud.create_session(user_id)
-    user = user_crud.get_user_by_id(user_id)
-    return {"token": session["token"], "expires_at": session["expires_at"], "user": user}
+    return {"token": session["token"], "expires_at": session["expires_at"], "user": user_crud.get_user_by_id(user_id)}
 
-@app.post("/auth/login")
-def login(req: LoginRequest):
+
+@app.post("/auth/login", tags=["auth"])
+def login(req: LoginRequest, request: Request):
+    client = _client_ip(request)
+    login_limiter.check(client, req.name)
     user = user_crud.verify_password(req.name, req.password)
     if not user:
+        login_limiter.failed(client, req.name)
         raise HTTPException(status_code=401, detail="Invalid name or password.")
+    login_limiter.succeeded(client, req.name)
     session = user_crud.create_session(user["id"])
     return {"token": session["token"], "expires_at": session["expires_at"], "user": user}
 
-@app.post("/auth/logout")
+
+@app.post("/auth/logout", tags=["auth"])
 def logout(request: Request):
     auth_header = request.headers.get("authorization", "")
-    raw_token = auth_header[7:] if auth_header.lower().startswith("bearer ") else None
+    raw_token = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else None
     user_crud.revoke_session(raw_token)
     return {"status": "success"}
 
-@app.get("/auth/me")
+
+@app.get("/auth/me", tags=["auth"])
 def get_me(current_user: dict = Depends(get_current_user)):
     return current_user
 
-@app.post("/auth/change-password")
-def change_password(req: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+
+@app.post("/auth/change-password", tags=["auth"])
+def change_password(req: ChangePasswordRequest, request: Request, current_user: dict = Depends(get_current_user)):
+    """Changes your password and signs out your other sessions (this one stays valid)."""
     try:
-        user_crud.change_password(current_user["id"], req.current_password, req.new_password)
+        user_crud.change_password(current_user["id"], req.current_password, req.new_password,
+                                  keep_session_token=getattr(request.state, "session_token", None))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _bad(e)
     return {"status": "success"}
 
-@app.get("/targets/lean")
-def get_lean_targets():
-    """Returns a minimal, high-portability list of target data for BI tools."""
-    return data_retriever.get_lean_targets()
 
-@app.get("/kpis")
+# --- KPIs ---
+
+def _kpi_or_404(kpi_id: int) -> dict:
+    kpi = data_retriever.get_kpi_detailed_by_id(kpi_id)
+    if not kpi:
+        raise HTTPException(status_code=404, detail="KPI not found")
+    return kpi
+
+
+@app.get("/kpis", tags=["kpis"])
 def get_kpis(only_visible: bool = False, plant_id: Optional[int] = None):
-    """Returns detailed KPI specifications."""
+    """Active KPI specs. With plant_id, KPIs explicitly disabled for that plant are omitted."""
     return data_retriever.get_all_kpis_detailed(only_visible=only_visible, plant_id=plant_id)
 
-@app.get("/kpis/tree")
-def get_kpi_tree(root_id: Optional[int] = None, depth: Optional[int] = None):
-    """Returns recursive KPI hierarchy tree."""
+
+@app.get("/kpis/tree", tags=["kpis"])
+def get_kpi_tree(root_id: Optional[int] = None, depth: Optional[int] = Query(None, ge=1)):
     return kpi_crud.get_kpi_tree(root_id=root_id, depth=depth)
 
-@app.post("/kpis")
+
+@app.post("/kpis", tags=["kpis"])
 def create_kpi(req: KPIIndicatorCreateRequest, current_user: dict = Depends(get_current_user)):
-    """Creates a new KPI indicator and spec."""
-    return kpi_crud.create_kpi_indicator(
-        node_id=req.node_id,
-        name=req.name,
-        description=req.description,
-        calculation_type=req.calculation_type,
-        unit_of_measure=req.unit_of_measure,
-        visible=req.visible,
-        owner=req.owner,
-        direction=req.direction,
-        threshold_json=req.threshold_json,
-        target_granularity=req.target_granularity,
-        target_count=req.target_count,
-        time_filter_type=req.time_filter_type,
-        time_filter_value=req.time_filter_value,
-        changed_by=current_user["name"]
-    )
+    try:
+        return kpi_crud.create_kpi_indicator(**req.model_dump(), changed_by=current_user["name"])
+    except ValueError as e:
+        _bad(e)
 
-@app.post("/kpis/nodes")
+
+@app.post("/kpis/nodes", tags=["kpis"])
 def add_kpi_node(req: KPINodeCreateRequest):
-    """Creates a new node in the KPI tree hierarchy."""
-    node_id = kpi_crud.add_kpi_node(req.parent_id, req.name, req.custom_level_label)
-    return {"node_id": node_id, "name": req.name}
+    try:
+        node_id = kpi_crud.add_kpi_node(req.parent_id, req.name, req.custom_level_label)
+    except ValueError as e:
+        _bad(e)
+    return {"node_id": node_id, "name": req.name.strip()}
 
-@app.delete("/kpis/{kpi_id}")
+
+@app.delete("/kpis/{kpi_id}", tags=["kpis"])
 def soft_delete_kpi(kpi_id: int, current_user: dict = Depends(get_current_user)):
-    """Soft deletes a KPI indicator (preserves historical target and actual records)."""
-    success = kpi_crud.soft_delete_kpi(kpi_id, changed_by=current_user["name"])
-    if not success:
+    """Hides a KPI everywhere; its targets, actuals and history are kept."""
+    if not kpi_crud.soft_delete_kpi(kpi_id, changed_by=current_user["name"]):
         raise HTTPException(status_code=404, detail="KPI not found")
     return {"status": "success", "kpi_id": kpi_id, "is_active": False}
 
-@app.get("/kpis/{kpi_id}/status")
+
+@app.get("/kpis/{kpi_id}/status", tags=["kpis"])
 def get_kpi_status(kpi_id: int, plant_id: int, target_value: Optional[float] = None):
-    """Evaluates performance status, actuals time filter, and trend for a KPI."""
+    _kpi_or_404(kpi_id)
     return data_retriever.get_kpi_performance_status(kpi_id=kpi_id, plant_id=plant_id, target_value=target_value)
 
-@app.get("/kpis/{kpi_id}/history")
+
+@app.get("/kpis/{kpi_id}/history", tags=["kpis"])
 def get_kpi_history(kpi_id: int):
-    """Retrieves definition change audit logs for a KPI."""
     return history_service.get_definition_history(kpi_id)
 
-@app.get("/plants")
-def get_plants(visible_only: bool = False):
-    """Returns all plants."""
-    return data_retriever.get_all_plants(visible_only=visible_only)
 
-@app.post("/actuals")
-def record_actual(req: ActualMeasurementRequest):
-    """Records an actual measurement for a KPI and plant."""
-    row_id = actuals_service.record_actual_measurement(
-        kpi_id=req.kpi_id,
-        plant_id=req.plant_id,
-        measurement_date=req.measurement_date,
-        actual_value=req.actual_value
-    )
-    return {"status": "success", "id": row_id}
+@app.get("/kpis/{kpi_id}/target-history", tags=["kpis"])
+def get_kpi_target_history(kpi_id: int, plant_id: Optional[int] = None):
+    return history_service.get_target_history(kpi_id, plant_id=plant_id)
 
-@app.get("/actuals")
-def get_actuals(kpi_id: int, plant_id: int, start_date: Optional[str] = None, end_date: Optional[str] = None):
-    """Retrieves actual measurement series."""
-    return actuals_service.get_actual_measurements(kpi_id, plant_id, start_date, end_date)
 
-@app.post("/targets")
-def update_target(req: TargetUpdateRequest, current_user: dict = Depends(get_current_user)):
-    """Creates or updates a target value and logs target audit history."""
-    success = kpi_crud.update_target_value(
-        plant_id=req.plant_id,
-        kpi_id=req.kpi_id,
-        target_number=req.target_number,
-        period_start=req.period_start,
-        period_end=req.period_end,
-        target_value=req.target_value,
-        changed_by=current_user["name"]
-    )
-    return {"status": "success", "updated": success}
-
-@app.get("/targets")
-def get_targets(kpi_id: Optional[int] = None, plant_id: Optional[int] = None):
-    """Retrieves modern target records."""
-    return data_retriever.get_modern_kpi_targets(kpi_id=kpi_id, plant_id=plant_id)
-
-# --- KPI spec update ---
-@app.get("/kpis/{kpi_id}")
+@app.get("/kpis/{kpi_id}", tags=["kpis"])
 def get_kpi_by_id(kpi_id: int, plant_id: Optional[int] = None):
-    """Fetches a single detailed KPI spec by ID."""
     kpi = data_retriever.get_kpi_detailed_by_id(kpi_id, plant_id=plant_id)
     if not kpi:
         raise HTTPException(status_code=404, detail="KPI not found")
     return kpi
 
-@app.put("/kpis/{kpi_id}")
+
+@app.put("/kpis/{kpi_id}", tags=["kpis"])
 def update_kpi_spec(kpi_id: int, req: KPISpecUpdateRequest, current_user: dict = Depends(get_current_user)):
-    """Updates a KPI's spec fields (description, calculation_type, target_count, etc.)."""
-    success = kpi_crud.update_kpi_spec_extended(kpi_id, req.data_updates, changed_by=current_user["name"])
-    if not success:
-        raise HTTPException(status_code=404, detail="KPI not found or no valid fields to update")
+    """Updates spec fields. Setting formula_string (e.g. "[3] / [4]") makes the KPI calculated;
+    the formula is validated (syntax, known KPIs, no cycles) and targets are recalculated."""
+    unknown = sorted(set(req.data_updates) - set(kpi_crud.UPDATABLE_SPEC_FIELDS))
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Field(s) can't be updated: {', '.join(unknown)}")
+    try:
+        ok = kpi_crud.update_kpi_spec_extended(kpi_id, req.data_updates, changed_by=current_user["name"])
+    except ValueError as e:
+        _bad(e)
+    if not ok:
+        raise HTTPException(status_code=404, detail="KPI not found")
     return {"status": "success", "kpi_id": kpi_id}
 
-@app.get("/units-of-measure")
+
+@app.get("/units-of-measure", tags=["kpis"])
 def list_units_of_measure():
-    """Returns the registry of defined units of measure for KPI Explorer's UoM picker."""
     return kpi_crud.get_all_units_of_measure()
 
-@app.post("/units-of-measure")
+
+@app.post("/units-of-measure", tags=["kpis"])
 def create_unit_of_measure(req: UnitOfMeasureCreateRequest):
-    """Adds a new unit of measure to the registry (or returns the existing one)."""
     try:
         return kpi_crud.add_unit_of_measure(req.name)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _bad(e)
 
-@app.put("/kpis/{kpi_id}/global-split")
-def assign_kpi_global_split(kpi_id: int, req: KpiGlobalSplitAssignRequest):
-    """
-    Assigns (or clears) the single Global Split Template used to repartition this KPI's targets.
-    This is the consolidated home for repartition/split assignment -- Target Entry no longer
-    exposes per-target repartition controls, so this is the only place a user sets it.
-    """
-    kpi = data_retriever.get_kpi_detailed_by_id(kpi_id)
-    if not kpi:
-        raise HTTPException(status_code=404, detail="KPI not found")
-    splits_crud.set_kpi_global_split(kpi["indicator_id"], req.global_split_id)
+
+@app.put("/kpis/{kpi_id}/global-split", tags=["kpis"])
+def assign_kpi_global_split(kpi_id: int, req: KpiGlobalSplitAssignRequest, current_user: dict = Depends(get_current_user)):
+    """Assigns (or clears) the split template used to repartition this KPI, then recalculates its targets."""
+    kpi = _kpi_or_404(kpi_id)
+    try:
+        splits_crud.set_kpi_global_split(kpi["indicator_id"], req.global_split_id)
+    except ValueError as e:
+        _bad(e, 404)
+    annual_management.recalculate_kpis([kpi_id], changed_by=current_user["name"])
     return {"status": "success", "kpi_id": kpi_id, "global_split_id": req.global_split_id}
 
-@app.get("/kpis/{kpi_id}/visibility")
+
+@app.get("/kpis/{kpi_id}/visibility", tags=["kpis"])
 def get_kpi_visibility(kpi_id: int):
-    """Returns explicit plant visibility overrides for a KPI."""
     return visibility_crud.get_plant_visibility_for_kpi(kpi_id)
 
-@app.put("/kpis/{kpi_id}/visibility")
+
+@app.put("/kpis/{kpi_id}/visibility", tags=["kpis"])
 def update_kpi_visibility(kpi_id: int, req: VisibilityUpdateRequest):
-    """Updates plant visibility overrides for a KPI."""
-    visibility_crud.update_plant_visibility(kpi_id, [v.dict() for v in req.visibility_data])
+    if not visibility_crud.update_plant_visibility(kpi_id, [v.model_dump() for v in req.visibility_data]):
+        raise HTTPException(status_code=404, detail="KPI not found")
     return {"status": "success", "kpi_id": kpi_id}
 
-# --- Plants CRUD ---
-@app.post("/plants")
-def create_plant(req: PlantCreateRequest):
-    """Creates a new plant."""
+
+@app.get("/kpis/{kpi_id}/global-splits", tags=["kpis"])
+def get_global_splits_for_kpi(kpi_id: int):
+    return splits_crud.get_global_splits_for_indicator(_kpi_or_404(kpi_id)["indicator_id"])
+
+
+# --- Plants ---
+
+@app.get("/plants", tags=["plants"])
+def get_plants(visible_only: bool = False):
+    return data_retriever.get_all_plants(visible_only=visible_only)
+
+
+@app.post("/plants", tags=["plants"])
+def create_plant(req: PlantRequest):
     try:
         plant_id = plants_crud.add_plant(req.name, req.description, req.visible, req.color)
-        return {"plant_id": plant_id, "name": req.name}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        _bad(e, 409)
+    return {"plant_id": plant_id, "name": req.name.strip()}
 
-@app.put("/plants/{plant_id}")
-def update_plant(plant_id: int, req: PlantUpdateRequest):
-    """Updates an existing plant's details."""
+
+@app.put("/plants/{plant_id}", tags=["plants"])
+def update_plant(plant_id: int, req: PlantRequest):
     try:
         plants_crud.update_plant(plant_id, req.name, req.description, req.visible, req.color)
-        return {"status": "success", "plant_id": plant_id}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except plants_crud.PlantNotFoundError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e, 409)
+    return {"status": "success", "plant_id": plant_id}
 
-@app.delete("/plants/{plant_id}")
+
+@app.delete("/plants/{plant_id}", tags=["plants"])
 def delete_plant(plant_id: int, force: bool = False):
-    """Deletes a plant. Fails if referenced in targets unless force=true."""
+    """Deletes a plant. Refuses (409) if it has targets/actuals unless force=true, which deletes them too."""
     try:
         plants_crud.delete_plant(plant_id, force_delete_if_referenced=force)
-        return {"status": "success", "plant_id": plant_id}
+    except plants_crud.PlantNotFoundError as e:
+        _bad(e, 404)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _bad(e, 409)
+    return {"status": "success", "plant_id": plant_id}
 
-# --- Global Splits ---
-@app.get("/global-splits")
+
+# --- Global splits ---
+
+@app.get("/global-splits", tags=["splits"])
 def list_global_splits(year: Optional[int] = None):
     return splits_crud.get_all_global_splits(year=year)
 
-@app.get("/global-splits/curve-preview")
+
+@app.get("/global-splits/curve-preview", tags=["splits"])
 def preview_curve_weights(profile: str, logic: str, year: Optional[int] = None):
-    """Suggested per-period weights for a distribution curve, to pre-fill a new template's weight cells."""
+    """Suggested per-period weights for a curve, to pre-fill a template's weight cells."""
     return splits_crud.get_curve_weight_suggestions(profile, logic, year)
 
-@app.get("/global-splits/{split_id}")
+
+@app.get("/global-splits/{split_id}", tags=["splits"])
 def get_global_split(split_id: int):
     split = splits_crud.get_global_split(split_id)
     if not split:
         raise HTTPException(status_code=404, detail="Global split not found")
     return split
 
-@app.post("/global-splits")
-def create_global_split(req: GlobalSplitCreateRequest):
-    split_id = splits_crud.add_global_split(
-        name=req.name,
-        repartition_logic=req.repartition_logic,
-        repartition_values=req.repartition_values,
-        distribution_profile=req.distribution_profile,
-        profile_params=req.profile_params,
-        years=req.years,
-        afflicted_indicators=req.afflicted_indicators,
-    )
-    return {"split_id": split_id, "name": req.name}
 
-@app.put("/global-splits/{split_id}")
-def update_global_split(split_id: int, req: GlobalSplitUpdateRequest):
-    kwargs = {k: v for k, v in req.dict().items() if v is not None}
-    splits_crud.update_global_split(split_id, **kwargs)
+def _links(items) -> Optional[list]:
+    return None if items is None else [i.model_dump() for i in items]
+
+
+@app.post("/global-splits", tags=["splits"])
+def create_global_split(req: GlobalSplitCreateRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        split_id = splits_crud.add_global_split(
+            name=req.name, repartition_logic=req.repartition_logic, repartition_values=req.repartition_values,
+            distribution_profile=req.distribution_profile, profile_params=req.profile_params, years=req.years,
+            afflicted_indicators=_links(req.afflicted_indicators),
+        )
+    except ValueError as e:
+        _bad(e)
+    if req.afflicted_indicators:
+        annual_management.recalculate_indicators([i.indicator_id for i in req.afflicted_indicators], current_user["name"])
+    return {"split_id": split_id, "name": req.name.strip()}
+
+
+@app.put("/global-splits/{split_id}", tags=["splits"])
+def update_global_split(split_id: int, req: GlobalSplitUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Updates a template; every KPI using it gets its targets recalculated."""
+    before = {i["indicator_id"] for i in splits_crud.get_indicators_for_global_split(split_id)}
+    try:
+        found = splits_crud.update_global_split(
+            split_id, name=req.name, repartition_logic=req.repartition_logic, repartition_values=req.repartition_values,
+            distribution_profile=req.distribution_profile, profile_params=req.profile_params, years=req.years,
+            afflicted_indicators=_links(req.afflicted_indicators),
+        )
+    except ValueError as e:
+        _bad(e)
+    if not found:
+        raise HTTPException(status_code=404, detail="Global split not found")
+    after = {i["indicator_id"] for i in splits_crud.get_indicators_for_global_split(split_id)}
+    annual_management.recalculate_indicators(before | after, current_user["name"])
     return {"status": "success", "split_id": split_id}
 
-@app.delete("/global-splits/{split_id}")
-def delete_global_split(split_id: int):
-    splits_crud.delete_global_split(split_id)
+
+@app.delete("/global-splits/{split_id}", tags=["splits"])
+def delete_global_split(split_id: int, current_user: dict = Depends(get_current_user)):
+    if not splits_crud.get_global_split(split_id):
+        raise HTTPException(status_code=404, detail="Global split not found")
+    affected = splits_crud.delete_global_split(split_id)
+    annual_management.recalculate_indicators(affected, current_user["name"])
     return {"status": "success", "split_id": split_id}
 
-@app.get("/global-splits/{split_id}/indicators")
+
+@app.get("/global-splits/{split_id}/indicators", tags=["splits"])
 def get_global_split_indicators(split_id: int):
     return splits_crud.get_indicators_for_global_split(split_id)
 
-@app.put("/global-splits/{split_id}/indicators")
-def update_global_split_indicators(split_id: int, req: GlobalSplitIndicatorsUpdateRequest):
-    splits_crud.update_global_split_indicators(split_id, req.indicators)
+
+@app.put("/global-splits/{split_id}/indicators", tags=["splits"])
+def update_global_split_indicators(split_id: int, req: GlobalSplitIndicatorsUpdateRequest,
+                                   current_user: dict = Depends(get_current_user)):
+    if not splits_crud.get_global_split(split_id):
+        raise HTTPException(status_code=404, detail="Global split not found")
+    before = {i["indicator_id"] for i in splits_crud.get_indicators_for_global_split(split_id)}
+    try:
+        splits_crud.update_global_split_indicators(split_id, _links(req.indicators))
+    except ValueError as e:
+        _bad(e)
+    annual_management.recalculate_indicators(before | {i.indicator_id for i in req.indicators}, current_user["name"])
     return {"status": "success", "split_id": split_id}
 
-@app.get("/kpis/{kpi_id}/global-splits")
-def get_global_splits_for_kpi(kpi_id: int):
-    """Returns the Global Split Template(s) assigned to this KPI's indicator."""
-    kpi = data_retriever.get_kpi_detailed_by_id(kpi_id)
-    indicator_id = kpi["indicator_id"] if kpi else kpi_id
-    return splits_crud.get_global_splits_for_indicator(indicator_id)
 
-# --- Annual targets, repartition & periodic targets ---
-@app.get("/targets/annual-entry")
+# --- Targets ---
+
+@app.get("/targets/lean", tags=["targets"])
+def get_lean_targets():
+    """Minimal, BI-friendly list of all periodic targets."""
+    return data_retriever.get_lean_targets()
+
+
+@app.post("/targets", tags=["targets"], deprecated=True)
+def update_target_value(req: TargetUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Legacy flat target table (explicit start/end). Not used by repartition or the UI --
+    use POST /targets/annual instead."""
+    kpi_crud.update_target_value(**req.model_dump(), changed_by=current_user["name"])
+    return {"status": "success", "updated": True}
+
+
+@app.get("/targets", tags=["targets"], deprecated=True)
+def get_targets(kpi_id: Optional[int] = None, plant_id: Optional[int] = None):
+    """Rows of the legacy flat target table (see POST /targets)."""
+    return data_retriever.get_modern_kpi_targets(kpi_id=kpi_id, plant_id=plant_id)
+
+
+@app.get("/targets/annual-entry", tags=["targets"])
 def get_annual_target_entry(year: int, plant_id: int, kpi_id: int):
-    """Fetches the annual target record (repartition config + all target_number values) for a KPI/plant/year."""
-    entry = data_retriever.get_annual_target_entry(year, plant_id, kpi_id)
-    return entry
+    return data_retriever.get_annual_target_entry(year, plant_id, kpi_id)
 
-@app.get("/targets/annual")
+
+@app.get("/targets/annual", tags=["targets"])
 def get_annual_targets(plant_id: int, year: int):
-    """Fetches all annual target records for a plant/year."""
     return data_retriever.get_annual_targets(plant_id, year)
 
-@app.get("/targets/available-numbers")
+
+@app.get("/targets/available-numbers", tags=["targets"])
 def get_available_target_numbers(year: int, plant_id: int, kpi_id: int):
     return data_retriever.get_available_target_numbers_for_kpi(year, plant_id, kpi_id)
 
-@app.post("/targets/annual")
+
+@app.post("/targets/annual", tags=["targets"])
 def save_annual_targets_endpoint(req: SaveAnnualTargetsRequest, current_user: dict = Depends(get_current_user)):
-    """
-    Saves annual targets (repartition config + per-target_number values) for one or more plants,
-    triggers formula-cascade calculation, and automatically recalculates all periodic (day/week/
-    month/quarter) repartitions for every affected KPI. This is the primary Target Entry save path.
-    """
+    """Saves annual targets for one or more plants, recalculates dependent formula KPIs and all
+    periodic (day/week/month/quarter) targets -- atomically. Blank values are left unchanged."""
     targets_data_map = {}
     for kpi_id_str, kpi_input in req.targets_data_map.items():
-        # Repartition/split config is no longer set from Target Entry (it's assigned once on the
-        # KPI in KPI Explorer instead), so these keys are only included when actually provided --
-        # otherwise annual.py's "in data_dict_from_ui" check would fire on every save and null out
-        # the NOT NULL repartition_logic/distribution_profile columns on the existing row.
-        entry = {"targets": [t.dict() for t in kpi_input.targets]}
-        if kpi_input.repartition_logic is not None:
-            entry["repartition_logic"] = kpi_input.repartition_logic
-        if kpi_input.repartition_values:
-            entry["repartition_values"] = json.dumps(kpi_input.repartition_values)
-        if kpi_input.distribution_profile is not None:
-            entry["distribution_profile"] = kpi_input.distribution_profile
-        if kpi_input.profile_params:
-            entry["profile_params"] = json.dumps(kpi_input.profile_params)
-        if kpi_input.global_split_id is not None:
-            entry["global_split_id"] = kpi_input.global_split_id
+        entry = kpi_input.model_dump(exclude_none=True)
+        entry["targets"] = [t.model_dump() for t in kpi_input.targets]
         targets_data_map[kpi_id_str] = entry
+    annual_management.save_annual_targets(
+        year=req.year, plant_id=req.plant_id, targets_data_map=targets_data_map,
+        initiator_kpi_spec_id=req.initiator_kpi_spec_id, changed_by=current_user["name"],
+    )
+    return {"status": "success"}
 
+
+@app.get("/kpis/{kpi_id}/periodic-targets", tags=["targets"])
+def get_kpi_periodic_targets(kpi_id: int, plant_id: int, year: int, period_type: str, target_number: int = 1):
+    """[{period, target_value}] in chronological order. period_type: Day, Week, Month, Quarter or Year."""
     try:
-        annual_management.save_annual_targets(
-            year=req.year,
-            plant_id=req.plant_id,
-            targets_data_map=targets_data_map,
-            initiator_kpi_spec_id=req.initiator_kpi_spec_id,
-            changed_by=current_user["name"],
-        )
-        return {"status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return data_retriever.get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_number)
+    except ValueError as e:
+        _bad(e)
 
-@app.get("/kpis/{kpi_id}/periodic-targets")
-def get_kpi_periodic_targets(kpi_id: int, plant_id: int, year: int, period_type: str, target_number: int):
-    return data_retriever.get_periodic_targets_for_kpi(year, plant_id, kpi_id, period_type, target_number)
 
-@app.get("/kpis/{kpi_id}/periodic-targets/all-plants")
+@app.get("/kpis/{kpi_id}/periodic-targets/all-plants", tags=["targets"])
 def get_kpi_periodic_targets_all_plants(kpi_id: int, period_type: str, year: Optional[int] = None):
-    return data_retriever.get_periodic_targets_for_kpi_all_plants(kpi_id, period_type, year=year)
+    try:
+        return data_retriever.get_periodic_targets_for_kpi_all_plants(kpi_id, period_type, year=year)
+    except ValueError as e:
+        _bad(e)
 
-# --- Multivariate seasonality analysis ---
-@app.post("/analysis/multivariate")
-async def run_multivariate_analysis(
+
+# --- Actuals ---
+
+@app.post("/actuals", tags=["actuals"])
+def record_actual(req: ActualMeasurementRequest):
+    _kpi_or_404(req.kpi_id)
+    row_id = actuals_service.record_actual_measurement(req.kpi_id, req.plant_id, req.measurement_date, req.actual_value)
+    return {"status": "success", "id": row_id}
+
+
+@app.get("/actuals", tags=["actuals"])
+def get_actuals(kpi_id: int, plant_id: int, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    return actuals_service.get_actual_measurements(kpi_id, plant_id, start_date, end_date)
+
+
+# --- Uploads ---
+
+def _read_upload(file: UploadFile) -> bytes:
+    limit = app_settings.max_upload_bytes()
+    data = file.file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(status_code=413, detail=f"File is larger than {limit // (1024 * 1024)} MB.")
+    if not data:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    return data
+
+
+def _split_columns(raw: str) -> List[str]:
+    import json
+    raw = (raw or "").strip()
+    if raw.startswith("["):
+        try:
+            values = json.loads(raw)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Column list is not valid JSON.") from None
+        return [str(v).strip() for v in values if str(v).strip()]
+    return [c.strip() for c in raw.split(",") if c.strip()]
+
+
+@app.post("/analysis/multivariate", tags=["analysis"])
+def run_multivariate_analysis(
     file: UploadFile = File(...),
     target_cols: str = Form(...),
-    feature_cols: str = Form(...),
+    feature_cols: str = Form(""),
     date_col: str = Form(...),
     period_type: str = Form("Month"),
 ):
-    """Uploads a CSV/XLSX dataset and runs the OLS/Ridge/RandomForest seasonality driver race."""
-    target_cols_list = json.loads(target_cols) if target_cols.strip().startswith("[") else [c.strip() for c in target_cols.split(",") if c.strip()]
-    feature_cols_list = json.loads(feature_cols) if feature_cols.strip().startswith("[") else [c.strip() for c in feature_cols.split(",") if c.strip()]
+    """Uploads a CSV/XLSX dataset and races OLS / Ridge / Random Forest to derive seasonal weights.
+    The returned weights use template keys (month names, Q1..Q4, W01..W53) in percent, ready to publish."""
+    suffix = Path(file.filename or "upload.csv").suffix.lower()
+    if suffix not in (".csv", ".txt", ".xlsx", ".xls"):
+        raise HTTPException(status_code=400, detail="Upload a .csv or .xlsx file.")
+    data = _read_upload(file)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir) / f"upload{suffix}"
+        tmp_path.write_bytes(data)
+        try:
+            weights, coefficients, r_squared, plot_df, winning_model = split_analyzer.analyze_seasonality_from_file(
+                str(tmp_path), _split_columns(target_cols), _split_columns(feature_cols), date_col.strip(), period_type
+            )
+        except ValueError as e:
+            _bad(e)
+        except Exception:
+            log.exception("Multivariate analysis failed")
+            raise HTTPException(status_code=400, detail="Analysis failed: the file could not be processed.") from None
+    return {
+        "weights": weights,
+        "coefficients": coefficients,
+        "r_squared": r_squared,
+        "plot_data": plot_df.to_dict("records"),
+        "winning_model": winning_model,
+        "period_type": period_type,
+    }
 
-    suffix = Path(file.filename or "upload.csv").suffix or ".csv"
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
 
-        weights, coefficients, r_squared, plot_df, winning_model = split_analyzer.analyze_seasonality_from_file(
-            tmp_path, target_cols_list, feature_cols_list, date_col, period_type
-        )
-        return {
-            "weights": weights,
-            "coefficients": coefficients,
-            "r_squared": r_squared,
-            "plot_data": plot_df.to_dict("records"),
-            "winning_model": winning_model,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Analysis failed: {e}")
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
+# --- KPI indicator templates ---
 
-# --- KPI Indicator Templates ---
-@app.get("/templates")
+@app.get("/templates", tags=["templates"])
 def list_templates():
     return data_retriever.get_kpi_indicator_templates()
 
-@app.post("/templates")
-def create_template(req: TemplateCreateRequest):
-    template_id = templates_crud.add_kpi_indicator_template(req.name, req.description or "")
-    return {"template_id": template_id, "name": req.name}
 
-@app.delete("/templates/{template_id}")
+@app.post("/templates", tags=["templates"])
+def create_template(req: TemplateCreateRequest):
+    try:
+        template_id = templates_crud.add_kpi_indicator_template(req.name, req.description or "")
+    except ValueError as e:
+        _bad(e, 409)
+    return {"template_id": template_id, "name": req.name.strip()}
+
+
+@app.delete("/templates/{template_id}", tags=["templates"])
 def delete_template(template_id: int):
-    templates_crud.delete_kpi_indicator_template(template_id)
+    """Deletes a template and unlinks its folders (KPIs created from it are kept)."""
+    if not templates_crud.delete_kpi_indicator_template(template_id):
+        raise HTTPException(status_code=404, detail="Template not found")
     return {"status": "success", "template_id": template_id}
 
-@app.get("/templates/{template_id}/indicators")
+
+@app.get("/templates/{template_id}/indicators", tags=["templates"])
 def get_template_indicators(template_id: int):
     return data_retriever.get_template_defined_indicators(template_id)
 
-@app.post("/templates/{template_id}/indicators")
-def add_template_indicator(template_id: int, req: TemplateIndicatorCreateRequest):
-    templates_crud.add_indicator_definition_to_template(
-        template_id, req.indicator_name_in_template, req.default_calculation_type,
-        req.default_unit_of_measure, req.default_visible, req.default_description or ""
-    )
-    return {"status": "success", "template_id": template_id}
 
-@app.put("/templates/indicators/{definition_id}")
-def update_template_indicator(definition_id: int, req: TemplateIndicatorUpdateRequest):
-    templates_crud.update_indicator_definition_in_template(
-        definition_id, req.template_id, req.name, req.calc_type, req.unit, req.visible, req.description or ""
-    )
+@app.post("/templates/{template_id}/indicators", tags=["templates"])
+def add_template_indicator(template_id: int, req: TemplateIndicatorCreateRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        definition_id = templates_crud.add_indicator_definition_to_template(
+            template_id, req.indicator_name_in_template, req.default_calculation_type, req.default_unit_of_measure,
+            req.default_visible, req.default_description or "", changed_by=current_user["name"],
+        )
+    except LookupError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+    return {"status": "success", "template_id": template_id, "definition_id": definition_id}
+
+
+@app.put("/templates/indicators/{definition_id}", tags=["templates"])
+def update_template_indicator(definition_id: int, req: TemplateIndicatorUpdateRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        ok = templates_crud.update_indicator_definition_in_template(
+            definition_id, req.template_id, req.name, req.calc_type, req.unit, req.visible, req.description or "",
+            changed_by=current_user["name"],
+        )
+    except ValueError as e:
+        _bad(e)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Template indicator not found")
     return {"status": "success", "definition_id": definition_id}
 
-@app.delete("/templates/indicators/{definition_id}")
-def remove_template_indicator(definition_id: int):
-    templates_crud.remove_indicator_definition_from_template(definition_id)
+
+@app.delete("/templates/indicators/{definition_id}", tags=["templates"])
+def remove_template_indicator(definition_id: int, current_user: dict = Depends(get_current_user)):
+    if not templates_crud.remove_indicator_definition_from_template(definition_id, changed_by=current_user["name"]):
+        raise HTTPException(status_code=404, detail="Template indicator not found")
     return {"status": "success", "definition_id": definition_id}
 
-# --- Data utilities: CSV export & ZIP backup/restore ---
-@app.get("/years")
+
+@app.post("/templates/{template_id}/apply", tags=["templates"])
+def apply_template(template_id: int, req: TemplateApplyRequest, current_user: dict = Depends(get_current_user)):
+    """Links a folder to the template and creates its indicators there (later template edits propagate)."""
+    try:
+        applied = templates_crud.apply_template_to_node(template_id, req.node_id, changed_by=current_user["name"])
+    except LookupError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+    return {"status": "success", "template_id": template_id, "node_id": req.node_id, "applied": applied}
+
+
+# --- Data utilities ---
+
+@app.get("/years", tags=["data"])
 def get_years():
     return data_retriever.get_distinct_years()
 
-@app.get("/export/lean")
-def export_lean_csv():
-    export_dir = Path(tempfile.mkdtemp())
-    export_manager.export_lean_data_to_csv(str(export_dir))
-    file_path = export_dir / "lean_target_data.csv"
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="No data available to export")
-    return FileResponse(file_path, filename="lean_target_data.csv", media_type="text/csv")
 
-@app.get("/export/csv/{table_key}")
-def export_csv_table(table_key: str):
-    export_dir = Path(tempfile.mkdtemp())
-    result = export_manager.export_single_table(table_key, str(export_dir))
-    if result.startswith("Error"):
-        raise HTTPException(status_code=400, detail=result)
-    filename = export_manager.GLOBAL_CSV_FILES.get(
-        {"Plants": "plants", "KPI Hierarchy": "kpi_nodes", "KPI Definitions": "kpi_definitions",
-         "Plant Visibility": "kpi_plant_visibility", "Annual Targets": "annual", "Periodic Targets": "periodic"}.get(table_key, "")
-    )
-    file_path = export_dir / filename if filename else None
-    if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail="Export produced no file")
-    return FileResponse(file_path, filename=filename, media_type="text/csv")
+def _file_download(path: Path, tmp_dir: str, background: BackgroundTasks) -> FileResponse:
+    background.add_task(shutil.rmtree, tmp_dir, ignore_errors=True)
+    return FileResponse(path, filename=path.name, media_type="text/csv", background=background)
 
-@app.get("/export/all")
+
+@app.get("/export/lean", tags=["data"])
+def export_lean_csv(background: BackgroundTasks):
+    tmp_dir = tempfile.mkdtemp(prefix="kpi-export-")
+    return _file_download(export_manager.export_lean_data_to_csv(tmp_dir), tmp_dir, background)
+
+
+@app.get("/export/csv/{table_key}", tags=["data"])
+def export_csv_table(table_key: str, background: BackgroundTasks):
+    """table_key: Plants, KPI Hierarchy, KPI Definitions, Plant Visibility, Annual Targets, Periodic Targets."""
+    if table_key not in export_manager.SINGLE_TABLE_EXPORTS:
+        raise HTTPException(status_code=400, detail=f"Unknown table '{table_key}'")
+    tmp_dir = tempfile.mkdtemp(prefix="kpi-export-")
+    return _file_download(export_manager.export_single_table(table_key, tmp_dir), tmp_dir, background)
+
+
+@app.get("/export/all", tags=["data"])
 def export_all_backup():
-    """Dumps raw tables and packages them as a downloadable ZIP backup (restorable via /import/restore)."""
-    export_dir = Path(tempfile.mkdtemp())
-    written_files = export_manager.export_raw_backup_csvs(str(export_dir))
-    if not written_files:
-        raise HTTPException(status_code=500, detail="No data available to back up")
-    ok, zip_bytes = export_manager.package_all_csvs_as_zip(str(export_dir), return_bytes_for_streamlit=True, file_names=written_files)
-    if not ok:
-        raise HTTPException(status_code=500, detail=str(zip_bytes))
-    import io as _io
-    return StreamingResponse(
-        _io.BytesIO(zip_bytes),
+    """Full raw backup (ZIP) of all KPI data -- restorable with POST /import/restore. User accounts are not included."""
+    return Response(
+        content=export_manager.build_backup_zip(),
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=kpi_backup.zip"},
     )
 
-@app.get("/kpis/{kpi_id}/target-history")
-def get_kpi_target_history(kpi_id: int, plant_id: Optional[int] = None):
-    """Retrieves the audit trail of target value edits for a KPI (who changed what, and when)."""
-    return history_service.get_target_history(kpi_id, plant_id=plant_id)
 
-# --- Users (named profiles for audit attribution) ---
-@app.get("/users")
-def list_users(active_only: bool = False):
-    return user_crud.get_all_users(active_only=active_only)
+@app.post("/import/restore", tags=["data"])
+def restore_from_backup(file: UploadFile = File(...), _admin: dict = Depends(require_admin)):
+    """Admin only. REPLACES all KPI data with the backup's contents (one transaction). The current
+    databases are snapshotted to <databases>/backups/pre-restore-<timestamp>/ first."""
+    data = _read_upload(file)
+    result = import_manager.restore_from_zip(data, max_uncompressed_bytes=app_settings.max_upload_bytes() * 25)
+    detail = f"Restored {sum(result['tables'].values())} rows in {len(result['tables'])} tables."
+    if result["warnings"]:
+        detail += " Warnings: " + "; ".join(result["warnings"])
+    return {"status": "success", "detail": detail, **result}
 
-@app.post("/users")
-def create_user(req: UserCreateRequest):
-    """Admin-style user creation (requires a password, same as /auth/register but doesn't log the caller in)."""
+
+# --- Users (rules shared with the MCP server: src/user_management/access.py) ---
+
+@app.get("/users", tags=["users"])
+def list_users(active_only: bool = False, current_user: dict = Depends(get_current_user)):
+    """Admins get full profiles; everyone else gets id/name/color only."""
+    return access.list_users(current_user, active_only=active_only)
+
+
+@app.post("/users", tags=["users"])
+def create_user(req: UserCreateRequest, current_user: dict = Depends(get_current_user)):
+    """Admin only: creates an account (the user can change the password after logging in)."""
     try:
-        user_id = user_crud.add_user(req.name, req.password, req.email or "", req.color or "#3b82f6")
-        return {"id": user_id, "name": req.name}
+        user_id = access.create_user(current_user, req.name, req.password, req.email or "", req.color or "#3b82f6",
+                                     is_admin=req.is_admin)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        _bad(e, 409)
+    return {"id": user_id, "name": req.name.strip()}
 
-@app.put("/users/{user_id}")
-def update_user(user_id: int, req: UserUpdateRequest):
+
+@app.put("/users/{user_id}", tags=["users"])
+def update_user(user_id: int, req: UserUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Admins can edit anyone (incl. is_active / is_admin); users can edit their own name, email and color."""
     try:
-        user_crud.update_user(user_id, req.name, req.email or "", req.color or "#3b82f6", req.is_active)
-        return {"status": "success", "id": user_id}
+        access.update_user(current_user, user_id, req.name, req.email or "", req.color or "#3b82f6",
+                           req.is_active, req.is_admin)
+    except LookupError as e:
+        _bad(e, 404)
     except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        _bad(e, 409)
+    return {"status": "success", "id": user_id}
 
-# --- API Keys (MCP authentication, tied to a user) ---
-@app.get("/users/{user_id}/api-keys")
-def list_user_api_keys(user_id: int):
-    return user_crud.list_api_keys(user_id=user_id)
 
-@app.post("/users/{user_id}/api-keys")
-def create_user_api_key(user_id: int, req: ApiKeyCreateRequest):
-    """Creates a new MCP API key for a user. The raw key is returned ONCE -- it cannot be retrieved again."""
-    if not user_crud.get_user_by_id(user_id):
-        raise HTTPException(status_code=404, detail="User not found")
-    return user_crud.create_api_key(user_id, req.label)
+@app.post("/users/{user_id}/reset-password", tags=["users"])
+def reset_user_password(user_id: int, req: PasswordResetRequest, current_user: dict = Depends(get_current_user)):
+    """Admin only: sets a new password and signs the user out everywhere."""
+    try:
+        access.reset_password(current_user, user_id, req.new_password)
+    except LookupError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+    return {"status": "success", "id": user_id}
 
-@app.delete("/api-keys/{key_id}")
-def revoke_api_key(key_id: int):
-    user_crud.revoke_api_key(key_id)
+
+# --- API keys (MCP authentication) ---
+
+@app.get("/users/{user_id}/api-keys", tags=["users"])
+def list_user_api_keys(user_id: int, current_user: dict = Depends(get_current_user)):
+    return access.list_api_keys(current_user, user_id)
+
+
+@app.post("/users/{user_id}/api-keys", tags=["users"])
+def create_user_api_key(user_id: int, req: ApiKeyCreateRequest, current_user: dict = Depends(get_current_user)):
+    """Creates an MCP API key for yourself (admins: for anyone). The raw key is returned ONCE."""
+    try:
+        return access.create_api_key(current_user, user_id, req.label)
+    except LookupError as e:
+        _bad(e, 404)
+    except ValueError as e:
+        _bad(e)
+
+
+@app.delete("/api-keys/{key_id}", tags=["users"])
+def revoke_api_key(key_id: int, current_user: dict = Depends(get_current_user)):
+    try:
+        access.revoke_api_key(current_user, key_id)
+    except LookupError as e:
+        _bad(e, 404)
     return {"status": "success", "id": key_id}
 
-@app.post("/import/restore")
-async def restore_from_backup(file: UploadFile = File(...)):
-    """Restores database state by appending records from an uploaded ZIP backup."""
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-            tmp.write(await file.read())
-            tmp_path = tmp.name
-        result = import_manager.import_from_zip(tmp_path)
-        if result.startswith("Error"):
-            raise HTTPException(status_code=400, detail=result)
-        return {"status": "success", "detail": result}
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            os.remove(tmp_path)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
+    uvicorn.run(app, host=os.environ.get("API_HOST", "127.0.0.1"), port=int(os.environ.get("API_PORT", "8000")))

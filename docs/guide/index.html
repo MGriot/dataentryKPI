@@ -1,0 +1,1250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPI Target Manager Guide</title>
+<meta name="description" content="Illustrated guide to the Data Entry KPI Target Manager: every screen with annotated screenshots, the calculation engine, the REST API, the MCP server, configuration and operations.">
+<style>
+:root {
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --surface-2: #eef1f7;
+  --text: #182033;
+  --muted: #566078;
+  --border: #d9dfeb;
+  --accent: #2459d6;
+  --accent-soft: #e5edfd;
+  --code-bg: #eef2f8;
+  --ok: #157a3a;
+  --warn: #a35a00;
+  --bad: #b42323;
+  --pin: #f59e0b;
+  --pin-text: #1b1100;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 4px 16px rgba(16, 24, 40, .06);
+  --radius: 10px;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1020;
+    --surface: #121a2e;
+    --surface-2: #19223a;
+    --text: #e6eaf3;
+    --muted: #9aa5bd;
+    --border: #26324d;
+    --accent: #7aa7ff;
+    --accent-soft: #1b2a4d;
+    --code-bg: #0f1628;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1020;
+  --surface: #121a2e;
+  --surface-2: #19223a;
+  --text: #e6eaf3;
+  --muted: #9aa5bd;
+  --border: #26324d;
+  --accent: #7aa7ff;
+  --accent-soft: #1b2a4d;
+  --code-bg: #0f1628;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 20px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans); -webkit-text-size-adjust: 100%; }
+a { color: var(--accent); }
+img, svg { max-width: 100%; }
+code, kbd, pre { font-family: var(--mono); font-size: .88em; }
+:not(pre) > code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 5px; padding: .05em .35em; overflow-wrap: anywhere; }
+kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 0 .35em; background: var(--surface); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* --- Top bar --- */
+.topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; color: var(--text); min-width: 0; }
+.brand span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand small { font-weight: 500; color: var(--muted); }
+.spacer { flex: 1; }
+.tb-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.tb-btn:hover { border-color: var(--accent); }
+.tb-btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.tb-btn svg { width: 16px; height: 16px; flex: none; }
+#menu-btn { display: none; }
+
+/* --- Layout --- */
+.layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); max-width: 1360px; margin: 0 auto; }
+.toc { position: sticky; top: 57px; align-self: start; height: calc(100vh - 57px); overflow-y: auto; padding: 20px 16px 40px 20px; border-right: 1px solid var(--border); }
+.toc input { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); font: inherit; font-size: 14px; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc > ol { margin-top: 14px; }
+.toc li { margin: 1px 0; }
+.toc a { display: block; padding: 4px 10px; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.4; }
+.toc a:hover { color: var(--text); background: var(--surface-2); }
+.toc a.current { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.toc ol ol a { padding-left: 24px; font-size: 13px; }
+.toc .empty { padding: 8px 10px; color: var(--muted); font-size: 14px; }
+main { min-width: 0; padding: 32px 48px 96px; }
+.content { max-width: 1000px; }
+
+/* --- Typography --- */
+h1 { font-size: 2.2rem; line-height: 1.2; margin: .2em 0 .4em; letter-spacing: -.01em; }
+h2 { font-size: 1.65rem; line-height: 1.25; margin: 0 0 .6em; padding-top: .2em; letter-spacing: -.01em; }
+h3 { font-size: 1.22rem; margin: 2em 0 .5em; }
+h4 { font-size: 1.02rem; margin: 1.6em 0 .4em; }
+section.chapter { padding: 40px 0 8px; border-top: 1px solid var(--border); margin-top: 40px; }
+section.chapter:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+.lead { font-size: 1.12rem; color: var(--muted); }
+.eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; font-weight: 700; color: var(--accent); }
+.muted { color: var(--muted); }
+p, ul, ol, dl { margin: 0 0 1em; }
+li + li { margin-top: .25em; }
+hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+
+/* --- Components --- */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 1.2em 0 1.6em; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); }
+.card h4 { margin: 0 0 .3em; font-size: .98rem; }
+.card p { margin: 0; font-size: .92rem; color: var(--muted); }
+.note { border: 1px solid var(--border); border-left: 4px solid var(--accent); background: var(--surface); border-radius: 8px; padding: 12px 16px; margin: 1.2em 0; }
+.note.warn { border-left-color: var(--warn); }
+.note.bad { border-left-color: var(--bad); }
+.note > :last-child { margin-bottom: 0; }
+.note strong:first-child { display: block; margin-bottom: .2em; }
+.table-wrap { overflow-x: auto; margin: 1em 0 1.4em; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: .93rem; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+thead th { background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+tbody tr:last-child > * { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.yes { color: var(--ok); font-weight: 600; }
+.no { color: var(--bad); font-weight: 600; }
+.tag { display: inline-block; padding: 0 .5em; border-radius: 999px; font-size: .78rem; font-weight: 600; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.tag.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.tag.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.tag.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.steps { counter-reset: step; list-style: none; padding: 0; }
+.steps > li { counter-increment: step; position: relative; padding-left: 40px; margin: .8em 0; }
+.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--surface); font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+details { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin: .6em 0; }
+details > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; }
+details > div { padding: 0 14px 12px; }
+details > div > :last-child { margin-bottom: 0; }
+dl.glossary { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 8px 20px; }
+dl.glossary dt { font-weight: 600; }
+dl.glossary dd { margin: 0; color: var(--muted); }
+
+/* Code blocks with a copy button */
+.code { position: relative; margin: .8em 0 1.2em; }
+pre { margin: 0; padding: 14px 16px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; line-height: 1.5; }
+.code .copy { position: absolute; top: 6px; right: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--muted); font: 600 12px var(--sans); cursor: pointer; opacity: .85; }
+.code .copy:hover { opacity: 1; color: var(--text); }
+.code-label { font-size: 12px; font-weight: 600; color: var(--muted); margin: 1em 0 -.4em; }
+
+/* Flow diagrams (HTML, so they wrap on small screens) */
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 1.2em 0 1.6em; padding: 0; list-style: none; }
+.flow > li { flex: 1 1 150px; margin: 0; position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow); }
+.flow > li b { display: block; font-size: .92rem; margin-bottom: 2px; }
+.flow > li span { display: block; font-size: .84rem; color: var(--muted); line-height: 1.45; }
+.flow > li svg { display: block; width: 100%; height: 46px; margin: 2px 0 8px; }
+.flow > li .n { position: absolute; top: -9px; left: 10px; background: var(--accent); color: var(--surface); font-size: 11px; font-weight: 700; border-radius: 999px; padding: 0 7px; line-height: 18px; }
+.flow-svg path, .flow-svg polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.flow-svg rect { fill: var(--accent); opacity: .8; }
+.flow-svg .soft { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1.5; }
+.flow-svg .dip { fill: var(--bad); opacity: .2; }
+
+/* --- Annotated screenshots --- */
+figure.shot { margin: 1.4em 0 2em; }
+.shot-frame { position: relative; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: #0b1020; box-shadow: var(--shadow); cursor: zoom-in; line-height: 0; }
+.shot-frame img { display: block; width: 100%; height: auto; }
+.shot-frame .zoom { position: absolute; right: 8px; bottom: 8px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: rgba(10, 14, 26, .82); color: #fff; font: 600 12px var(--sans); line-height: 1; cursor: zoom-in; }
+.hl { position: absolute; z-index: 1; border: 2px solid var(--pin); border-radius: 6px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .35); pointer-events: none; transition: background-color .15s, box-shadow .15s; }
+.hl.active { background: rgba(245, 158, 11, .2); box-shadow: 0 0 0 3px rgba(245, 158, 11, .45), 0 0 0 1px rgba(0, 0, 0, .35); }
+.pin { position: absolute; z-index: 2; width: clamp(18px, 2vw, 24px); height: clamp(18px, 2vw, 24px); transform: translate(-50%, -50%); border: 2px solid #1b1100; border-radius: 50%; background: var(--pin); color: var(--pin-text); font: 800 clamp(10px, 1.1vw, 12px)/1 var(--sans); display: grid; place-items: center; padding: 0; cursor: pointer; box-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
+.pin.active { transform: translate(-50%, -50%) scale(1.25); background: #fff; }
+.hide-callouts .hl, .hide-callouts .pin { display: none; }
+figure.shot figcaption { margin: .6em 0 .2em; font-size: .9rem; color: var(--muted); }
+ol.callouts { counter-reset: callout; list-style: none; padding: 0; margin: .8em 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 6px 18px; }
+ol.callouts > li { counter-increment: callout; position: relative; margin: 0; padding: 6px 8px 6px 38px; border-radius: 8px; font-size: .93rem; line-height: 1.5; cursor: default; }
+ol.callouts > li::before { content: counter(callout); position: absolute; left: 8px; top: 7px; width: 22px; height: 22px; border-radius: 50%; background: var(--pin); color: var(--pin-text); font: 800 12px/22px var(--sans); text-align: center; }
+ol.callouts > li.unplaced::before { background: var(--surface-2); color: var(--muted); }
+ol.callouts > li.active { background: var(--accent-soft); }
+ol.callouts > li:focus-visible { outline-offset: 0; }
+.hide-callouts ol.callouts > li::before { background: var(--surface-2); color: var(--muted); }
+
+/* Lightbox */
+dialog#lightbox { width: min(1500px, 96vw); max-height: 94vh; padding: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); }
+dialog#lightbox::backdrop { background: rgba(4, 7, 15, .78); }
+.lb-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.lb-bar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-body { padding: 14px; }
+.lb-body figure.shot { margin: 0; overflow-x: auto; }
+.lb-body .shot-frame { cursor: default; }
+.lb-body .shot-frame .zoom { display: none; }
+.lb-body .pin { width: 26px; height: 26px; font-size: 13px; }
+
+/* --- Responsive --- */
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  #menu-btn { display: inline-flex; }
+  .toc { position: fixed; z-index: 40; top: 57px; left: 0; width: min(320px, 86vw); height: calc(100vh - 57px); background: var(--surface); box-shadow: var(--shadow); transform: translateX(-105%); transition: transform .2s; }
+  .toc.open { transform: none; }
+  main { padding: 20px 16px 72px; }
+  h1 { font-size: 1.8rem; }
+  h2 { font-size: 1.4rem; }
+}
+@media (max-width: 560px) {
+  .topbar { padding: 8px 16px; gap: 8px; }
+  .brand small, .tb-btn .label { display: none; }
+  .shot-frame .zoom { height: 24px; padding: 0 8px; font-size: 11px; right: 6px; bottom: 6px; }
+  ol.callouts { grid-template-columns: minmax(0, 1fr); }
+  dl.glossary { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
+  dl.glossary dd { margin-bottom: 10px; }
+}
+
+/* --- Print --- */
+@media print {
+  .topbar, .toc, .zoom, .code .copy, #lightbox { display: none !important; }
+  .layout { display: block; }
+  main { padding: 0; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  section.chapter { break-before: page; border: 0; }
+  figure.shot, .table-wrap, .flow > li, .note { break-inside: avoid; }
+  a { color: inherit; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <button type="button" class="tb-btn" id="menu-btn" aria-controls="toc" aria-expanded="false" aria-label="Contents">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span class="label">Contents</span>
+  </button>
+  <a class="brand" href="#top">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+    <span>KPI Target Manager <small>Guide · v2.1</small></span>
+  </a>
+  <span class="spacer"></span>
+  <button type="button" class="tb-btn" id="callouts-btn" aria-pressed="true" title="Show or hide the numbered callouts on screenshots">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M11 9h2v7M10 16h4"/></svg><span class="label">Callouts</span>
+  </button>
+  <button type="button" class="tb-btn" id="theme-btn" title="Switch between light and dark">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span class="label">Theme</span>
+  </button>
+</header>
+
+<div class="layout">
+  <nav class="toc" id="toc" aria-label="Contents">
+    <label for="toc-filter" class="muted" style="font-size:13px;font-weight:600">Search the guide</label>
+    <input id="toc-filter" type="search" placeholder="e.g. restore, formula, API key" autocomplete="off">
+    <ol id="toc-list"></ol>
+  </nav>
+
+  <main id="top">
+  <div class="content">
+
+  <!-- ============================================================ OVERVIEW -->
+  <section class="chapter" id="overview">
+    <p class="eyebrow">Data Entry KPI Target Manager · version 2.1</p>
+    <h1>The complete guide</h1>
+    <p class="lead">Define KPIs, enter one annual target per facility, and let the system split it into daily, weekly, monthly and quarterly targets. The seasonal curves are ones you design, or ones derived from historical data by a small machine-learning model race.</p>
+    <p>This guide walks through every screen with annotated screenshots. Then it explains the calculation engine, the REST API, the MCP server for AI agents, configuration, operations and troubleshooting. Hover over or tap a numbered callout to highlight its element. Click a screenshot to enlarge it.</p>
+
+    <div class="cards">
+      <div class="card"><h4>KPI hierarchy</h4><p>Folders of KPIs with units, direction, alert thresholds and up to 10 named target scenarios.</p></div>
+      <div class="card"><h4>Annual → periodic</h4><p>Each saved annual target becomes day, ISO-week, month and quarter targets, reconciled exactly.</p></div>
+      <div class="card"><h4>Seasonal splits</h4><p>Reusable split templates with month, quarter or week weights and a day shape inside each period.</p></div>
+      <div class="card"><h4>ML seasonality</h4><p>OLS, Ridge and Random Forest race on your history and drivers. Publish the winner as a template.</p></div>
+      <div class="card"><h4>Formula KPIs</h4><p><code>[1] / [2]</code>-style KPIs, recalculated in dependency order whenever an input changes.</p></div>
+      <div class="card"><h4>Roles &amp; audit</h4><p>Admin and regular accounts, and a full trail of who changed which definition or value.</p></div>
+      <div class="card"><h4>REST API</h4><p>67 routes with Swagger UI, for scripts and BI tools.</p></div>
+      <div class="card"><h4>MCP server</h4><p>60 tools let AI agents (Claude Desktop, Claude Code…) do everything the API does.</p></div>
+    </div>
+
+    <h3 id="interfaces">One core, three interfaces</h3>
+    <p>A single Python core holds the SQLite storage, the repartition engine, the formula engine and the seasonality predictor, and three interfaces expose it. All three share the same databases and the same rules (validation, roles, audit trail), so a target saved by an agent shows up in the web app immediately and is attributed to the agent's user.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Interface</th><th>Use it for</th><th>Code</th></tr></thead>
+      <tbody>
+        <tr><td><b>React web app</b></td><td>Everyday work: KPI definitions, target entry, splits, analysis, facilities, backups, accounts</td><td><code>frontend/</code></td></tr>
+        <tr><td><b>REST API</b></td><td>The app's backend. Also for scripts and BI tools (Swagger UI at <code>/docs</code>)</td><td><code>src/api.py</code></td></tr>
+        <tr><td><b>MCP server</b></td><td>AI agents (Claude Desktop, Claude Code, any MCP client). Covers everything the API does</td><td><code>src/mcp_server.py</code></td></tr>
+      </tbody>
+    </table></div>
+    <figure class="shot" style="margin-top:1em">
+      <div class="shot-frame" style="background:var(--surface);cursor:default;padding:12px"><img src="../images/architecture.svg" alt="Architecture: the React app, REST API and MCP server all use the same Python core and SQLite databases" loading="lazy"></div>
+      <figcaption>Architecture: the web app talks to the REST API through the <code>/api</code> proxy (Vite in development, nginx in containers). The MCP server calls the same Python core directly.</figcaption>
+    </figure>
+
+    <h3 id="save-pipeline">What happens when you save a target</h3>
+    <ol class="flow">
+      <li><span class="n">1</span><b>Save</b><span>An annual value is saved from the web app, the REST API or an MCP tool.</span></li>
+      <li><span class="n">2</span><b>Validate &amp; audit</b><span>The value is checked, and the change is recorded under the signed-in user or API-key owner.</span></li>
+      <li><span class="n">3</span><b>Repartition</b><span>A daily series for the year is built from the KPI's split template.</span></li>
+      <li><span class="n">4</span><b>Roll up</b><span>Days are aggregated into ISO weeks, months and quarters.</span></li>
+      <li><span class="n">5</span><b>Formulas</b><span>Every formula KPI that depends on this one is recomputed, in topological order.</span></li>
+      <li><span class="n">6</span><b>Commit</b><span>All database files are written in one atomic transaction.</span></li>
+    </ol>
+  </section>
+
+  <!-- ============================================================ GETTING STARTED -->
+  <section class="chapter" id="getting-started">
+    <h2>Getting started</h2>
+    <p>There are two ways to run the application: a local development setup (Python and Node), or the container stack (Podman or Docker Compose).</p>
+
+    <h3 id="local-dev">Option A: local development</h3>
+    <p>Requires Python 3.12+ and Node 22+. On macOS or Linux, replace <code>.venv/Scripts/python</code> with <code>.venv/bin/python</code>.</p>
+    <ol class="steps">
+      <li>Create a virtual environment and install the backend dependencies:
+        <div class="code"><pre><code>python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt</code></pre></div></li>
+      <li>Start the API on <code>http://127.0.0.1:8000</code>, with Swagger at <code>/docs</code>. <code>dev_backend.py</code> uses a throwaway database in <code>.dev-data/</code>; to work on <code>databases/</code> instead, run <code>python -m uvicorn src.api:app</code>.
+        <div class="code"><pre><code>.venv/Scripts/python scripts/dev_backend.py</code></pre></div></li>
+      <li>Install and start the web app on <code>http://localhost:5173</code>. Vite proxies <code>/api</code> to the backend.
+        <div class="code"><pre><code>npm --prefix frontend install
+npm --prefix frontend run dev</code></pre></div></li>
+      <li>Open the app and <b>create the first account. It becomes the administrator.</b></li>
+      <li>Optional: load the demo data used in this guide (two plants, five KPIs including a formula KPI, a seasonal split, and two years of targets):
+        <div class="code"><pre><code>.venv/Scripts/python scripts/seed_demo.py</code></pre></div></li>
+    </ol>
+
+    <h3 id="containers">Option B: containers</h3>
+    <div class="code"><pre><code>podman compose up --build -d</code></pre></div>
+    <p><code>docker compose up --build -d</code> works the same way. Copy <code>.env.example</code> to <code>.env</code> to change settings.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Service</th><th>URL</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>frontend</code></td><td>http://localhost:3000</td><td>nginx serves the app and proxies <code>/api</code> to the backend. <code>FRONTEND_PORT</code> changes the port.</td></tr>
+        <tr><td><code>backend</code></td><td>http://127.0.0.1:8000</td><td>Loopback only by default (<code>BACKEND_BIND_ADDRESS</code>). Runs the database migrations.</td></tr>
+        <tr><td><code>mcp_server</code></td><td>http://127.0.0.1:8001/mcp</td><td>Loopback only by default (<code>MCP_BIND_ADDRESS</code>). Needs an API key, and starts once the backend is healthy.</td></tr>
+      </tbody>
+    </table></div>
+    <p>The containers run as a non-root user (uid 1000) and have healthchecks. Data lives in the <code>kpi_databases</code> volume.</p>
+    <div class="note warn"><strong>Windows: port 3000</strong><p>Hyper-V sometimes reserves port 3000. Check with <code>netsh interface ipv4 show excludedportrange protocol=tcp</code>. If 3000 is in a listed range, set <code>FRONTEND_PORT=8080</code>.</p></div>
+  </section>
+
+  <!-- ============================================================ CONCEPTS -->
+  <section class="chapter" id="concepts">
+    <h2>Key concepts</h2>
+    <dl class="glossary">
+      <dt>Facility (plant)</dt><dd>A site you set targets for. Each has a chart colour and can be hidden.</dd>
+      <dt>Folder</dt><dd>A node in the KPI hierarchy. Folders can be nested.</dd>
+      <dt>KPI</dt><dd>A measured indicator, such as <i>Units Produced</i> or <i>OEE</i>, with its definition (unit, aggregation type, direction, thresholds…).</dd>
+      <dt>Target scenario</dt><dd>One of up to 10 parallel targets per KPI, e.g. <i>Budget</i> and <i>Stretch</i>. Each has its own annual value and periodic series.</dd>
+      <dt>Annual target</dt><dd>The one number you enter, per KPI, facility, year and scenario.</dd>
+      <dt>Periodic targets</dt><dd>The day, ISO-week, month and quarter targets the engine derives from the annual target.</dd>
+      <dt>Split template</dt><dd>A reusable seasonal curve: period weights plus a day shape, optionally limited to specific years.</dd>
+      <dt>Formula KPI</dt><dd>A KPI calculated from other KPIs, e.g. <code>[1] / [2]</code>. It can't be typed in.</dd>
+      <dt>Actuals</dt><dd>Measured values per KPI, facility and day, compared with a target to give a performance status (API and MCP).</dd>
+    </dl>
+
+    <h3 id="aggregation">Aggregation types</h3>
+    <p>A KPI's aggregation type decides what its annual target <em>means</em>, and how days roll up into longer periods.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Type</th><th>The annual target is…</th><th>Days → week / month / quarter</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><b>Sum</b></td><td>a total; the periods add up to it</td><td>sum</td><td>Units Produced, Hours Worked</td></tr>
+        <tr><td><b>Count</b></td><td>a total; the periods add up to it</td><td>sum</td><td>Customer Complaints</td></tr>
+        <tr><td><b>Average</b></td><td>a level the year should average</td><td>mean</td><td>OEE %, Scrap Rate</td></tr>
+        <tr><td><b>Last</b></td><td>a level</td><td>last day of the period</td><td>Headcount at period end</td></tr>
+        <tr><td><b>Min</b> / <b>Max</b></td><td>a level</td><td>minimum / maximum day</td><td>Stock floor, capacity ceiling</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted">Sum and Count are <i>additive</i>; the others are <i>level</i> types. The legacy name <code>Incremental</code> is still accepted and means Sum.</p>
+
+    <h3 id="repartition">Repartition: annual → day, week, month, quarter</h3>
+    <p>Every saved annual target is turned into a <b>daily series</b> for its year, in four steps (<code>target_management/repartition.py</code>). The series is then rolled up into ISO weeks (<code>2026-W05</code>), months and quarters.</p>
+    <ol class="flow">
+      <li><span class="n">1</span>
+        <svg class="flow-svg" viewBox="0 0 120 46" aria-hidden="true"><polyline points="4,36 30,31 56,26 82,20 116,13"/><path class="soft" d="M4 24 C 20 14, 34 14, 50 24 S 80 34, 96 24 S 112 14, 116 16"/></svg>
+        <b>Day shape</b><span>Gives every day a relative weight: even, progressive ramp (0.8→1.2), weekday bias (×1.3 weekdays, ×0.7 weekends), sinusoidal, or event-based.</span></li>
+      <li><span class="n">2</span>
+        <svg class="flow-svg" viewBox="0 0 120 46" aria-hidden="true"><rect x="4" y="26" width="7" height="18"/><rect x="13" y="26" width="7" height="18"/><rect x="22" y="20" width="7" height="24"/><rect x="31" y="20" width="7" height="24"/><rect x="40" y="17" width="7" height="27"/><rect x="49" y="17" width="7" height="27"/><rect x="58" y="23" width="7" height="21"/><rect x="67" y="29" width="7" height="15"/><rect x="76" y="17" width="7" height="27"/><rect x="85" y="14" width="7" height="30"/><rect x="94" y="11" width="7" height="33"/><rect x="103" y="8" width="7" height="36"/></svg>
+        <b>Period weights</b><span>Month, Quarter or ISO-week weights decide each period's share of the year. A weight of 0 really means 0.</span></li>
+      <li><span class="n">3</span>
+        <svg class="flow-svg" viewBox="0 0 120 46" aria-hidden="true"><rect class="dip" x="58" y="4" width="20" height="40"/><polyline points="4,16 58,16 58,40 78,40 78,16 116,16"/></svg>
+        <b>Events</b><span>Date ranges with a multiplier and/or an addition, e.g. a two-week shutdown with multiplier 0.</span></li>
+      <li><span class="n">4</span>
+        <svg class="flow-svg" viewBox="0 0 120 46" aria-hidden="true"><path class="soft" d="M4 12 H116"/><polyline points="4,34 20,28 36,30 52,22 68,26 84,18 100,22 116,14"/></svg>
+        <b>Reconcile</b><span>The series is <i>scaled</i> so its sum (additive) or mean (level) equals the annual figure exactly. No day goes negative.</span></li>
+    </ol>
+
+    <h4>Where the settings come from</h4>
+    <ol>
+      <li>the split template assigned to the KPI, if it covers the year;</li>
+      <li>a template or settings saved on the annual record by older API clients;</li>
+      <li>the KPI's default profile;</li>
+      <li>otherwise, an even split. The UI's “Default even split” means exactly that.</li>
+    </ol>
+
+    <h4 id="worked-example">Worked example</h4>
+    <p>The demo KPI <i>Units Produced</i> (Sum) has a 2026 <i>Budget</i> of <b>120,000</b> at North Plant and uses the <i>Demo Seasonal (Month)</i> template, with a uniform day shape. January's weight is 6%, so January gets 7,200, spread evenly over 31 days: about 232.3 per day. ISO week 2026-W01 contains only 1–4 January, so it gets 4 days, about 929.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Month</th><th class="num">Weight</th><th class="num">Target</th><th>Month</th><th class="num">Weight</th><th class="num">Target</th></tr></thead>
+      <tbody>
+        <tr><td>January</td><td class="num">6%</td><td class="num">7,200</td><td>July</td><td class="num">7%</td><td class="num">8,400</td></tr>
+        <tr><td>February</td><td class="num">6%</td><td class="num">7,200</td><td>August</td><td class="num">5%</td><td class="num">6,000</td></tr>
+        <tr><td>March</td><td class="num">8%</td><td class="num">9,600</td><td>September</td><td class="num">9%</td><td class="num">10,800</td></tr>
+        <tr><td>April</td><td class="num">8%</td><td class="num">9,600</td><td>October</td><td class="num">10%</td><td class="num">12,000</td></tr>
+        <tr><td>May</td><td class="num">9%</td><td class="num">10,800</td><td>November</td><td class="num">11%</td><td class="num">13,200</td></tr>
+        <tr><td>June</td><td class="num">9%</td><td class="num">10,800</td><td>December</td><td class="num">12%</td><td class="num">14,400</td></tr>
+      </tbody>
+    </table></div>
+    <p>The quarters roll up to <b>Q1 24,000 · Q2 31,200 · Q3 25,200 · Q4 39,600</b>, which is exactly what <code>GET /kpis/1/periodic-targets?period_type=Quarter</code> returns. For a <i>level</i> KPI such as OEE (Average, 85%), the weights are relative levels instead. They are normalised so that the day-weighted average of the year is still 85.</p>
+    <div class="note"><strong>Edge cases handled</strong><p>Leap years (366 days), ISO weeks that belong to the neighbouring year (29–31 December can be in W01; 1–3 January in W52 or W53), weeks keyed <code>W01</code>..<code>W53</code> independently of the year, and all-zero weights. All of these are covered by tests.</p></div>
+  </section>
+
+  <!-- ============================================================ SIGN IN -->
+  <section class="chapter" id="sign-in">
+    <h2>Signing in</h2>
+    <figure class="shot" data-shot="login">
+      <div class="shot-frame"><img src="../images/login.png" alt="Sign-in screen" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="brand"><b>Sign-in card.</b> On a fresh install it says <i>Create the first account</i> instead; that account becomes the administrator.</li>
+        <li data-mark="name"><b>Name</b>: your account name, not an email address.</li>
+        <li data-mark="password"><b>Password</b>: at least 8 characters.</li>
+        <li data-mark="submit"><b>Sign In</b>. Repeated failures are throttled (HTTP 429).</li>
+      </ol>
+    </figure>
+    <ul>
+      <li><b>First run.</b> The first account becomes the <b>administrator</b>, and self-registration then closes. The administrator creates the other accounts under <a href="#data-utilities">Data Utilities</a>.</li>
+      <li><b>Open registration.</b> With <code>ALLOW_REGISTRATION=true</code>, a <i>Register</i> tab appears and anyone can create a regular (non-admin) account.</li>
+      <li><b>Sessions</b> last 30 days. Changing your password signs out your other sessions. Deactivating an account revokes its sessions and API keys.</li>
+      <li>You are only signed out on a real <code>401</code>. If the backend is unreachable, the app shows a retry screen instead.</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ HEADER -->
+  <section class="chapter" id="header">
+    <h2>Finding your way around</h2>
+    <p>The header is the same on every screen. The year and facility you pick here drive Target Entry and Analysis.</p>
+    <figure class="shot" data-shot="target-entry">
+      <div class="shot-frame"><img src="../images/target-entry.png" alt="Application header above the Target Entry screen" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="tabs"><b>Workspace tabs</b>: Target Entry, KPI Explorer, Global Splits &amp; ML, Analysis &amp; Results, Facilities, Data Utilities.</li>
+        <li data-mark="search"><b>Quick search</b> filters the Target Entry cards by KPI name or folder path.</li>
+        <li data-mark="year"><b>Year</b>: three years back and six ahead, plus any year that has data.</li>
+        <li data-mark="facility"><b>Facility</b>: the plant whose targets you see and edit.</li>
+        <li data-mark="reload"><b>Reload data</b> refetches everything from the server, for example after an agent made changes over MCP.</li>
+        <li data-mark="account"><b>Your account</b>, with the <i>Admin</i> badge for administrators and the sign-out button.</li>
+      </ol>
+    </figure>
+  </section>
+
+  <!-- ============================================================ TARGET ENTRY -->
+  <section class="chapter" id="target-entry">
+    <h2>Target Entry</h2>
+    <p>Enter annual targets for the selected year and facility. Each KPI enabled for that facility gets a card.</p>
+    <figure class="shot" data-shot="target-entry">
+      <div class="shot-frame"><img src="../images/target-entry.png" alt="Target Entry with one card per KPI" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="context"><b>Context</b>: the year, the facility and how many KPIs are listed (after the search filter).</li>
+        <li data-mark="apply_all"><b>Apply saves to all visible facilities</b>: when ticked, Save writes the same values to every visible facility, after a confirmation.</li>
+        <li data-mark="unit"><b>Unit</b> of measure from the KPI definition.</li>
+        <li data-mark="count"><b>Number of target scenarios</b> for this KPI (1–10).</li>
+        <li data-mark="split"><b>Split in use.</b> <i>Even split (default)</i> means no template is assigned. A ⭐ name means a split template; you assign it in KPI Explorer.</li>
+        <li data-mark="input"><b>Annual target.</b> A blank box is left unchanged; it is never saved as 0.</li>
+        <li data-mark="history"><b>Reference values</b>: the same scenario for the previous two years.</li>
+        <li data-mark="save"><b>Save</b> stores the value, recalculates the day, week, month and quarter targets, and recalculates every formula KPI that uses this one.</li>
+      </ol>
+    </figure>
+
+    <h3 id="scenarios">Several target scenarios</h3>
+    <figure class="shot" data-shot="target-scenarios">
+      <div class="shot-frame"><img src="../images/target-scenarios.png" alt="A KPI card with Budget and Stretch scenarios" width="1400" height="218" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="count"><b>2 targets</b>: this KPI has two scenarios.</li>
+        <li data-mark="split"><b>Assigned split template</b> (⭐ <i>Demo Seasonal (Month)</i>). It distributes both scenarios.</li>
+        <li data-mark="budget"><b>Budget</b>: scenario 1, named in KPI Explorer.</li>
+        <li data-mark="stretch"><b>Stretch</b>: scenario 2. Each scenario has its own periodic series.</li>
+        <li data-mark="history"><b>Last two years</b> of the Stretch scenario.</li>
+        <li data-mark="save"><b>Save</b> writes every scenario on the card in one transaction.</li>
+      </ol>
+    </figure>
+
+    <h3 id="formula-cards">Formula KPIs are read-only</h3>
+    <figure class="shot" data-shot="target-formula">
+      <div class="shot-frame"><img src="../images/target-formula.png" alt="A formula KPI card, read-only" width="1400" height="250" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="badge"><b>Formula derived</b>: hover over it to see the formula.</li>
+        <li data-mark="note">The value is <b>calculated automatically</b> from the inputs whenever they are saved.</li>
+        <li data-mark="input"><b>Read-only</b>, and the card has no Save button.</li>
+      </ol>
+    </figure>
+
+    <h3 id="enter-targets">Walkthrough: enter next year's targets</h3>
+    <ol class="steps">
+      <li>Pick the <b>year</b> and the <b>facility</b> in the header. If that year has no data yet, the boxes are empty, and the previous years are shown underneath for reference.</li>
+      <li>Type the annual values. Leave a box blank to keep its current value.</li>
+      <li>To set the same values everywhere, tick <b>Apply saves to all visible facilities</b>. The button then reads <i>Save to all facilities</i>, and a confirmation comes first.</li>
+      <li>Click <b>Save</b> on each card. The button shows <i>Saved &amp; repartitioned</i>, and dependent formula KPIs update right away.</li>
+      <li>Check the result in <a href="#analysis">Analysis &amp; Results</a>, or fine-tune the curve in <a href="#global-splits">Global Splits</a>. Editing a template recalculates every KPI that uses it.</li>
+    </ol>
+    <div class="note"><strong>A KPI is missing?</strong><p>Only KPIs enabled for the selected facility are listed. Check the quick search box, the KPI's <a href="#kpi-settings">facility enablement</a>, and whether the KPI was deleted.</p></div>
+  </section>
+
+  <!-- ============================================================ KPI EXPLORER -->
+  <section class="chapter" id="kpi-explorer">
+    <h2>KPI Explorer</h2>
+    <p>Build the hierarchy and define each KPI. The left side is the folder tree; selecting a KPI opens its definition on the right.</p>
+    <figure class="shot" data-shot="kpi-explorer">
+      <div class="shot-frame"><img src="../images/kpi-explorer.png" alt="KPI Explorer: folder tree and KPI definition" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="new_folder"><b>New folder.</b> It's created at the top level, or inside the selected folder.</li>
+        <li data-mark="tree"><b>Folder tree.</b> Click a folder to select it, or a KPI to open it. The tree works with the keyboard.</li>
+        <li data-mark="selected"><b>The KPI being edited.</b></li>
+        <li data-mark="new_kpi"><b>New KPI</b> in the selected folder.</li>
+        <li data-mark="save_spec"><b>Save Spec</b> stores every definition field below. Edits survive background refreshes until you save.</li>
+        <li data-mark="delete"><b>Delete KPI</b> (with confirmation) hides it everywhere. Its targets and history are kept.</li>
+        <li data-mark="unit"><b>Unit of measure</b>, from the shared registry. <i>New unit</i> adds one.</li>
+        <li data-mark="calc"><b>Aggregation type</b>: Sum, Count, Average, Last, Min or Max. See <a href="#aggregation">Aggregation types</a>.</li>
+        <li data-mark="direction"><b>Directional goal</b>: higher is better, lower is better, or a range. It drives the performance status.</li>
+        <li data-mark="target_count"><b>Number of targets</b> (1–10): how many scenarios Target Entry shows.</li>
+        <li data-mark="granularity"><b>Target granularity</b>: informational only; it doesn't change the calculation.</li>
+        <li data-mark="time_filter"><b>Actuals time filter</b>: evaluate the status over a rolling window of N days.</li>
+        <li data-mark="split"><b>Split template</b> for this KPI. <i>Save split</i> recalculates its stored targets at once.</li>
+      </ol>
+    </figure>
+
+    <h3 id="kpi-fields">Definition fields</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Description</td><td>Shown under the KPI name in Target Entry.</td></tr>
+        <tr><td>Unit of measure</td><td>From the shared units registry (<code>GET/POST /units-of-measure</code>).</td></tr>
+        <tr><td>Aggregation type</td><td>Whether the annual target is a total or a level. Changing it recalculates the stored targets.</td></tr>
+        <tr><td>Directional goal</td><td><i>Higher is Better</i>, <i>Lower is Better</i>, or <i>Range</i> (uses the min and max targets).</td></tr>
+        <tr><td>Number of targets</td><td>Scenarios per KPI, 1–10.</td></tr>
+        <tr><td>Target scenario names</td><td>Your names for each scenario, e.g. <i>Budget</i> and <i>Stretch</i>. Blank means <i>Target N</i>.</td></tr>
+        <tr><td>Target granularity</td><td>Informational only.</td></tr>
+        <tr><td>Owner</td><td>The person or team responsible.</td></tr>
+        <tr><td>Actuals time filter</td><td><i>None</i>, or a rolling window of N days for the performance status.</td></tr>
+        <tr><td>Visible by default</td><td>A flag that API clients can filter on (<code>GET /kpis?only_visible=true</code>, MCP <code>list_kpis</code>). The web app ignores it and uses facility enablement instead.</td></tr>
+        <tr><td>Performance alert thresholds</td><td>Warning and error margins (0–1, relative to the target). Range KPIs also have min and max targets.</td></tr>
+        <tr><td>Formula</td><td>Makes the KPI calculated. See below.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 id="formulas">Formulas</h3>
+    <figure class="shot" data-shot="kpi-formula">
+      <div class="shot-frame"><img src="../images/kpi-formula.png" alt="Formula editor" width="1018" height="215" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="kpi_ref"><b>Insert KPI reference</b> adds <code>[id]</code> for the chosen KPI at the cursor.</li>
+        <li data-mark="operators"><b>Operators</b> and parentheses.</li>
+        <li data-mark="functions"><b>Functions</b>: <code>abs</code>, <code>min</code>, <code>max</code>, <code>round</code>.</li>
+        <li data-mark="expression"><b>Expression.</b> Here, <i>Units per Hour</i> = <code>[1] / [2]</code> (Units Produced ÷ Hours Worked).</li>
+        <li data-mark="hint"><b>Syntax reminder.</b> Leave the box empty for a manually entered KPI.</li>
+      </ol>
+    </figure>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Allowed</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td>KPI references by specification ID</td><td><code>[1]</code>, <code>[12]</code></td></tr>
+        <tr><td>Numbers and <code>+ - * / % **</code>, parentheses, unary minus</td><td><code>([1] - [5]) / [2] * 100</code></td></tr>
+        <tr><td><code>abs</code>, <code>min</code>, <code>max</code>, <code>round</code></td><td><code>max([2], 1)</code>, <code>round([1] / [2], 2)</code></td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><b>Safe.</b> Formulas are parsed with Python's <code>ast</code> and evaluated by a strict whitelist; nothing reaches <code>eval</code>. Names, attributes, subscripts, strings and keyword arguments are rejected. Formulas are capped at 2,000 characters and 300 nodes, exponents are bounded, and division by zero gives 0.</li>
+      <li><b>Validated on save.</b> The syntax must be valid, every referenced KPI must exist, and there may be no self-reference and no cycle. A cycle error names the loop, e.g. <code>[2] -&gt; [4] -&gt; [2]</code>.</li>
+      <li><b>Per scenario.</b> Target <i>N</i> of a formula KPI is computed from target <i>N</i> of its inputs.</li>
+      <li><b>Daily values</b> are computed day by day from the inputs' daily series, then scaled to the annual value, so a ratio follows its inputs' seasonality.</li>
+      <li><b>Dependency order.</b> A save recomputes every dependent formula KPI, directly or transitively dependent, in topological order and in the same transaction.</li>
+    </ul>
+
+    <h3 id="kpi-settings">Scenario names, thresholds and facility enablement</h3>
+    <figure class="shot" data-shot="kpi-settings">
+      <div class="shot-frame"><img src="../images/kpi-settings.png" alt="Scenario names, thresholds, formula and facility enablement panels" width="1042" height="653" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="names"><b>Target scenario names</b>: one box per scenario.</li>
+        <li data-mark="thresholds"><b>Warning and error margins</b> for the performance status. Defaults: 0.05 and 0.15.</li>
+        <li data-mark="formula"><b>Formula</b>: empty, so this is a manually entered KPI.</li>
+        <li data-mark="plants"><b>Facility enablement</b>: untick a facility to hide the KPI from its Target Entry.</li>
+        <li data-mark="save_visibility"><b>Save visibility</b>: enablement is saved separately from the definition.</li>
+      </ol>
+    </figure>
+
+    <h3 id="audit-history">Audit history</h3>
+    <figure class="shot" data-shot="kpi-history">
+      <div class="shot-frame"><img src="../images/kpi-history.png" alt="Audit history of a KPI" width="1018" height="376" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="toggle"><b>Audit history</b> opens and closes the panel.</li>
+        <li data-mark="targets"><b>Target value edits</b>: who set which scenario, for which facility and year, to what (and the previous value).</li>
+        <li data-mark="definitions"><b>Definition changes</b>: which fields changed, old → new.</li>
+      </ol>
+    </figure>
+    <p>The user is always taken from the session or API key, never from the request. Re-saving identical values isn't recorded.</p>
+  </section>
+
+  <!-- ============================================================ GLOBAL SPLITS -->
+  <section class="chapter" id="global-splits">
+    <h2>Global Splits</h2>
+    <p>A <b>split template</b> is a reusable seasonal curve. It combines period weights (month, quarter or ISO week) with a day shape inside each period, and it can be limited to specific years.</p>
+    <figure class="shot" data-shot="global-splits">
+      <div class="shot-frame"><img src="../images/global-splits.png" alt="List of split templates" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="name"><b>Template name.</b> The list shows the templates that cover the header's year.</li>
+        <li data-mark="logic"><b>Weights per</b> Month, Quarter or Week.</li>
+        <li data-mark="profile"><b>Day shape</b> inside each period.</li>
+        <li data-mark="years"><b>Years</b> it applies to, or <i>All years</i>.</li>
+        <li data-mark="edit"><b>Edit</b> opens the template in the form below.</li>
+        <li data-mark="delete"><b>Delete</b>, after a confirmation. Its KPIs fall back to an even split and are recalculated.</li>
+        <li data-mark="new_form"><b>New split template</b> form.</li>
+        <li data-mark="ml"><b>ML Seasonality Predictor</b>. See the <a href="#ml">next chapter</a>.</li>
+      </ol>
+    </figure>
+
+    <h3 id="split-editor">Editing a template</h3>
+    <figure class="shot" data-shot="split-editor">
+      <div class="shot-frame"><img src="../images/split-editor.png" alt="Split template editor with monthly weights" width="692" height="500" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="cancel"><b>Cancel</b> discards the edits.</li>
+        <li data-mark="name"><b>Template name.</b></li>
+        <li data-mark="years"><b>Applies to years</b>: toggle years, or tick <i>All years</i>.</li>
+        <li data-mark="logic"><b>Weights per</b> Month, Quarter or ISO week. Week weights are year-agnostic.</li>
+        <li data-mark="profile"><b>Day shape within each period</b>: uniform, progressive, weekday bias, sinusoidal, or event-based.</li>
+        <li data-mark="weights"><b>Weights</b> in % of the annual target, one per period.</li>
+        <li data-mark="total"><b>Running total.</b> Weights that don't add up to 100% are scaled to 100%.</li>
+        <li data-mark="save"><b>Save changes</b> recalculates every KPI that uses the template.</li>
+      </ol>
+    </figure>
+    <h4>Presets</h4>
+    <p>Five presets are seeded once: <i>Uniform / Even</i>, <i>Annual Progressive</i>, <i>Annual Progressive (Weekday Bias)</i>, <i>Sinusoidal Seasonal Curve</i> and <i>Event Based (Shutdowns)</i>. Over the API, <code>GET /global-splits/curve-preview</code> (MCP: <code>get_curve_weight_suggestions</code>) turns a curve into starting weights.</p>
+    <h4>What triggers a recalculation</h4>
+    <p>Assigning or clearing a template on a KPI; editing a template's weights, day shape or years; changing which KPIs it's linked to; and deleting it. Each recalculates the stored targets of every affected KPI. A template applies only to the years it covers.</p>
+  </section>
+
+  <!-- ============================================================ ML -->
+  <section class="chapter" id="ml">
+    <h2>ML Seasonality Predictor</h2>
+    <p>Instead of guessing weights, derive them from history. Upload a CSV or Excel file with a date column, one or more target columns, and optionally <b>driver</b> columns that explain the seasonality (temperature, promotions, a market index…).</p>
+    <p class="code-label">Example input (the file used for the screenshots):</p>
+    <div class="code"><pre><code>date,units_sold,avg_temp_c,promo_days
+2024-01-01,297,1.8,0
+2024-01-02,284,1.8,0
+2024-01-03,295,0.4,0
+…</code></pre></div>
+    <figure class="shot" data-shot="ml-inputs">
+      <div class="shot-frame"><img src="../images/ml-inputs.png" alt="ML predictor inputs" width="692" height="493" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="file"><b>Choose a file</b> (CSV, XLSX or XLS). It is capped at <code>MAX_UPLOAD_MB</code>, 1M rows and 200 columns.</li>
+        <li data-mark="date"><b>Date column</b> name.</li>
+        <li data-mark="period"><b>Period</b>: Month, Quarter or ISO week. This is the key type of the resulting weights.</li>
+        <li data-mark="targets"><b>Target column(s)</b>, comma separated. Several targets are averaged.</li>
+        <li data-mark="drivers"><b>Driver column(s)</b> (optional). Without drivers, the historical profile is used directly.</li>
+        <li data-mark="race"><b>Race models &amp; calculate weights.</b> It runs in a worker thread, so the server stays responsive.</li>
+      </ol>
+    </figure>
+
+    <h3 id="ml-how">How the winner is chosen</h3>
+    <ol class="steps">
+      <li><b>Aggregate per period.</b> Targets are averaged across years, so a period present in more years isn't over-weighted. Drivers are averaged too.</li>
+      <li><b>Normalise.</b> Each target becomes a share of its mean (1.2 means 20% above an average period). Drivers are min-max scaled.</li>
+      <li><b>Race.</b> OLS, Ridge (α = 1) and a Random Forest (100 trees, depth ≤ 5) are fitted. The best R² wins after a complexity penalty: the forest loses 0.2 below 24 periods and 0.1 below 50, and OLS loses 0.05 when there are more drivers than half the periods.</li>
+      <li><b>Uncertainty.</b> 100 Monte Carlo runs perturb the drivers and add residual noise. The 5th and 95th percentiles form the band.</li>
+      <li><b>Weights.</b> The prediction becomes percentages summing to 100, keyed like template weights (<code>January</code>, <code>Q1</code>, <code>W01</code>).</li>
+    </ol>
+    <figure class="shot" data-shot="ml-predictor">
+      <div class="shot-frame"><img src="../images/ml-predictor.png" alt="ML predictor result chart" width="1400" height="421" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="best"><b>Best model</b> and its R² on the seasonal profile.</li>
+        <li data-mark="periods"><b>How many periods</b> the weights cover.</li>
+        <li data-mark="publish"><b>Publish as template</b> creates a split template for the header's year, using the weights as they are.</li>
+        <li data-mark="chart"><b>Chart</b>: historical profile (dashed), model fit, and the 5–95% Monte Carlo band.</li>
+        <li data-mark="legend"><b>Legend.</b> Hover over the chart to see the values, rounded to 3 decimals.</li>
+      </ol>
+    </figure>
+    <div class="note"><strong>Tips</strong><p>Use at least two full years of history, so every period has more than one sample. Pick drivers you can explain; with few periods the simpler models win on purpose. Publishing creates a template; assign it to KPIs in KPI Explorer.</p></div>
+  </section>
+
+  <!-- ============================================================ ANALYSIS -->
+  <section class="chapter" id="analysis">
+    <h2>Analysis &amp; Results</h2>
+    <figure class="shot" data-shot="analysis">
+      <div class="shot-frame"><img src="../images/analysis.png" alt="Analysis chart and annual targets table" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="export"><b>Export periodic targets (CSV)</b> downloads the chart's data.</li>
+        <li data-mark="kpi"><b>KPI</b> to chart.</li>
+        <li data-mark="granularity"><b>Granularity</b>: daily, weekly, monthly, quarterly or yearly.</li>
+        <li data-mark="facility_filter"><b>Facility filter</b>: one facility, or all side by side.</li>
+        <li data-mark="chart"><b>Target allocation</b> for the header's year (scenario 1), in each facility's colour.</li>
+        <li data-mark="legend"><b>Legend</b>: one series per facility.</li>
+        <li data-mark="table"><b>Annual targets</b> for the header's facility: every KPI and scenario, this year and last year.</li>
+      </ol>
+    </figure>
+    <h3 id="seasonal-chart">Seeing the seasonal curve</h3>
+    <figure class="shot" data-shot="analysis-seasonal">
+      <div class="shot-frame"><img src="../images/analysis-seasonal.png" alt="Weekly targets following the seasonal template" width="1400" height="410" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="title"><b>Units Produced, Budget, 2026</b>, at North Plant.</li>
+        <li data-mark="granularity"><b>Weekly</b> granularity, in ISO weeks.</li>
+        <li data-mark="chart">The monthly weights of <i>Demo Seasonal (Month)</i> show up as steps. W01 is short (1–4 January), and 2026 has a W53.</li>
+      </ol>
+    </figure>
+  </section>
+
+  <!-- ============================================================ FACILITIES -->
+  <section class="chapter" id="facilities">
+    <h2>Facilities</h2>
+    <figure class="shot" data-shot="facilities">
+      <div class="shot-frame"><img src="../images/facilities.png" alt="Facilities with the edit form open" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="cancel"><b>Add facility</b>. While the form is open, this button reads <i>Cancel</i>.</li>
+        <li data-mark="name"><b>Name</b>, which must be unique.</li>
+        <li data-mark="description"><b>Description.</b></li>
+        <li data-mark="color"><b>Chart colour</b>, used in Analysis and next to the facility name.</li>
+        <li data-mark="save"><b>Save facility.</b></li>
+        <li data-mark="visibility"><b>Visible / Hidden.</b> Hidden facilities are skipped by <i>Apply saves to all visible facilities</i>.</li>
+        <li data-mark="edit"><b>Edit</b> opens the form above.</li>
+        <li data-mark="delete"><b>Delete.</b> A facility that has targets or actuals needs a second confirmation, which also deletes its data.</li>
+      </ol>
+    </figure>
+  </section>
+
+  <!-- ============================================================ DATA UTILITIES -->
+  <section class="chapter" id="data-utilities">
+    <h2>Data Utilities &amp; accounts</h2>
+    <figure class="shot" data-shot="data-utilities">
+      <div class="shot-frame"><img src="../images/data-utilities.png" alt="Data Utilities: exports, backup, password, users and API keys" width="1440" height="1397" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="lean"><b>Lean CSV</b>: every periodic target as flat rows for BI tools.</li>
+        <li data-mark="tables"><b>Single-table exports</b>: plants, hierarchy, definitions, visibility, annual and periodic targets. Human-readable, not restorable.</li>
+        <li data-mark="backup"><b>Download full backup (ZIP)</b>: every KPI table, 1:1, with NULLs preserved. Accounts are excluded.</li>
+        <li data-mark="restore"><b>Restore</b> (admins only). Tick the confirmation, then choose a ZIP. It <i>replaces</i> all KPI data.</li>
+        <li data-mark="password"><b>Change your password.</b> This needs the current password, and signs out your other sessions.</li>
+        <li data-mark="users"><b>Users</b> (admins only). Select a user to edit them.</li>
+        <li data-mark="user_editor"><b>User editor</b>: name, email, administrator, active, and a password reset.</li>
+        <li data-mark="new_user"><b>Create an account</b> with a temporary password.</li>
+        <li data-mark="keys"><b>MCP API keys</b> of the selected user: prefix, last use, and Revoke.</li>
+        <li data-mark="new_key"><b>Create key.</b> The raw key is shown <i>once</i>; copy it then.</li>
+      </ol>
+    </figure>
+
+    <h3 id="roles">Roles</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Action</th><th>Administrator</th><th>Regular user</th></tr></thead>
+      <tbody>
+        <tr><td>Enter targets, edit KPIs, splits, facilities, run the ML predictor</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        <tr><td>CSV exports, download a backup</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        <tr><td>Restore a backup</td><td class="yes">Yes</td><td class="no">No</td></tr>
+        <tr><td>Change own password, edit own name, email and colour</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        <tr><td>Create users, edit others, grant or remove admin, deactivate</td><td class="yes">Yes</td><td class="no">No</td></tr>
+        <tr><td>Reset another user's password</td><td class="yes">Yes</td><td class="no">No</td></tr>
+        <tr><td>Create and revoke own API keys</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+        <tr><td>Manage other users' API keys</td><td class="yes">Yes</td><td class="no">No</td></tr>
+      </tbody>
+    </table></div>
+    <p>The last active administrator can't be demoted or deactivated. The same rules (<code>user_management/access.py</code>) apply to the REST API and the MCP server.</p>
+
+    <h3 id="backup-restore">Backup and restore in detail</h3>
+    <ol class="steps">
+      <li><b>Validate.</b> Restore checks the ZIP: known file names, a bounded uncompressed size, and every column must exist.</li>
+      <li><b>Snapshot.</b> The current databases are copied to <code>databases/backups/pre-restore-&lt;timestamp&gt;/</code>.</li>
+      <li><b>Replace.</b> The contents of every table in the backup are replaced, in one transaction across all database files. Tables missing from an older backup are left untouched, and user accounts are never touched.</li>
+    </ol>
+  </section>
+
+  <!-- ============================================================ ACTUALS -->
+  <section class="chapter" id="actuals">
+    <h2>Actuals and performance status</h2>
+    <p><span class="tag">API &amp; MCP</span> The web app has no screen for actuals yet. Record measured values through the REST API or the MCP tools <code>record_actual</code>, <code>list_actuals</code> and <code>get_performance_status</code>.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Direction</th><th><span class="tag ok">on_track</span></th><th><span class="tag warn">warning</span></th><th><span class="tag bad">out_of_range</span></th></tr></thead>
+      <tbody>
+        <tr><td>Higher is better</td><td>actual ≥ target</td><td>within the warning margin below the target</td><td>further below</td></tr>
+        <tr><td>Lower is better</td><td>actual ≤ target</td><td>within the warning margin above the target</td><td>further above</td></tr>
+        <tr><td>Range</td><td>inside [min, max]</td><td>within error margin × span outside the range</td><td>further out</td></tr>
+      </tbody>
+    </table></div>
+    <p>Margins come from the KPI's thresholds (defaults: warning 0.05, error 0.15) and are relative to |target|, so negative targets work. The trend is the least-squares slope of the actuals. With a rolling time filter, only the last <i>N</i> days count.</p>
+    <p class="code-label">Record a value, then ask for the status (bash; <code>$TOKEN</code> comes from <a href="#rest-api">signing in</a>):</p>
+    <div class="code"><pre><code>curl -X POST http://127.0.0.1:8000/actuals \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"kpi_id": 3, "plant_id": 1, "measurement_date": "2026-10-20", "actual_value": 83.2}'
+
+curl "http://127.0.0.1:8000/kpis/3/status?plant_id=1&amp;target_value=85" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <p class="code-label">Response:</p>
+    <div class="code"><pre><code>{"kpi_id": 3, "plant_id": 1, "status": "warning", "diff_pct": -2.12, "actual_count": 1,
+ "latest_actual": 83.2, "target": 85.0, "trend_slope": 0.0, "trend_direction": "stable"}</code></pre></div>
+    <div class="note warn"><strong>Pass <code>target_value</code></strong><p>The status endpoint doesn't look up the KPI's stored target. If <code>target_value</code> is left out, it compares against a baseline of 100.</p></div>
+  </section>
+
+  <!-- ============================================================ REST API -->
+  <section class="chapter" id="rest-api">
+    <h2>REST API</h2>
+    <p>The REST API is the web app's backend, and you can use it directly from scripts and BI tools. Interactive documentation is at <code>/docs</code> (Swagger UI), and the OpenAPI schema at <code>/openapi.json</code>.</p>
+    <figure class="shot" data-shot="swagger">
+      <div class="shot-frame"><img src="../images/swagger.png" alt="Swagger UI of the REST API" width="1440" height="900" loading="lazy"></div>
+      <ol class="callouts">
+        <li data-mark="title"><b>API title and version</b>, with a link to <code>/openapi.json</code>.</li>
+        <li data-mark="authorize"><b>Authorize.</b> Sign in with <code>POST /auth/login</code>, then paste the token here to try the protected routes.</li>
+        <li data-mark="tag"><b>Route groups</b> (tags): system, auth, kpis, plants, splits, targets, actuals, analysis, templates, data, users.</li>
+        <li data-mark="login"><b><code>POST /auth/login</code></b> returns <code>{token, expires_at, user}</code>.</li>
+      </ol>
+    </figure>
+
+    <h3 id="api-auth">Authenticate and save a target</h3>
+    <div class="code"><pre><code>TOKEN=$(curl -s -X POST http://127.0.0.1:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"name": "demo-admin", "password": "demo-admin-pass-2026"}' | python -c "import sys, json; print(json.load(sys.stdin)['token'])")
+
+# Budget and Stretch for KPI 1 at plants 1 and 2, year 2027
+curl -X POST http://127.0.0.1:8000/targets/annual \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"year": 2027, "plant_id": [1, 2],
+       "targets_data_map": {"1": {"targets": [{"target_number": 1, "target_value": 130000},
+                                              {"target_number": 2, "target_value": 142000}]}}}'
+
+# Monthly split of the result
+curl "http://127.0.0.1:8000/kpis/1/periodic-targets?plant_id=1&amp;year=2027&amp;period_type=Month" \
+  -H "Authorization: Bearer $TOKEN"</code></pre></div>
+    <p class="muted">These are the demo credentials from <code>.env.example</code>, for local development only. <code>period_type</code> is one of <code>Day</code>, <code>Week</code>, <code>Month</code>, <code>Quarter</code> or <code>Year</code>.</p>
+
+    <h3 id="api-routes">Route groups</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Tag</th><th class="num">Routes</th><th>Covers</th></tr></thead>
+      <tbody>
+        <tr><td>system</td><td class="num">1</td><td><code>/health</code></td></tr>
+        <tr><td>auth</td><td class="num">6</td><td>status, register, login, logout, me, change-password</td></tr>
+        <tr><td>kpis</td><td class="num">16</td><td>KPIs and folders, definition updates, units, visibility, split assignment, status, history</td></tr>
+        <tr><td>plants</td><td class="num">4</td><td>facility CRUD</td></tr>
+        <tr><td>splits</td><td class="num">8</td><td>split templates, linked KPIs, curve preview</td></tr>
+        <tr><td>targets</td><td class="num">9</td><td>annual entry, saves, available scenarios, periodic and lean targets (2 legacy routes are deprecated)</td></tr>
+        <tr><td>actuals</td><td class="num">2</td><td>record and list measured values</td></tr>
+        <tr><td>analysis</td><td class="num">1</td><td>the ML seasonality predictor (<code>multipart/form-data</code>)</td></tr>
+        <tr><td>templates</td><td class="num">8</td><td>KPI definition templates and applying them to folders</td></tr>
+        <tr><td>data</td><td class="num">5</td><td>years, CSV and lean exports, backup ZIP, restore</td></tr>
+        <tr><td>users</td><td class="num">7</td><td>users, password resets, API keys</td></tr>
+        <tr><th>Total</th><td class="num"><b>67</b></td><td>The full list is in <a href="../api_reference.md">api_reference.md</a>.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Errors come back as <code>{"detail": "…"}</code> with a meaningful status: 400 validation, 401 not signed in, 403 not allowed, 404 not found, 413 upload too large, 429 too many sign-in attempts. Tracebacks are never sent to clients.</p>
+  </section>
+
+  <!-- ============================================================ MCP -->
+  <section class="chapter" id="mcp">
+    <h2>MCP server for AI agents</h2>
+    <p>The MCP server lets AI agents (Claude Desktop, Claude Code, or any MCP client) work with the same data and rules as the web app. It's built on the official <code>mcp</code> SDK and exposes <b>60 tools</b>. A parity test fails if a REST route has no matching tool.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>stdio (default)</th><th>Streamable HTTP</th></tr></thead>
+      <tbody>
+        <tr><td>Start</td><td>The client launches <code>python src/mcp_server.py</code></td><td><code>python -m src.mcp_server --http</code>, or the <code>mcp_server</code> container</td></tr>
+        <tr><td>Endpoint</td><td>stdin/stdout</td><td><code>http://127.0.0.1:8001/mcp</code></td></tr>
+        <tr><td>Authentication</td><td>None: whoever can start it already has the database files</td><td><code>Authorization: Bearer &lt;api key&gt;</code> on every request</td></tr>
+        <tr><td>Writes recorded as</td><td><code>$MCP_STDIO_USER</code> (default <code>mcp_agent</code>)</td><td>the API key's owner. Callers can't claim another name.</td></tr>
+        <tr><td>Admin tools</td><td>Allowed unless <code>MCP_STDIO_ADMIN=false</code></td><td>Only if the key's owner is an admin. The role is re-read on every call.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 id="mcp-connect">Connect a client</h3>
+    <p class="code-label">Claude Code, local over stdio:</p>
+    <div class="code"><pre><code>claude mcp add kpi --env MCP_STDIO_USER=claude-code -- /path/to/dataentryKPI/.venv/bin/python /path/to/dataentryKPI/src/mcp_server.py</code></pre></div>
+    <p class="code-label">Claude Desktop, in <code>claude_desktop_config.json</code>:</p>
+    <div class="code"><pre><code>{
+  "mcpServers": {
+    "kpi": {
+      "command": "C:\\path\\to\\dataentryKPI\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\path\\to\\dataentryKPI\\src\\mcp_server.py"],
+      "env": { "MCP_STDIO_USER": "claude-desktop" }
+    }
+  }
+}</code></pre></div>
+    <p class="code-label">Shared, over HTTP. Create a key under <i>Data Utilities → MCP API keys</i> first:</p>
+    <div class="code"><pre><code>claude mcp add --transport http kpi http://127.0.0.1:8001/mcp --header "Authorization: Bearer kpi_mcp_..."</code></pre></div>
+
+    <h3 id="mcp-tools">Tools</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Group</th><th class="num">Tools</th><th>Examples</th></tr></thead>
+      <tbody>
+        <tr><td>KPIs and hierarchy</td><td class="num">13</td><td><code>get_kpi_tree</code>, <code>create_kpi_indicator</code>, <code>update_kpi_spec</code>, <code>set_kpi_visibility</code>, <code>get_kpi_definition_history</code></td></tr>
+        <tr><td>Facilities</td><td class="num">4</td><td><code>list_plants</code>, <code>create_plant</code>, <code>update_plant</code>, <code>delete_plant</code></td></tr>
+        <tr><td>Targets</td><td class="num">9</td><td><code>save_annual_targets</code>, <code>get_periodic_targets</code>, <code>get_periodic_targets_all_plants</code>, <code>get_lean_targets</code></td></tr>
+        <tr><td>Actuals</td><td class="num">3</td><td><code>record_actual</code>, <code>list_actuals</code>, <code>get_performance_status</code></td></tr>
+        <tr><td>Split templates</td><td class="num">10</td><td><code>create_global_split</code>, <code>set_kpi_global_split</code>, <code>get_curve_weight_suggestions</code></td></tr>
+        <tr><td>ML predictor</td><td class="num">1</td><td><code>analyze_seasonality</code> (CSV text, or a base64 Excel file)</td></tr>
+        <tr><td>KPI templates</td><td class="num">8</td><td><code>create_template</code>, <code>add_template_indicator</code>, <code>apply_template</code></td></tr>
+        <tr><td>Export and backup</td><td class="num">3</td><td><code>export_csv</code>, <code>export_backup</code>, <code>restore_backup</code> (admin)</td></tr>
+        <tr><td>Users and API keys</td><td class="num">9</td><td><code>whoami</code>, <code>create_user</code> (admin), <code>create_api_key</code>, <code>change_my_password</code></td></tr>
+      </tbody>
+    </table></div>
+    <p>Tools carry read-only and destructive annotations, so clients can ask before running a destructive one. Errors reach the model as readable messages. See <a href="../mcp.md">mcp.md</a> for every tool.</p>
+    <h4>Things to ask an agent</h4>
+    <ul>
+      <li>“Set the 2027 Budget of Units Produced at North Plant to 130,000 and show me the quarterly split.”</li>
+      <li>“Which KPIs at South Plant have no 2027 target yet?”</li>
+      <li>“Analyse this sales history with temperature as a driver and publish the weights as a template for 2027.”</li>
+      <li>“Who changed the OEE definition last month, and what changed?”</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ CONFIGURATION -->
+  <section class="chapter" id="configuration">
+    <h2>Configuration</h2>
+    <p>Set these as environment variables, or in <code>.env</code> for compose (see <code>.env.example</code>).</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Variable</th><th>Default</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>KPI_DB_DIR</code></td><td><code>./databases</code></td><td>Where the SQLite files live</td></tr>
+        <tr><td><code>KPI_EXPORT_DIR</code></td><td><code>./csv_exports</code></td><td>Where CSV exports are written</td></tr>
+        <tr><td><code>CORS_ORIGINS</code></td><td>localhost:3000 and :5173</td><td>Origins allowed to call the REST API directly</td></tr>
+        <tr><td><code>ALLOW_REGISTRATION</code></td><td><code>false</code></td><td>Let anyone register non-admin accounts after the first one</td></tr>
+        <tr><td><code>MAX_UPLOAD_MB</code></td><td><code>20</code></td><td>Size cap for ML datasets and backup restores (REST and MCP)</td></tr>
+        <tr><td><code>LOG_LEVEL</code></td><td><code>INFO</code></td><td>Backend log level</td></tr>
+        <tr><td><code>API_HOST</code> / <code>API_PORT</code></td><td><code>127.0.0.1</code> / <code>8000</code></td><td>Bind address for <code>python src/api.py</code> (<code>dev_backend.py</code> reads <code>API_PORT</code>)</td></tr>
+        <tr><td><code>MCP_TRANSPORT</code></td><td><code>stdio</code></td><td><code>http</code> does the same as <code>--http</code></td></tr>
+        <tr><td><code>MCP_HOST</code> / <code>MCP_PORT</code></td><td><code>127.0.0.1</code> / <code>8001</code></td><td>HTTP transport bind address</td></tr>
+        <tr><td><code>MCP_PUBLIC_URL</code></td><td><code>http://localhost:8001</code></td><td>URL clients use, advertised in the auth metadata</td></tr>
+        <tr><td><code>MCP_ALLOWED_HOSTS</code></td><td><code>localhost:*,127.0.0.1:*</code></td><td>Host headers accepted on a non-loopback bind (DNS-rebinding protection)</td></tr>
+        <tr><td><code>MCP_STDIO_USER</code></td><td><code>mcp_agent</code></td><td>Who stdio writes are attributed to</td></tr>
+        <tr><td><code>MCP_STDIO_ADMIN</code></td><td><code>true</code></td><td>Whether the local stdio operator may use the admin tools</td></tr>
+        <tr><td><code>FRONTEND_PORT</code></td><td><code>3000</code></td><td>Compose: host port of the web app</td></tr>
+        <tr><td><code>BACKEND_BIND_ADDRESS</code>, <code>MCP_BIND_ADDRESS</code></td><td><code>127.0.0.1</code></td><td>Compose: where the API and MCP ports are published. <code>0.0.0.0</code> exposes them.</td></tr>
+        <tr><td><code>VITE_API_URL</code></td><td><i>(empty)</i></td><td>Frontend <b>build-time</b> API base. Leave it empty to use the same-origin <code>/api</code> proxy.</td></tr>
+        <tr><td><code>SEED_API_URL</code>, <code>DEMO_*</code></td><td>see <code>.env.example</code></td><td><code>seed_demo.py</code> only. Development credentials.</td></tr>
+      </tbody>
+    </table></div>
+    <p>Outside containers, <code>user_config/settings.json</code> can also set the data directories (<code>database_base_dir</code>, <code>csv_export_base_dir</code>). Environment variables win over it.</p>
+  </section>
+
+  <!-- ============================================================ OPERATIONS -->
+  <section class="chapter" id="operations">
+    <h2>Operations</h2>
+    <h3 id="data-files">Data files</h3>
+    <p>Data is stored in eleven SQLite files in <code>KPI_DB_DIR</code>: <code>db_kpis</code>, <code>db_kpi_targets</code>, <code>db_kpi_days</code>, <code>db_kpi_weeks</code>, <code>db_kpi_months</code>, <code>db_kpi_quarters</code>, <code>db_plants</code>, <code>db_users</code>, <code>db_kpi_templates</code>, <code>db_kpi_history</code> and <code>db_kpi_actuals</code>.</p>
+    <ul>
+      <li>Every connection has a busy timeout and enforces foreign keys. Writes that span several files commit atomically.</li>
+      <li>Migrations run on every start and repair databases created by earlier versions (old CHECK constraints, dangling foreign keys, untyped columns). In compose, the backend migrates and the MCP server waits for it.</li>
+      <li>In compose, everything lives in the <code>kpi_databases</code> volume. Back it up like any volume, or use the in-app ZIP backup.</li>
+    </ul>
+    <h3 id="undo-restore">Undoing a restore</h3>
+    <p>Each restore first copies the databases to <code>databases/backups/pre-restore-&lt;timestamp&gt;/</code>. To roll back, stop the backend and the MCP server, copy those files back into the database directory, and start again.</p>
+    <h3 id="upgrade-2-0">Upgrading from 2.0 containers</h3>
+    <p>The images no longer run as root. If the existing volume was created by root, give it to uid 1000 once:</p>
+    <div class="code"><pre><code>podman run --rm -v dataentrykpi_kpi_databases:/data alpine chown -R 1000:1000 /data</code></pre></div>
+    <h3 id="exposing">Exposing the stack</h3>
+    <ul>
+      <li>Browsers only need the frontend port; it proxies <code>/api</code>. Keep the API and MCP ports on loopback unless something else must reach them.</li>
+      <li>When MCP listens on a non-loopback address, add your host name to <code>MCP_ALLOWED_HOSTS</code> and set <code>MCP_PUBLIC_URL</code>.</li>
+      <li>The backend trusts the proxy's forwarded client address, which the login rate limiter uses. That's safe only while the backend port isn't public.</li>
+      <li>nginx sends a CSP and other security headers. Put TLS in front of it, for example with a reverse proxy.</li>
+    </ul>
+    <h3 id="docs-tooling">Regenerating this guide's screenshots</h3>
+    <p>The screenshots and the callout positions are generated together from a running, seeded development stack. The positions are measured from the live page, so the callouts stay on target:</p>
+    <div class="code"><pre><code>uv run --no-project --with playwright python scripts/capture_screenshots.py</code></pre></div>
+    <p class="muted">It writes <code>docs/images/*.png</code> and <code>docs/guide/annotations.js</code>. It needs <code>dev_backend.py</code>, the Vite dev server and <code>seed_demo.py</code> to be running first, and it drives the installed Microsoft Edge.</p>
+  </section>
+
+  <!-- ============================================================ FAQ -->
+  <section class="chapter" id="faq">
+    <h2>Troubleshooting &amp; FAQ</h2>
+    <details><summary>The sign-in screen says registration is closed</summary><div><p>That's by design: after the first (admin) account exists, an administrator creates the other accounts under <i>Data Utilities → Users</i>. To let people register regular accounts themselves, start the backend with <code>ALLOW_REGISTRATION=true</code>.</p></div></details>
+    <details><summary>I was signed out unexpectedly</summary><div><p>You are only signed out on a real <code>401</code>: the session expired (after 30 days), your password was changed elsewhere, an admin reset it, or your account was deactivated. Network errors and backend restarts show a retry screen instead.</p></div></details>
+    <details><summary>A KPI doesn't appear in Target Entry</summary><div><p>Check, in this order: the quick search box; the KPI's facility enablement in KPI Explorer; whether the KPI was deleted (deleting is soft, but it hides the KPI everywhere).</p></div></details>
+    <details><summary>My formula is rejected</summary><div><p>The message says why: a syntax error, an unknown KPI id, a self-reference, or a dependency cycle (e.g. <code>[2] -&gt; [4] -&gt; [2]</code>). References use the KPI's <i>Specification ID</i>, shown under its name in KPI Explorer.</p></div></details>
+    <details><summary>Why did my monthly targets change when I didn't touch them?</summary><div><p>Something they depend on changed: the split template was edited, assigned or deleted, the aggregation type changed, or (for a formula KPI) one of its inputs was saved. All of these recalculate the stored targets. The audit history shows the target edits.</p></div></details>
+    <details><summary>The weights of my template don't add up to 100</summary><div><p>That's fine: they are scaled to 100% when the targets are calculated. The running total under the weight grid shows the current sum.</p></div></details>
+    <details><summary>Port 3000 doesn't work on Windows</summary><div><p>Hyper-V may have reserved it. Run <code>netsh interface ipv4 show excludedportrange protocol=tcp</code>, and if 3000 is in a range, set <code>FRONTEND_PORT=8080</code> in <code>.env</code>.</p></div></details>
+    <details><summary>The containers fail with “permission denied” on the database after an upgrade</summary><div><p>The volume was created by root under 2.0. Run the one-time <code>chown</code> from <a href="#upgrade-2-0">Upgrading from 2.0 containers</a>.</p></div></details>
+    <details><summary>The MCP client can't connect over HTTP</summary><div><p>Every request needs <code>Authorization: Bearer &lt;api key&gt;</code>. Check that the key isn't revoked and that its owner is active. If the server isn't on loopback, add the host name you connect with to <code>MCP_ALLOWED_HOSTS</code>.</p></div></details>
+    <details><summary>The performance status compares against 100</summary><div><p>Pass the target explicitly: <code>GET /kpis/{id}/status?plant_id=1&amp;target_value=85</code> (MCP: <code>get_performance_status</code> with <code>target_value</code>). Without it, the baseline is 100.</p></div></details>
+    <details><summary>The ML predictor rejects my file</summary><div><p>Check the column names (they're case-sensitive) and that the date column parses. Also check the limits: <code>MAX_UPLOAD_MB</code>, 1M rows and 200 columns.</p></div></details>
+  </section>
+
+  <!-- ============================================================ GLOSSARY -->
+  <section class="chapter" id="glossary">
+    <h2>Glossary</h2>
+    <dl class="glossary">
+      <dt>Additive / level</dt><dd>Additive types (Sum, Count) split a total across periods. Level types (Average, Last, Min, Max) treat the target as a level.</dd>
+      <dt>Audit trail</dt><dd>The record of every definition change and every changed target value, with the user and the time.</dd>
+      <dt>Day shape (profile)</dt><dd>How a period's share is spread over its days.</dd>
+      <dt>Driver</dt><dd>An explanatory column in ML input data, such as temperature or promotions.</dd>
+      <dt>ISO week</dt><dd>A Monday-to-Sunday week numbered per ISO 8601 (<code>W01</code>..<code>W53</code>). Week 1 contains the year's first Thursday.</dd>
+      <dt>Lean export</dt><dd>Every periodic target as one flat CSV row, for BI tools.</dd>
+      <dt>MCP</dt><dd>Model Context Protocol, the open protocol AI clients use to call tools.</dd>
+      <dt>Reconciliation</dt><dd>Scaling the daily series so it matches the annual target exactly.</dd>
+      <dt>Repartition logic</dt><dd>Which period the weights are keyed by: Month, Quarter, Week or Year.</dd>
+      <dt>Soft delete</dt><dd>Hiding a KPI everywhere while keeping its targets and history.</dd>
+      <dt>Specification ID</dt><dd>A KPI's id, used in formulas as <code>[id]</code> and in the API as <code>kpi_id</code>.</dd>
+      <dt>Topological order</dt><dd>Recomputing formula KPIs so every KPI is calculated after the KPIs it depends on.</dd>
+    </dl>
+    <hr>
+    <p class="muted">More documentation: <a href="../user_guide.md">user guide</a> · <a href="../features.md">core logic</a> · <a href="../architecture.md">architecture</a> · <a href="../api_reference.md">REST API reference</a> · <a href="../mcp.md">MCP server</a> · <a href="../database_schema.md">database schema</a> · <a href="../../CHANGELOG.md">changelog</a>. MIT licensed.</p>
+  </section>
+
+  </div>
+  </main>
+</div>
+
+<dialog id="lightbox" aria-labelledby="lb-title">
+  <div class="lb-bar"><strong id="lb-title">Screenshot</strong><button type="button" class="tb-btn" id="lb-close">Close <kbd>Esc</kbd></button></div>
+  <div class="lb-body" id="lb-body"></div>
+</dialog>
+
+<script src="annotations.js"></script>
+<script>
+(function () {
+  'use strict';
+  var root = document.documentElement;
+  var SHOTS = window.GUIDE_SHOTS || {};
+
+  function load(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+  function save(key, value) { try { localStorage.setItem(key, value); } catch (e) { /* storage unavailable */ } }
+
+  /* ---- Theme ---- */
+  var storedTheme = load('kpi-guide-theme');
+  if (storedTheme === 'light' || storedTheme === 'dark') root.setAttribute('data-theme', storedTheme);
+  document.getElementById('theme-btn').addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme')
+      ? root.getAttribute('data-theme') === 'dark'
+      : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    save('kpi-guide-theme', next);
+  });
+
+  /* ---- Callouts on/off ---- */
+  var calloutsBtn = document.getElementById('callouts-btn');
+  function setCallouts(on) {
+    root.classList.toggle('hide-callouts', !on);
+    calloutsBtn.setAttribute('aria-pressed', String(on));
+  }
+  setCallouts(load('kpi-guide-callouts') !== 'off');
+  calloutsBtn.addEventListener('click', function () {
+    var on = root.classList.contains('hide-callouts');
+    setCallouts(on);
+    save('kpi-guide-callouts', on ? 'on' : 'off');
+  });
+
+  /* ---- Annotated screenshots ---- */
+  function pct(v, total) { return (v / total * 100).toFixed(3) + '%'; }
+
+  function buildFigure(fig) {
+    var data = SHOTS[fig.getAttribute('data-shot')];
+    var frame = fig.querySelector('.shot-frame');
+    var items = fig.querySelectorAll('ol.callouts > li');
+    for (var i = 0; i < items.length; i++) {
+      var li = items[i];
+      var n = String(i + 1);
+      li.setAttribute('data-n', n);
+      li.tabIndex = 0;
+      var box = data && data.marks[li.getAttribute('data-mark')];
+      if (!box) { li.classList.add('unplaced'); continue; }
+      var W = data.width, H = data.height;
+      var hl = document.createElement('span');
+      hl.className = 'hl';
+      hl.setAttribute('data-n', n);
+      hl.style.left = pct(box[0], W);
+      hl.style.top = pct(box[1], H);
+      hl.style.width = pct(box[2], W);
+      hl.style.height = pct(box[3], H);
+      var pin = document.createElement('button');
+      pin.type = 'button';
+      pin.className = 'pin';
+      pin.textContent = n;
+      pin.setAttribute('data-n', n);
+      var label = (li.querySelector('b') || li).textContent.replace(/[.:]\s*$/, '');
+      pin.title = label;
+      pin.setAttribute('aria-label', 'Callout ' + n + ': ' + label);
+      // The pin sits on the box's top-left corner, kept inside the image.
+      pin.style.left = pct(Math.min(Math.max(box[0], 14), W - 14), W);
+      pin.style.top = pct(Math.min(Math.max(box[1], 14), H - 14), H);
+      frame.appendChild(hl);
+      frame.appendChild(pin);
+    }
+    if (frame.querySelector('img') && !frame.querySelector('.zoom')) {
+      var zoom = document.createElement('button');
+      zoom.type = 'button';
+      zoom.className = 'zoom';
+      zoom.textContent = '⤢ Enlarge';
+      zoom.setAttribute('aria-label', 'Enlarge screenshot');
+      frame.appendChild(zoom);
+    }
+    wire(fig);
+  }
+
+  function wire(scope) {
+    function set(n, on) {
+      var els = scope.querySelectorAll('[data-n="' + n + '"]');
+      for (var i = 0; i < els.length; i++) els[i].classList.toggle('active', on);
+    }
+    var els = scope.querySelectorAll('[data-n]');
+    for (var i = 0; i < els.length; i++) {
+      (function (el) {
+        var n = el.getAttribute('data-n');
+        el.addEventListener('mouseenter', function () { set(n, true); });
+        el.addEventListener('mouseleave', function () { set(n, false); });
+        el.addEventListener('focus', function () { set(n, true); });
+        el.addEventListener('blur', function () { set(n, false); });
+        if (el.classList.contains('pin')) {
+          el.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            var item = scope.querySelector('ol.callouts > li[data-n="' + n + '"]');
+            if (item) { item.focus({ preventScroll: true }); item.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+          });
+        }
+      })(els[i]);
+    }
+  }
+
+  var figures = document.querySelectorAll('figure.shot[data-shot]');
+  for (var f = 0; f < figures.length; f++) buildFigure(figures[f]);
+
+  /* ---- Lightbox ---- */
+  var lightbox = document.getElementById('lightbox');
+  var lbBody = document.getElementById('lb-body');
+  var lastFocus = null;
+  function openLightbox(fig) {
+    if (!lightbox.showModal) return;
+    lastFocus = document.activeElement;
+    lbBody.innerHTML = '';
+    var clone = fig.cloneNode(true);
+    var cap = clone.querySelector('figcaption');
+    if (cap) cap.remove();
+    var img = clone.querySelector('img');
+    if (img) {
+      img.loading = 'eager';
+      // Near full size; on small screens the screenshot scrolls sideways so the callouts stay legible.
+      var natural = fig.querySelector('img').naturalWidth || 1100;
+      clone.querySelector('.shot-frame').style.minWidth = Math.min(natural, 1100) + 'px';
+    }
+    lbBody.appendChild(clone);
+    var title = fig.closest('section') && fig.closest('section').querySelector('h2');
+    document.getElementById('lb-title').textContent = img ? img.alt : (title ? title.textContent : 'Screenshot');
+    wire(clone);
+    lightbox.showModal();
+    lbBody.scrollTop = 0;
+  }
+  for (var g = 0; g < figures.length; g++) {
+    (function (fig) {
+      var frame = fig.querySelector('.shot-frame');
+      frame.addEventListener('click', function (ev) {
+        if (ev.target.closest('.pin')) return;
+        openLightbox(fig);
+      });
+    })(figures[g]);
+  }
+  document.getElementById('lb-close').addEventListener('click', function () { lightbox.close(); });
+  lightbox.addEventListener('click', function (ev) { if (ev.target === lightbox) lightbox.close(); });
+  lightbox.addEventListener('close', function () { lbBody.innerHTML = ''; if (lastFocus) lastFocus.focus(); });
+
+  /* ---- Copy buttons ---- */
+  var pres = document.querySelectorAll('.code > pre');
+  for (var p = 0; p < pres.length; p++) {
+    (function (pre) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'copy';
+      btn.textContent = 'Copy';
+      btn.addEventListener('click', function () {
+        var text = pre.innerText;
+        function done(ok) { btn.textContent = ok ? 'Copied' : 'Press Ctrl+C'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); }
+        function fallback() {
+          var range = document.createRange();
+          range.selectNodeContents(pre);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+          var ok = false;
+          try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+          done(ok);
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+        } else {
+          fallback();
+        }
+      });
+      pre.parentNode.appendChild(btn);
+    })(pres[p]);
+  }
+
+  /* ---- Table of contents, filter and scroll-spy ---- */
+  var tocList = document.getElementById('toc-list');
+  var sections = document.querySelectorAll('main section.chapter[id]');
+  var entries = [];
+  for (var s = 0; s < sections.length; s++) {
+    var sec = sections[s];
+    var heading = sec.querySelector('h1, h2');
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '#' + sec.id;
+    a.textContent = sec.id === 'overview' ? 'Overview' : heading.textContent;
+    li.appendChild(a);
+    var subs = sec.querySelectorAll('h3[id]');
+    var subEntries = [];
+    if (subs.length) {
+      var ol = document.createElement('ol');
+      for (var h = 0; h < subs.length; h++) {
+        var sli = document.createElement('li');
+        var sa = document.createElement('a');
+        sa.href = '#' + subs[h].id;
+        sa.textContent = subs[h].textContent;
+        sli.appendChild(sa);
+        ol.appendChild(sli);
+        subEntries.push({ li: sli, a: sa, el: subs[h], text: subs[h].textContent.toLowerCase() });
+      }
+      li.appendChild(ol);
+    }
+    tocList.appendChild(li);
+    entries.push({ li: li, a: a, el: sec, text: sec.textContent.toLowerCase(), title: a.textContent.toLowerCase(), subs: subEntries });
+  }
+  var empty = document.createElement('li');
+  empty.className = 'empty';
+  empty.textContent = 'No matching chapter.';
+  empty.hidden = true;
+  tocList.appendChild(empty);
+
+  document.getElementById('toc-filter').addEventListener('input', function (ev) {
+    var q = ev.target.value.trim().toLowerCase();
+    var shown = 0;
+    entries.forEach(function (e) {
+      var match = !q || e.text.indexOf(q) !== -1;
+      e.li.hidden = !match;
+      if (match) shown++;
+      var anySub = e.subs.some(function (x) { return x.text.indexOf(q) !== -1; });
+      e.subs.forEach(function (x) { x.li.hidden = !!q && anySub && x.text.indexOf(q) === -1 && e.title.indexOf(q) === -1; });
+    });
+    empty.hidden = shown > 0;
+  });
+
+  var links = [];
+  entries.forEach(function (e) { links.push(e); e.subs.forEach(function (x) { links.push(x); }); });
+  var ticking = false;
+  function spy() {
+    ticking = false;
+    var current = null;
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].el.getBoundingClientRect().top < 120) current = links[i];
+    }
+    links.forEach(function (l) { l.a.classList.toggle('current', l === current); });
+  }
+  window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(spy); } }, { passive: true });
+  spy();
+
+  /* ---- Mobile contents drawer ---- */
+  var toc = document.getElementById('toc');
+  var menuBtn = document.getElementById('menu-btn');
+  function setMenu(open) { toc.classList.toggle('open', open); menuBtn.setAttribute('aria-expanded', String(open)); }
+  menuBtn.addEventListener('click', function () { setMenu(!toc.classList.contains('open')); });
+  toc.addEventListener('click', function (ev) { if (ev.target.closest('a')) setMenu(false); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') setMenu(false); });
+})();
+</script>
+</body>
+</html>

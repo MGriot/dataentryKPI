@@ -1,83 +1,149 @@
+# src/import_manager.py
+"""
+Restore from a raw backup ZIP (export_manager.build_backup_zip).
+
+Restore REPLACES the contents of every table present in the backup, in one transaction
+across all databases, after taking a file-level snapshot of the current databases under
+<db dir>/backups/pre-restore-<timestamp>/. Tables missing from the backup (e.g. older
+backups without units/history) are left untouched. User accounts are never touched.
+
+The ZIP is validated before anything is written: only known file names, bounded
+uncompressed size, and every CSV column must exist in the target table.
+"""
 import csv
+import datetime
+import io
+import logging
 import sqlite3
 import zipfile
-import io
-import traceback
-from pathlib import Path
-from src.config.settings import get_database_path
+from typing import Dict, List
 
-def get_table_columns(cursor: sqlite3.Cursor, table_name: str) -> list[str]:
-    """Fetches the column names for a given table."""
-    cursor.execute(f"PRAGMA table_info({table_name})")
-    return [row[1] for row in cursor.fetchall()]
+from src.data_access import db
+from src.data_access.setup import setup_databases
+from src.export_manager import MANIFEST_NAME, NULL_TOKEN, RAW_BACKUP_TABLES
 
-def import_from_zip(zip_path: str):
-    """Restores the database state from a ZIP backup by appending data.
+log = logging.getLogger(__name__)
 
-    Expects the raw per-table CSV dumps produced by export_manager.export_raw_backup_csvs
-    (filenames/tables must match RAW_BACKUP_TABLES there) -- these preserve primary keys and
-    foreign-key columns, unlike the human-readable enriched CSVs used for single-table export.
-    The order below respects foreign-key dependencies (parents before children).
-    """
+DEFAULT_MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
+_RESTORE_DATABASES = sorted({db_name for _, db_name, _ in RAW_BACKUP_TABLES})
+
+
+class RestoreError(ValueError):
+    pass
+
+
+def _alias(db_name: str) -> str:
+    return "r_" + db_name.replace(".db", "")
+
+
+def _read_backup(zip_bytes: bytes, max_uncompressed_bytes: int) -> Dict[str, dict]:
     try:
-        with zipfile.ZipFile(zip_path, 'r') as zipf:
-            import_order = [
-                ('raw_plants.csv', 'plants', get_database_path('db_plants.db')),
-                ('raw_kpi_nodes.csv', 'kpi_nodes', get_database_path('db_kpis.db')),
-                ('raw_kpi_indicators.csv', 'kpi_indicators', get_database_path('db_kpis.db')),
-                ('raw_kpis.csv', 'kpis', get_database_path('db_kpis.db')),
-                ('raw_kpi_plant_visibility.csv', 'kpi_plant_visibility', get_database_path('db_kpis.db')),
-                ('raw_kpi_indicator_templates.csv', 'kpi_indicator_templates', get_database_path('db_kpi_templates.db')),
-                ('raw_template_defined_indicators.csv', 'template_defined_indicators', get_database_path('db_kpi_templates.db')),
-                ('raw_global_kpi_splits.csv', 'global_kpi_splits', get_database_path('db_kpi_templates.db')),
-                ('raw_global_split_years.csv', 'global_split_years', get_database_path('db_kpi_templates.db')),
-                ('raw_global_split_indicators.csv', 'global_split_indicators', get_database_path('db_kpi_templates.db')),
-                ('raw_annual_targets.csv', 'annual_targets', get_database_path('db_kpi_targets.db')),
-                ('raw_kpi_annual_target_values.csv', 'kpi_annual_target_values', get_database_path('db_kpi_targets.db')),
-                ('raw_kpi_targets.csv', 'kpi_targets', get_database_path('db_kpi_targets.db')),
-                ('raw_daily_targets.csv', 'daily_targets', get_database_path('db_kpi_days.db')),
-                ('raw_weekly_targets.csv', 'weekly_targets', get_database_path('db_kpi_weeks.db')),
-                ('raw_monthly_targets.csv', 'monthly_targets', get_database_path('db_kpi_months.db')),
-                ('raw_quarterly_targets.csv', 'quarterly_targets', get_database_path('db_kpi_quarters.db')),
-                ('raw_actual_measurements.csv', 'actual_measurements', get_database_path('db_kpi_actuals.db')),
-            ]
+        zf = zipfile.ZipFile(io.BytesIO(zip_bytes))
+    except zipfile.BadZipFile:
+        raise RestoreError("The uploaded file is not a valid ZIP archive.") from None
+    known = {csv_name: (table, db_name) for table, db_name, csv_name in RAW_BACKUP_TABLES}
+    with zf:
+        infos = zf.infolist()
+        unexpected = [i.filename for i in infos if i.filename not in known and i.filename != MANIFEST_NAME]
+        if unexpected:
+            raise RestoreError(f"Unexpected files in backup: {', '.join(sorted(unexpected)[:5])}")
+        if sum(i.file_size for i in infos) > max_uncompressed_bytes:
+            raise RestoreError("Backup is too large once uncompressed.")
+        present = [i for i in infos if i.filename in known]
+        if not present:
+            raise RestoreError("No backup tables found in the ZIP (expected raw_*.csv files).")
 
-            for file_name, table_name, db_path in import_order:
-                if file_name not in zipf.namelist():
-                    continue
+        parsed = {}
+        for info in present:
+            table, db_name = known[info.filename]
+            text = zf.read(info).decode("utf-8-sig")
+            reader = csv.reader(io.StringIO(text))
+            try:
+                header = next(reader)
+            except StopIteration:
+                continue
+            parsed[table] = {"db": db_name, "header": header, "rows": list(reader)}
+    return parsed
 
-                with zipf.open(file_name) as csv_file:
-                    # Decode the file in memory
-                    csv_text = io.TextIOWrapper(csv_file, 'utf-8')
-                    reader = csv.DictReader(csv_text)
-                    data = [row for row in reader]
 
-                    if not data:
-                        continue
+def _coerce(value: str, column: dict):
+    """CSV text -> SQL value. \\N is NULL; '' is NULL for nullable/numeric columns (older backups)."""
+    if value == NULL_TOKEN:
+        return None
+    col_type = (column["type"] or "").upper()
+    numeric = any(t in col_type for t in ("INT", "REAL", "FLOA", "DOUB", "NUM", "BOOL"))
+    if value == "" and (numeric or not column["notnull"]):
+        return None
+    return value
 
-                    with sqlite3.connect(db_path) as conn:
-                        cursor = conn.cursor()
-                        db_columns = get_table_columns(cursor, table_name)
-                        
-                        # Filter CSV data to only include columns that exist in the DB table
-                        valid_data = []
-                        for row in data:
-                            valid_row = {k: v for k, v in row.items() if k in db_columns}
-                            valid_data.append(valid_row)
 
-                        if not valid_data:
-                            continue
+def _snapshot_databases() -> str:
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = db.path(db.KPIS).parent / "backups" / f"pre-restore-{stamp}"
+    target.mkdir(parents=True, exist_ok=True)
+    for db_name in db.ALL_DATABASES:
+        if db_name == db.USERS or not db.path(db_name).exists():
+            continue
+        src = sqlite3.connect(db.path(db_name))
+        dst = sqlite3.connect(target / db_name)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+    return str(target)
 
-                        # Prepare the INSERT statement based on valid columns
-                        columns = ', '.join(valid_data[0].keys())
-                        placeholders = ', '.join('?' * len(valid_data[0]))
-                        sql = f"INSERT OR IGNORE INTO {table_name} ({columns}) VALUES ({placeholders})"
-                        
-                        # Execute for all valid rows
-                        cursor.executemany(sql, [list(row.values()) for row in valid_data])
-                        conn.commit()
 
-        return "Database restore/append completed successfully."
+def restore_from_zip(zip_bytes: bytes, max_uncompressed_bytes: int = DEFAULT_MAX_UNCOMPRESSED_BYTES) -> dict:
+    """Validates and restores a backup. Returns {'tables': {table: rows}, 'snapshot': path, 'warnings': [...]}"""
+    backup = _read_backup(zip_bytes, max_uncompressed_bytes)
+    setup_databases()  # make sure every target table exists with the current schema
 
-    except Exception as e:
-        return f"Error restoring from backup: {e}\n{traceback.format_exc()}"
+    main_db = _RESTORE_DATABASES[0]
+    attach = {_alias(d): d for d in _RESTORE_DATABASES if d != main_db}
+    restored: Dict[str, int] = {}
+    warnings: List[str] = []
+
+    # Validate columns against the live schema before touching anything.
+    with db.connect(main_db, attach=attach) as conn:
+        for table, item in backup.items():
+            schema = "main" if item["db"] == main_db else _alias(item["db"])
+            columns = {c["name"]: c for c in conn.execute(f"PRAGMA {schema}.table_info({db.ident(table)})")}
+            unknown = [c for c in item["header"] if c not in columns]
+            if unknown:
+                raise RestoreError(f"Backup table '{table}' has columns this version doesn't know: {', '.join(unknown)}")
+            item["schema"], item["columns"] = schema, columns
+
+    snapshot = _snapshot_databases()
+
+    with db.connect(main_db, attach=attach, foreign_keys=False) as conn:
+        for table, _, _ in RAW_BACKUP_TABLES:  # parents before children
+            item = backup.get(table)
+            if not item:
+                continue
+            target = f"{item['schema']}.{db.ident(table)}"
+            header = item["header"]
+            conn.execute(f"DELETE FROM {target}")
+            if header:
+                cols = [item["columns"][c] for c in header]
+                placeholders = ", ".join("?" * len(header))
+                values = []
+                for line_no, row in enumerate(item["rows"], start=2):
+                    if len(row) != len(header):
+                        raise RestoreError(f"{table}: line {line_no} has {len(row)} values, expected {len(header)}")
+                    values.append([_coerce(v, c) for v, c in zip(row, cols)])
+                try:
+                    conn.executemany(
+                        f"INSERT INTO {target} ({', '.join(db.ident(c) for c in header)}) VALUES ({placeholders})", values
+                    )
+                except sqlite3.IntegrityError as e:
+                    raise RestoreError(f"{table}: {e}") from None
+            restored[table] = len(item["rows"])
+        for schema in ["main", *attach]:
+            violations = conn.execute(f"PRAGMA {schema}.foreign_key_check").fetchall()
+            if violations:
+                warnings.append(f"{len(violations)} row(s) in {schema} reference missing parents")
+
+    setup_databases()  # normalize legacy values (calc types, is_calculated, ...)
+    log.info("Restored %s tables from backup (snapshot at %s)", len(restored), snapshot)
+    return {"tables": restored, "snapshot": snapshot, "warnings": warnings}

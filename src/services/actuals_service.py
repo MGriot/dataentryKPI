@@ -1,143 +1,118 @@
 # src/services/actuals_service.py
-import sqlite3
+"""Actual measurements and performance status (actual vs target, trend)."""
 import json
-import math
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List, Optional, Tuple
-from src.config import settings as app_config
+from typing import Any, Dict, List, Optional
 
-def _get_actuals_db_connection() -> sqlite3.Connection:
-    db_path = app_config.get_database_path("db_kpi_actuals.db")
-    return sqlite3.connect(db_path)
+from src.data_access import db
 
-def record_actual_measurement(
-    kpi_id: int,
-    plant_id: int,
-    measurement_date: str,
-    actual_value: float
-) -> int:
-    """
-    Inserts or updates an actual measurement entry.
-    """
-    with _get_actuals_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
+
+def record_actual_measurement(kpi_id: int, plant_id: int, measurement_date: str, actual_value: float) -> int:
+    """Inserts or updates an actual measurement entry."""
+    with db.connect(db.ACTUALS) as conn:
+        conn.execute(
             """INSERT INTO actual_measurements (kpi_id, plant_id, measurement_date, actual_value)
                VALUES (?, ?, ?, ?)
                ON CONFLICT(kpi_id, plant_id, measurement_date) DO UPDATE SET actual_value = excluded.actual_value""",
-            (kpi_id, plant_id, measurement_date, actual_value)
+            (kpi_id, plant_id, measurement_date, actual_value),
         )
-        conn.commit()
-        return cursor.lastrowid
+        return conn.execute(
+            "SELECT id FROM actual_measurements WHERE kpi_id=? AND plant_id=? AND measurement_date=?",
+            (kpi_id, plant_id, measurement_date),
+        ).fetchone()[0]
 
-def get_actual_measurements(
-    kpi_id: int,
-    plant_id: int,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """
-    Retrieves actual measurements for a given KPI and plant within optional date bounds.
-    """
+
+def get_actual_measurements(kpi_id: int, plant_id: int, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
     query = "SELECT * FROM actual_measurements WHERE kpi_id = ? AND plant_id = ?"
-    params = [kpi_id, plant_id]
-
+    params: list = [kpi_id, plant_id]
     if start_date:
         query += " AND measurement_date >= ?"
         params.append(start_date)
     if end_date:
         query += " AND measurement_date <= ?"
         params.append(end_date)
-
     query += " ORDER BY measurement_date ASC"
+    with db.connect(db.ACTUALS) as conn:
+        return db.rows(conn.execute(query, params))
 
-    with _get_actuals_db_connection() as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        return [dict(r) for r in cursor.fetchall()]
 
 def calculate_trend_slope(values: List[float]) -> float:
-    """
-    Calculates the linear regression slope for a time series of values.
-    Positive slope indicates upward trend, negative indicates downward.
-    """
+    """Linear regression slope of a series (positive = upward)."""
     n = len(values)
     if n < 2:
         return 0.0
-
     x_mean = (n - 1) / 2.0
     y_mean = sum(values) / float(n)
-
     numerator = sum((i - x_mean) * (y - y_mean) for i, y in enumerate(values))
     denominator = sum((i - x_mean) ** 2 for i in range(n))
+    return numerator / denominator if denominator else 0.0
 
-    if denominator == 0:
-        return 0.0
 
-    return numerator / denominator
+def _thresholds(threshold_json) -> dict:
+    if isinstance(threshold_json, dict):
+        return threshold_json
+    if not threshold_json:
+        return {}
+    try:
+        parsed = json.loads(threshold_json)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _num(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
 
 def evaluate_performance_status(
     actual: float,
     target: float,
     direction: str = "Higher is Better",
-    threshold_json: Optional[str] = None
+    threshold_json: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Compares an actual against a target. Status: 'on_track', 'warning' or 'out_of_range'.
+
+    Margins are relative to |target|, so the bands are correct for negative targets too.
     """
-    Evaluates an actual value against a target using directional logic and threshold bands.
-    Status can be 'on_track', 'warning', or 'out_of_range'.
-    """
-    thresholds = {}
-    if threshold_json:
-        try:
-            thresholds = json.loads(threshold_json)
-        except Exception:
-            thresholds = {}
+    thresholds = _thresholds(threshold_json)
+    warning_margin = abs(_num(thresholds.get("warning_margin"), 0.05))
+    error_margin = abs(_num(thresholds.get("error_margin"), 0.15))
+    band = abs(target) * warning_margin
+    direction_clean = (direction or "Higher is Better").strip().lower()
 
-    warning_margin = thresholds.get("warning_margin", 0.05)  # 5% default margin
-    error_margin = thresholds.get("error_margin", 0.15)      # 15% default margin
-
-    direction_clean = direction.strip().lower() if direction else "higher is better"
-
-    if direction_clean == "higher is better":
-        if actual >= target:
-            status = "on_track"
-        elif actual >= target * (1.0 - warning_margin):
-            status = "warning"
-        else:
-            status = "out_of_range"
-        diff_pct = ((actual - target) / target * 100.0) if target != 0 else 0.0
-
-    elif direction_clean == "lower is better":
+    if direction_clean == "lower is better":
         if actual <= target:
             status = "on_track"
-        elif actual <= target * (1.0 + warning_margin):
+        elif actual <= target + band:
             status = "warning"
         else:
             status = "out_of_range"
-        diff_pct = ((target - actual) / target * 100.0) if target != 0 else 0.0
-
+        diff_pct = ((target - actual) / abs(target) * 100.0) if target else 0.0
     elif direction_clean == "range":
-        min_val = thresholds.get("min_target", target * (1 - warning_margin))
-        max_val = thresholds.get("max_target", target * (1 + warning_margin))
+        min_val = _num(thresholds.get("min_target"), target - band)
+        max_val = _num(thresholds.get("max_target"), target + band)
+        span = abs(max_val - min_val) or abs(target) or 1.0
         if min_val <= actual <= max_val:
             status = "on_track"
-        elif (min_val * (1 - error_margin)) <= actual <= (max_val * (1 + error_margin)):
+        elif min_val - span * error_margin <= actual <= max_val + span * error_margin:
             status = "warning"
         else:
             status = "out_of_range"
         diff_pct = 0.0
-    else:
-        status = "on_track" if actual >= target else "out_of_range"
-        diff_pct = 0.0
+    else:  # higher is better (default)
+        if actual >= target:
+            status = "on_track"
+        elif actual >= target - band:
+            status = "warning"
+        else:
+            status = "out_of_range"
+        diff_pct = ((actual - target) / abs(target) * 100.0) if target else 0.0
 
-    return {
-        "actual": actual,
-        "target": target,
-        "direction": direction,
-        "status": status,
-        "diff_pct": round(diff_pct, 2)
-    }
+    return {"actual": actual, "target": target, "direction": direction, "status": status, "diff_pct": round(diff_pct, 2)}
+
 
 def get_performance_status_for_kpi(
     kpi_id: int,
@@ -146,64 +121,43 @@ def get_performance_status_for_kpi(
     direction: str = "Higher is Better",
     threshold_json: Optional[str] = None,
     time_filter_type: str = "None",
-    time_filter_value: Optional[str] = None
+    time_filter_value: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Retrieves recent actual measurements, applies time window filtering,
-    evaluates status against target_value, and computes trend.
-    """
+    """Latest actual vs target_value (within the KPI's time filter), plus trend."""
     all_measurements = get_actual_measurements(kpi_id, plant_id)
     if not all_measurements:
         return {
-            "kpi_id": kpi_id,
-            "plant_id": plant_id,
-            "status": "no_data",
-            "actual_count": 0,
-            "latest_actual": None,
-            "target": target_value,
-            "trend_slope": 0.0,
-            "trend_direction": "stable"
+            "kpi_id": kpi_id, "plant_id": plant_id, "status": "no_data", "actual_count": 0,
+            "latest_actual": None, "target": target_value, "trend_slope": 0.0, "trend_direction": "stable",
         }
 
-    # Apply time filter
-    filter_type = time_filter_type.strip().lower() if time_filter_type else "none"
     filtered = all_measurements
-
-    if filter_type == "rolling" and time_filter_value:
+    if (time_filter_type or "none").strip().lower() == "rolling" and time_filter_value:
         try:
-            days = int(time_filter_value)
-            cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=int(time_filter_value))).strftime("%Y-%m-%d")
             filtered = [m for m in all_measurements if m["measurement_date"] >= cutoff]
         except ValueError:
             filtered = all_measurements
 
     values = [m["actual_value"] for m in filtered]
     latest_actual = values[-1] if values else None
-
     if latest_actual is not None:
         eval_res = evaluate_performance_status(latest_actual, target_value, direction, threshold_json)
-        status = eval_res["status"]
-        diff_pct = eval_res["diff_pct"]
+        status, diff_pct = eval_res["status"], eval_res["diff_pct"]
     else:
-        status = "no_data"
-        diff_pct = 0.0
+        status, diff_pct = "no_data", 0.0
 
+    higher_is_better = (direction or "Higher is Better").strip().lower() != "lower is better"
     slope = calculate_trend_slope(values)
     if slope > 0.01:
-        trend_dir = "improving" if direction.lower() == "higher is better" else "declining"
+        trend_dir = "improving" if higher_is_better else "declining"
     elif slope < -0.01:
-        trend_dir = "declining" if direction.lower() == "higher is better" else "improving"
+        trend_dir = "declining" if higher_is_better else "improving"
     else:
         trend_dir = "stable"
 
     return {
-        "kpi_id": kpi_id,
-        "plant_id": plant_id,
-        "status": status,
-        "diff_pct": diff_pct,
-        "actual_count": len(filtered),
-        "latest_actual": latest_actual,
-        "target": target_value,
-        "trend_slope": round(slope, 4),
-        "trend_direction": trend_dir
+        "kpi_id": kpi_id, "plant_id": plant_id, "status": status, "diff_pct": diff_pct,
+        "actual_count": len(filtered), "latest_actual": latest_actual, "target": target_value,
+        "trend_slope": round(slope, 4), "trend_direction": trend_dir,
     }

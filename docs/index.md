@@ -1,38 +1,39 @@
-# Data Entry KPI Documentation
+# Documentation
 
-Welcome to the documentation for the Data Entry KPI system. One shared Python core (SQLite data layer, repartition engine, ML seasonality predictor) is exposed through four interfaces: a **React web app** (primary), a **FastAPI REST API**, an **MCP server** for AI agents, and the original **Tkinter/Streamlit** desktop and web GUIs. All four read and write the same databases.
+The Data Entry KPI Target Manager turns annual KPI targets into daily, weekly, monthly and quarterly targets per facility. One Python core is exposed through a **React web app** (backed by a **REST API**) and an **MCP server** for AI agents; all three share the same data and rules.
 
-## 🚀 Quick Start
+![Architecture](images/architecture.svg)
 
-- **React app (primary):** backend `python -m uvicorn src.api:app --reload`, then `cd frontend && npm run dev`
-- **Docker/Podman (all containers):** `podman-compose up --build`
-- **Desktop App (Tkinter):** `python src/main.py tkinter`
-- **Web App (Streamlit):** `python src/main.py streamlit`
-- **MCP server:** `python src/mcp_server.py` (stdio, local) or `python src/mcp_server.py --http` (shared, API-key gated)
+## Guides
+- **[Illustrated guide (HTML)](guide/index.html)**: the complete manual, with numbered callouts on every screenshot. Open it in a browser.
+- **[User guide](user_guide.md)**: every screen of the web app, with screenshots.
+- **[MCP server](mcp.md)**: connecting Claude Desktop, Claude Code or any MCP client; transports, API keys, roles, and all 60 tools.
+- **[REST API reference](api_reference.md)**: routes, authentication, roles and errors.
 
-See the [repo root README](../README.md) for the full rundown of each option.
+## How it works
+- **[Architecture](architecture.md)**: components, the save pipeline, deployment.
+- **[Core logic](features.md)**: aggregation types, repartition, split templates, formulas, the ML seasonality predictor, performance status, audit and backup.
+- **[Code-level deep dive](code_depth.md)**: the engine internals, with file and function references.
+- **[Database schema](database_schema.md)**: the SQLite files and tables.
 
-## 📚 Documentation Sections
+## Quick start
 
-### 🖥️ Current interfaces
-- **[System Architecture](architecture.md):** How the four interfaces share one core — module breakdown and data flow.
-- **[REST & MCP API Reference](api_reference.md):** Every FastAPI endpoint (grouped by resource) and the MCP tool list, for both transports.
-- **[Database Schema](database_schema.md):** Partitioned SQLite tables, including the `db_users.db` audit/API-key tables.
+```bash
+python scripts/dev_backend.py
+```
+```bash
+npm --prefix frontend run dev
+```
+Then open http://localhost:5173 and create the first account; it becomes the admin. Optionally run `python scripts/seed_demo.py` for demo data.
 
-### 🖥️ Legacy user interfaces
-- **[Tkinter Desktop Manual](gui_tkinter.md):** Guide for the desktop application.
-- **[Streamlit Web Manual](gui_streamlit.md):** Guide for the Streamlit web interface.
+```bash
+podman compose up --build -d
+```
+This starts the containers: the app on :3000, the API on 127.0.0.1:8000, MCP on 127.0.0.1:8001/mcp.
 
-### 🛠️ Core logic
-- **[Core Features & Logic](features.md):** Dynamic target distribution, the formula engine, and multivariate seasonality prediction — this logic is shared by every interface.
-- **[Code-Level Deep Dive](code_depth.md):** DAG engine internals, reconciliation math, the actuals/trend calculation, and exact CSV export layouts, with code references.
+The [repository README](../README.md) has the full setup, configuration and MCP client snippets.
 
-## 🔑 Key Capabilities
-
-1.  **Unified Management:** Manage KPI hierarchies (Groups > Subgroups > Indicators) centrally, from any interface.
-2.  **Dynamic Target Scenarios:** Each KPI declares its own target count (1..N) — not hardcoded to a Base/Stretch pair.
-3.  **Smart Distribution:** Automatically split annual targets using profiles (Sinusoidal, Progressive, etc.), a Global Split template, or ML-predicted weights.
-4.  **Dependency-Ordered Calculation:** Formula-based KPIs are recalculated and repartitioned in dependency order (drivers before dependents) whenever any target changes anywhere in the system.
-5.  **Flexible Calculation:** Python-like formulas or a visual Node Editor (Tkinter) for calculated KPIs that update in real time.
-6.  **Auditability:** Every target and definition edit is attributed to a named profile and timestamped, visible in the React app's KPI Explorer history panel.
-7.  **Multi-Platform:** Access the same data via the React app, REST API, MCP (for AI agents), the desktop app, or the Streamlit web app.
+## Project history
+- [CHANGELOG](../CHANGELOG.md)
+- [Audit report](audit.md): the findings of the October 2026 review and how each was resolved.
+- `archive/`: older planning documents and per-task changelogs, kept for reference.

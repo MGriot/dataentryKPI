@@ -4,7 +4,7 @@ import math
 import uuid
 import re
 import ast
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 class NodeType:
     KPI_INPUT = "kpi_input"
@@ -186,7 +186,7 @@ class KpiDAG:
                 if isinstance(node.func, ast.Name):
                     func_name = node.func.id
                 
-                if func_name in ("min", "max", "avg", "abs"):
+                if func_name in ("min", "max", "avg", "abs") and node.args:
                     inputs = [walk(arg, depth + 1) for arg in node.args]
                     op_node_id = str(uuid.uuid4())
                     op_node = KpiNode(op_node_id, NodeType.OPERATOR, {"op": func_name, "num_inputs": len(inputs)}, {"x": 750 - (depth * 180), "y": 100})
@@ -204,8 +204,8 @@ class KpiDAG:
                     dag.add_node(kpi_node)
                     return node_id
             
-            elif isinstance(node, (ast.Constant, getattr(ast, 'Num', type(None)))):
-                val = node.value if hasattr(node, 'value') else node.n
+            elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                val = node.value
                 node_id = f"node_const_{uuid.uuid4().hex[:4]}"
                 c_node = KpiNode(node_id, NodeType.CONSTANT, {"value": float(val)}, {"x": 50, "y": 100 + (len(dag.nodes) * 60)})
                 dag.add_node(c_node)
@@ -235,9 +235,14 @@ class KpiDAG:
         output_node = next((n for n in self.nodes.values() if n.type == NodeType.OUTPUT), None)
         if not output_node:
             return 0.0
-        
+        if self.has_cycle():
+            raise ValueError("Formula graph contains a cycle")
+
         memo = {}
-        return self._evaluate_recursive(output_node.id, kpi_resolver_func, memo, default_target_num)
+        result = self._evaluate_recursive(output_node.id, kpi_resolver_func, memo, default_target_num)
+        if not math.isfinite(result):
+            raise ValueError("Formula result is not a finite number")
+        return result
 
     def _evaluate_recursive(self, node_id: str, resolver, memo: Dict[str, float], default_target_num: int) -> float:
         if node_id in memo:
@@ -289,7 +294,12 @@ class KpiDAG:
             return inputs[0] / inputs[1]
         elif op == "pow":
             if len(inputs) < 2: return inputs[0]
-            return math.pow(inputs[0], inputs[1])
+            base, exponent = inputs[0], inputs[1]
+            if abs(exponent) > 64 or abs(base) > 1e12 or (base < 0 and not float(exponent).is_integer()):
+                raise ValueError("pow(): base/exponent out of the supported range")
+            return math.pow(base, exponent)
+        elif op == "abs":
+            return abs(inputs[0])
         elif op == "min":
             return min(inputs)
         elif op == "max":

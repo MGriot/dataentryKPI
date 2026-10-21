@@ -1,51 +1,81 @@
+# Backend (REST API) + frontend (nginx serving the React app and proxying /api) + MCP server.
+#   podman compose up --build -d     (or: docker compose up --build -d)
+# Open http://localhost:3000 and register: the first account becomes the admin.
+# Settings come from .env (see .env.example).
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile
+    image: dataentrykpi-backend
     container_name: dataentrykpi-backend
+    # Only on loopback by default: browsers reach the API through the frontend's /api proxy.
     ports:
-      - "8000:8000"
+      - "${BACKEND_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     volumes:
       - kpi_databases:/app/databases
-      - ./csv_exports:/app/csv_exports
     environment:
-      - PYTHONUNBUFFERED=1
-    restart: always
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+    image: dataentrykpi-frontend
     container_name: dataentrykpi-frontend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      - backend
-    restart: always
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
 
   mcp_server:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Same image as the backend, different command. Stdio (the local default) can't be a shared
+    # container service, so this runs Streamable HTTP at http://localhost:8001/mcp. Callers send
+    # 'Authorization: Bearer <api key>' (Data Utilities -> MCP API Keys, or POST /users/{id}/api-keys).
+    image: dataentrykpi-backend
+    pull_policy: never
     container_name: dataentrykpi-mcp
-    # Stdio transport (the default when run locally, e.g. by Claude Desktop) can't be a
-    # shared container service -- nothing is attached to its stdin here. Run HTTP transport
-    # instead; callers authenticate with an API key minted via POST /users/{id}/api-keys
-    # on the backend, sent as 'Authorization: Bearer <key>'.
-    command: ["python", "src/mcp_server.py", "--http"]
+    command: ["python", "-m", "src.mcp_server", "--http"]
     ports:
-      - "8001:8001"
+      - "${MCP_BIND_ADDRESS:-127.0.0.1}:8001:8001"
     environment:
-      - PYTHONUNBUFFERED=1
-      - MCP_TRANSPORT=http
-      - MCP_PORT=8001
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8001
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:8001}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-localhost:*,127.0.0.1:*}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-20}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - kpi_databases:/app/databases
-    restart: always
+    # The backend runs the DB migrations; start once it's up so the two never migrate at once.
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
 
 volumes:
   kpi_databases:
-    driver: local

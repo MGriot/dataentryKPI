@@ -6,7 +6,14 @@ export interface KpiNode {
   custom_level_label?: string | null;
   is_active?: number;
   children?: KpiNode[];
-  indicators?: KpiDetailedSpec[];
+  indicators?: KpiTreeIndicator[];
+}
+
+export interface KpiTreeIndicator {
+  indicator_id: number;
+  indicator_name: string;
+  node_id: number;
+  kpi_id: number;
 }
 
 export interface KpiDetailedSpec {
@@ -16,7 +23,8 @@ export interface KpiDetailedSpec {
   node_id: number;
   hierarchy_path?: string;
   description?: string;
-  calculation_type: 'Sum' | 'Average' | 'Last' | 'Min' | 'Max' | 'Count' | 'Incremental';
+  calculation_type: CalcType;
+  is_active?: boolean;
   unit_of_measure?: string;
   visible: boolean;
   formula_json?: string;
@@ -42,15 +50,24 @@ export interface Plant {
   is_active?: boolean;
 }
 
+export type CalcType = 'Sum' | 'Average' | 'Last' | 'Min' | 'Max' | 'Count';
+
+export const CALC_TYPE_OPTIONS: { value: CalcType; label: string }[] = [
+  { value: 'Sum', label: 'Sum (periods add up to the annual target)' },
+  { value: 'Count', label: 'Count (events; periods add up)' },
+  { value: 'Average', label: 'Average (annual target is a level)' },
+  { value: 'Last', label: 'Last value (level)' },
+  { value: 'Min', label: 'Minimum (level)' },
+  { value: 'Max', label: 'Maximum (level)' },
+];
+
 export interface AnnualTargetValue {
   id?: number;
   annual_target_id?: number;
   target_number: number;
-  target_value: number;
-  is_manual?: boolean;
-  is_formula_based?: boolean;
-  formula?: string;
-  formula_inputs?: string;
+  target_value: number | null;
+  is_manual?: number | boolean;
+  is_formula_based?: number | boolean;
 }
 
 export interface AnnualTargetEntry {
@@ -63,8 +80,7 @@ export interface AnnualTargetEntry {
   distribution_profile?: string;
   profile_params?: string;
   global_split_id?: number | null;
-  target_values?: AnnualTargetValue[];
-  [key: string]: any;
+  target_values: AnnualTargetValue[];
 }
 
 export interface UnitOfMeasure {
@@ -80,7 +96,7 @@ export interface GlobalSplit {
   repartition_logic: string;
   repartition_values: Record<string, number>;
   distribution_profile: string;
-  profile_params: Record<string, any>;
+  profile_params: Record<string, unknown>;
 }
 
 export interface KpiTemplate {
@@ -116,13 +132,14 @@ export interface MultivariateAnalysisResult {
   weights: Record<string, number>;
   coefficients: Record<string, number>;
   r_squared: number;
-  plot_data: Array<Record<string, number>>;
+  plot_data: Array<{ period_idx: number; period: string; Actual_Target: number; Predicted_Fit: number; CI_Upper: number; CI_Lower: number }>;
   winning_model: string;
+  period_type: string;
 }
 
 export interface PeriodicTargetRecord {
   period: string;
-  Target: number;
+  target_value: number;
 }
 
 export interface PeriodicTargetAllPlantsRecord {
@@ -141,7 +158,13 @@ export interface User {
   email?: string;
   color: string;
   is_active: boolean;
-  created_at: string;
+  is_admin?: boolean;
+  created_at?: string;
+}
+
+export interface AuthStatus {
+  has_users: boolean;
+  registration_open: boolean;
 }
 
 export interface ApiKey {
@@ -167,8 +190,8 @@ export interface DefinitionHistoryEntry {
   changed_at: string;
   changed_by: string;
   change_type: string;
-  old_value?: any;
-  new_value?: any;
+  old_value?: unknown;
+  new_value?: unknown;
 }
 
 export interface TargetHistoryEntry {

@@ -1,249 +1,126 @@
 # src/export_manager.py
+"""
+CSV exports (human-readable) and the raw ZIP backup consumed by import_manager.
+
+Two formats:
+* Human-readable CSVs (joined names, one file per "table key") -- for people and BI tools.
+  Not restorable.
+* Raw backup ZIP: a 1:1 dump of every table (all columns, primary/foreign keys kept) plus a
+  manifest. NULL is written as \\N so it survives the round trip (an empty string is a
+  real empty string). User accounts, sessions and API keys are deliberately NOT included.
+"""
 import csv
-import sqlite3
-import zipfile
-import io
-import traceback
-from pathlib import Path
-import json
 import datetime
+import io
+import json
+import zipfile
+from pathlib import Path
+from typing import Callable, Dict, List, Tuple
 
-# Configuration import
-try:
-    from src.config.settings import CSV_EXPORT_BASE_PATH, get_database_path
-except ImportError:
-    print("CRITICAL WARNING: app_config.py not found. Using fallback for CSV_EXPORT_BASE_PATH.")
-    CSV_EXPORT_BASE_PATH = "./fallback_csv_exports"
+from src import data_retriever
+from src.data_access import db
 
-# Data retrieval import
-try:
-    from src.data_retriever import (
-        get_all_plants,
-        get_all_kpi_nodes,
-        get_all_kpi_definitions_for_export,
-        get_all_kpi_plant_visibility,
-        get_all_annual_targets_enriched,
-        get_all_periodic_targets_unified,
-        get_lean_targets,
-    )
-    _data_retriever_available = True
-except ImportError as e:
-    print(f"CRITICAL WARNING: data_retriever.py or its functions not found. Export will fail. Error: {e}")
-    traceback.print_exc()
-    _data_retriever_available = False
+NULL_TOKEN = "\\N"
+BACKUP_FORMAT_VERSION = 2
+MANIFEST_NAME = "manifest.json"
 
-# Optimized CSV File Set
-GLOBAL_CSV_FILES = {
-    "plants": "dict_plants.csv",
-    "kpi_nodes": "dict_kpi_hierarchy.csv",
-    "kpi_definitions": "dict_kpi_definitions.csv",
-    "kpi_plant_visibility": "dict_kpi_plant_visibility.csv",
-    "annual": "all_annual_targets.csv",
-    "periodic": "all_periodic_targets.csv",
-    "manifest": "export_manifest.json"
-}
-
-_CSV_EXPORT_BASE_PATH_OBJ = Path(CSV_EXPORT_BASE_PATH)
-
-def _export_to_csv(output_filepath: Path, data: list, header: list[str]):
-    """Generic and safe function to export a list of dictionaries to a CSV file."""
-    if not data:
-        print(f"INFO: No data provided for {output_filepath.name}, skipping file creation.")
-        return
-    try:
-        dict_data = [dict(row) if not isinstance(row, dict) else row for row in data]
-        with open(output_filepath, "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=header, extrasaction='ignore')
-            writer.writeheader()
-            writer.writerows(dict_data)
-    except Exception as e:
-        print(f"ERROR writing to {output_filepath.name}: {e}")
-        traceback.print_exc()
-
-def export_lean_data_to_csv(base_export_path_str: str = None):
-    """Generates a minimal, high-portability CSV for external consumption."""
-    if not _data_retriever_available: return
-    
-    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
-    target_export_path.mkdir(parents=True, exist_ok=True)
-    
-    _export_to_csv(target_export_path / "lean_target_data.csv", 
-                   get_lean_targets(), 
-                   ["Indicator", "Plant", "Year", "PeriodType", "PeriodValue", "TargetID", "Value"])
-    print("INFO: Lean export completed.")
-
-def export_all_data_to_global_csvs(base_export_path_str: str = None):
-    """Generates/Overwrites global CSV files with all data, fetched via data_retriever."""
-    if not _data_retriever_available:
-        print("CRITICAL ERROR: data_retriever module not available. Aborting export.")
-        return
-
-    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
-    target_export_path.mkdir(parents=True, exist_ok=True)
-    print(f"INFO: Starting global CSV export to: {target_export_path}")
-
-    # 1. Plants
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["plants"], 
-                   get_all_plants(visible_only=False), 
-                   ["id", "name", "description", "visible", "color"])
-
-    # 2. KPI Hierarchy (Nodes)
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_nodes"], 
-                   get_all_kpi_nodes(), 
-                   ["id", "name", "parent_id", "node_type"])
-
-    # 3. KPI Definitions (Merged & Enriched)
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_definitions"], 
-                   get_all_kpi_definitions_for_export(), 
-                   ["kpi_id", "indicator_name", "hierarchy_path", "description", "calculation_type", "unit_of_measure", "visible"])
-
-    # 5. Plant Visibility
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["kpi_plant_visibility"], 
-                   get_all_kpi_plant_visibility(), 
-                   ["kpi_id", "plant_id", "is_enabled"])
-
-    # 6. Annual Targets (Enriched)
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["annual"], 
-                   get_all_annual_targets_enriched(), 
-                   ["id", "year", "plant_id", "plant_name", "kpi_id", "indicator_name", "annual_target1", "annual_target2", "repartition_logic"])
-
-    # 7. Periodic Targets (Unified)
-    _export_to_csv(target_export_path / GLOBAL_CSV_FILES["periodic"], 
-                   get_all_periodic_targets_unified(), 
-                   ["year", "plant_id", "kpi_id", "target_number", "period_type", "period_value", "target_value"])
-
-    # 8. Manifest
-    manifest = {
-        "export_date": datetime.datetime.now().isoformat(),
-        "files": list(GLOBAL_CSV_FILES.values()),
-        "schema_version": "2.0",
-        "system": "dataentryKPI"
-    }
-    with open(target_export_path / GLOBAL_CSV_FILES["manifest"], "w") as f:
-        json.dump(manifest, f, indent=4)
-
-    print("INFO: Global CSV export finished.")
-
-
-def export_single_table(table_key: str, base_export_path_str: str = None) -> str:
-    """Exports a single specific table to CSV based on a key."""
-    if not _data_retriever_available:
-        return "Error: Data retriever not available."
-
-    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
-    target_export_path.mkdir(parents=True, exist_ok=True)
-
-    # Mapping of keys to (retrieval_func, header, filename)
-    from src import data_retriever
-    mapping = {
-        "Plants": (data_retriever.get_all_plants, ["id", "name", "description", "visible", "color"], GLOBAL_CSV_FILES["plants"]),
-        "KPI Hierarchy": (data_retriever.get_all_kpi_nodes, ["id", "name", "parent_id", "node_type"], GLOBAL_CSV_FILES["kpi_nodes"]),
-        "KPI Definitions": (data_retriever.get_all_kpi_definitions_for_export, ["kpi_id", "indicator_name", "hierarchy_path", "description", "calculation_type", "unit_of_measure", "visible"], GLOBAL_CSV_FILES["kpi_definitions"]),
-        "Plant Visibility": (data_retriever.get_all_kpi_plant_visibility, ["kpi_id", "plant_id", "is_enabled"], GLOBAL_CSV_FILES["kpi_plant_visibility"]),
-        "Annual Targets": (data_retriever.get_all_annual_targets_enriched, ["id", "year", "plant_id", "plant_name", "kpi_id", "indicator_name", "annual_target1", "annual_target2", "repartition_logic"], GLOBAL_CSV_FILES["annual"]),
-        "Periodic Targets": (data_retriever.get_all_periodic_targets_unified, ["year", "plant_id", "kpi_id", "target_number", "period_type", "period_value", "target_value"], GLOBAL_CSV_FILES["periodic"])
-    }
-
-    if table_key not in mapping:
-        return f"Error: Unknown table key '{table_key}'"
-
-    func, header, filename = mapping[table_key]
-    # Handle visible_only for get_all_plants
-    if table_key == "Plants":
-        data = func(visible_only=False)
-    else:
-        data = func()
-
-    output_path = target_export_path / filename
-    _export_to_csv(output_path, data, header)
-    return f"Success: Exported {table_key} to {filename}"
-
-
-# --- Raw table dump for full-fidelity backup/restore ---
-# Unlike GLOBAL_CSV_FILES above (human-readable, joined/renamed columns -- not restorable),
-# these are 1:1 dumps of each table's actual columns (including primary/foreign keys), ordered
-# so a restore can apply them respecting foreign-key relationships. This is the format used by
-# the ZIP backup/restore flow, and import_manager.import_from_zip expects exactly these filenames.
-RAW_BACKUP_TABLES = [
-    ("plants", "db_plants.db", "raw_plants.csv"),
-    ("kpi_nodes", "db_kpis.db", "raw_kpi_nodes.csv"),
-    ("kpi_indicators", "db_kpis.db", "raw_kpi_indicators.csv"),
-    ("kpis", "db_kpis.db", "raw_kpis.csv"),
-    ("kpi_plant_visibility", "db_kpis.db", "raw_kpi_plant_visibility.csv"),
-    ("kpi_indicator_templates", "db_kpi_templates.db", "raw_kpi_indicator_templates.csv"),
-    ("template_defined_indicators", "db_kpi_templates.db", "raw_template_defined_indicators.csv"),
-    ("global_kpi_splits", "db_kpi_templates.db", "raw_global_kpi_splits.csv"),
-    ("global_split_years", "db_kpi_templates.db", "raw_global_split_years.csv"),
-    ("global_split_indicators", "db_kpi_templates.db", "raw_global_split_indicators.csv"),
-    ("annual_targets", "db_kpi_targets.db", "raw_annual_targets.csv"),
-    ("kpi_annual_target_values", "db_kpi_targets.db", "raw_kpi_annual_target_values.csv"),
-    ("kpi_targets", "db_kpi_targets.db", "raw_kpi_targets.csv"),
-    ("daily_targets", "db_kpi_days.db", "raw_daily_targets.csv"),
-    ("weekly_targets", "db_kpi_weeks.db", "raw_weekly_targets.csv"),
-    ("monthly_targets", "db_kpi_months.db", "raw_monthly_targets.csv"),
-    ("quarterly_targets", "db_kpi_quarters.db", "raw_quarterly_targets.csv"),
-    ("actual_measurements", "db_kpi_actuals.db", "raw_actual_measurements.csv"),
+# (table, database file, CSV name inside the ZIP)
+RAW_BACKUP_TABLES: List[Tuple[str, str, str]] = [
+    ("plants", db.PLANTS, "raw_plants.csv"),
+    ("kpi_nodes", db.KPIS, "raw_kpi_nodes.csv"),
+    ("kpi_indicators", db.KPIS, "raw_kpi_indicators.csv"),
+    ("kpis", db.KPIS, "raw_kpis.csv"),
+    ("kpi_plant_visibility", db.KPIS, "raw_kpi_plant_visibility.csv"),
+    ("units_of_measure", db.KPIS, "raw_units_of_measure.csv"),
+    ("kpi_indicator_templates", db.TEMPLATES, "raw_kpi_indicator_templates.csv"),
+    ("template_defined_indicators", db.TEMPLATES, "raw_template_defined_indicators.csv"),
+    ("global_kpi_splits", db.TEMPLATES, "raw_global_kpi_splits.csv"),
+    ("global_split_years", db.TEMPLATES, "raw_global_split_years.csv"),
+    ("global_split_indicators", db.TEMPLATES, "raw_global_split_indicators.csv"),
+    ("app_meta", db.TEMPLATES, "raw_app_meta.csv"),
+    ("annual_targets", db.TARGETS, "raw_annual_targets.csv"),
+    ("kpi_annual_target_values", db.TARGETS, "raw_kpi_annual_target_values.csv"),
+    ("kpi_targets", db.TARGETS, "raw_kpi_targets.csv"),
+    ("daily_targets", db.DAYS, "raw_daily_targets.csv"),
+    ("weekly_targets", db.WEEKS, "raw_weekly_targets.csv"),
+    ("monthly_targets", db.MONTHS, "raw_monthly_targets.csv"),
+    ("quarterly_targets", db.QUARTERS, "raw_quarterly_targets.csv"),
+    ("actual_measurements", db.ACTUALS, "raw_actual_measurements.csv"),
+    ("kpi_definition_history", db.HISTORY, "raw_kpi_definition_history.csv"),
+    ("target_value_history", db.HISTORY, "raw_target_value_history.csv"),
 ]
 
-def export_raw_backup_csvs(base_export_path_str: str = None) -> list:
-    """Dumps each raw table (all columns, as-is) to its own CSV for ZIP backup/restore."""
-    target_export_path = Path(base_export_path_str) if base_export_path_str else _CSV_EXPORT_BASE_PATH_OBJ
-    target_export_path.mkdir(parents=True, exist_ok=True)
+LEAN_HEADER = ["Indicator", "Plant", "Year", "PeriodType", "PeriodValue", "TargetID", "Value"]
 
-    written_files = []
-    for table_name, db_filename, csv_filename in RAW_BACKUP_TABLES:
-        try:
-            db_path = get_database_path(db_filename)
-        except Exception as e:
-            print(f"WARNING: Could not resolve path for {db_filename}: {e}")
-            continue
-        if not Path(db_path).exists():
-            continue
+# table key -> (rows getter, header, file name)
+SINGLE_TABLE_EXPORTS: Dict[str, Tuple[Callable[[], list], List[str], str]] = {
+    "Plants": (lambda: data_retriever.get_all_plants(visible_only=False),
+               ["id", "name", "description", "visible", "color"], "dict_plants.csv"),
+    "KPI Hierarchy": (data_retriever.get_all_kpi_nodes,
+                      ["id", "name", "parent_id", "node_type", "is_active"], "dict_kpi_hierarchy.csv"),
+    "KPI Definitions": (data_retriever.get_all_kpi_definitions_for_export,
+                        ["kpi_id", "indicator_name", "hierarchy_path", "description", "calculation_type",
+                         "unit_of_measure", "visible", "formula_string"], "dict_kpi_definitions.csv"),
+    "Plant Visibility": (data_retriever.get_all_kpi_plant_visibility,
+                         ["kpi_id", "plant_id", "is_enabled"], "dict_kpi_plant_visibility.csv"),
+    "Annual Targets": (data_retriever.get_all_annual_targets_enriched,
+                       ["year", "plant_id", "plant_name", "kpi_id", "indicator_name", "target_number",
+                        "target_value", "is_manual", "is_formula_based"], "all_annual_targets.csv"),
+    "Periodic Targets": (data_retriever.get_all_periodic_targets_unified,
+                         ["year", "plant_id", "kpi_id", "target_number", "period_type", "period_value",
+                          "target_value"], "all_periodic_targets.csv"),
+}
 
-        try:
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(f"PRAGMA table_info({table_name})")
-                columns = [row[1] for row in cursor.fetchall()]
+
+def _write_csv(path: Path, rows: list, header: List[str]):
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def export_lean_data_to_csv(target_dir: str) -> Path:
+    path = Path(target_dir) / "lean_target_data.csv"
+    _write_csv(path, data_retriever.get_lean_targets(), LEAN_HEADER)
+    return path
+
+
+def export_single_table(table_key: str, target_dir: str) -> Path:
+    """Writes one human-readable table to target_dir and returns its path (header-only if empty)."""
+    if table_key not in SINGLE_TABLE_EXPORTS:
+        raise ValueError(f"Unknown table '{table_key}'. Use one of: {', '.join(SINGLE_TABLE_EXPORTS)}.")
+    getter, header, filename = SINGLE_TABLE_EXPORTS[table_key]
+    path = Path(target_dir) / filename
+    _write_csv(path, getter(), header)
+    return path
+
+
+def build_backup_zip() -> bytes:
+    """Raw dump of every table (see module docstring) as ZIP bytes."""
+    buffer = io.BytesIO()
+    manifest = {
+        "format_version": BACKUP_FORMAT_VERSION,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "system": "dataentryKPI",
+        "null_token": NULL_TOKEN,
+        "tables": {},
+    }
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for table, db_name, csv_name in RAW_BACKUP_TABLES:
+            if not db.path(db_name).exists():
+                continue
+            with db.connect(db_name) as conn:
+                columns = db.table_columns(conn, table)
                 if not columns:
                     continue
-                cursor.execute(f"SELECT {', '.join(columns)} FROM {table_name}")
-                rows = cursor.fetchall()
-        except sqlite3.Error as e:
-            print(f"WARNING: Could not dump table '{table_name}' from {db_filename}: {e}")
-            continue
-
-        output_path = target_export_path / csv_filename
-        with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile)
+                cols_sql = ", ".join(db.ident(c) for c in columns)
+                data = conn.execute(f"SELECT {cols_sql} FROM {db.ident(table)}").fetchall()
+            text = io.StringIO()
+            writer = csv.writer(text)
             writer.writerow(columns)
-            writer.writerows(rows)
-        written_files.append(csv_filename)
-
-    return written_files
-
-
-def package_all_csvs_as_zip(csv_base_path_str: str = None, output_zip_filepath_str: str = None, return_bytes_for_streamlit: bool = False, file_names: list = None):
-    """Packages CSV files into a ZIP archive. Defaults to the GLOBAL_CSV_FILES set; pass
-    file_names (e.g. the return value of export_raw_backup_csvs) to package a different set."""
-    source_csv_path = Path(csv_base_path_str) if csv_base_path_str else _CSV_EXPORT_BASE_PATH_OBJ
-    names_to_zip = file_names if file_names is not None else list(GLOBAL_CSV_FILES.values())
-    files_to_zip = [source_csv_path / fname for fname in names_to_zip if (source_csv_path / fname).exists()]
-
-    if not files_to_zip:
-        return False, "No CSV files found to package."
-
-    zip_target = io.BytesIO() if return_bytes_for_streamlit else Path(output_zip_filepath_str)
-    
-    try:
-        with zipfile.ZipFile(zip_target, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for file_path in files_to_zip:
-                zipf.write(file_path, arcname=file_path.name)
-        
-        if return_bytes_for_streamlit:
-            return True, zip_target.getvalue()
-        else:
-            return True, f"ZIP file created: {zip_target}"
-    except Exception as e:
-        traceback.print_exc()
-        return False, f"Failed to create ZIP file: {e}"
+            for row in data:
+                writer.writerow([NULL_TOKEN if v is None else v for v in row])
+            zf.writestr(csv_name, text.getvalue())
+            manifest["tables"][table] = {"file": csv_name, "rows": len(data), "columns": columns}
+        zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=2))
+    return buffer.getvalue()

@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Target, Layers, GitFork, BarChart3, Factory, Settings, Search, RefreshCw } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { Plant, User } from '../types';
+import type { TabId } from '../App';
+import { useYearOptions } from '../hooks';
 import { UserMenu } from './UserMenu';
 
 interface HeaderProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab: TabId;
+  setActiveTab: (tab: TabId) => void;
   selectedYear: number;
   setSelectedYear: (year: number) => void;
   selectedPlantId: number | null;
@@ -16,6 +19,15 @@ interface HeaderProps {
   onRefresh: () => void;
   currentUser: User;
 }
+
+const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
+  { id: 'target-entry', label: 'Target Entry', icon: Target },
+  { id: 'kpi-manager', label: 'KPI Explorer', icon: Layers },
+  { id: 'global-splits', label: 'Global Splits & ML', icon: GitFork },
+  { id: 'analysis', label: 'Analysis & Results', icon: BarChart3 },
+  { id: 'plants', label: 'Facilities', icon: Factory },
+  { id: 'settings', label: 'Data Utilities', icon: Settings },
+];
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
@@ -30,84 +42,47 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   currentUser,
 }) => {
-  const years = Array.from({ length: 10 }, (_, i) => new Date().getFullYear() - 3 + i);
+  const yearExtras = useMemo(() => [selectedYear], [selectedYear]);
+  const years = useYearOptions(yearExtras);
 
   return (
     <header className="header-bar">
       <div className="logo-section">
-        <Target className="logo-icon" />
+        <Target className="logo-icon" aria-hidden="true" />
         <span className="logo-text">KPI Target Manager</span>
       </div>
 
-      <nav className="nav-tabs">
-        <button
-          className={`nav-tab ${activeTab === 'target-entry' ? 'active' : ''}`}
-          onClick={() => setActiveTab('target-entry')}
-        >
-          <Target size={16} /> Target Entry
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'kpi-manager' ? 'active' : ''}`}
-          onClick={() => setActiveTab('kpi-manager')}
-        >
-          <Layers size={16} /> KPI Explorer
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'global-splits' ? 'active' : ''}`}
-          onClick={() => setActiveTab('global-splits')}
-        >
-          <GitFork size={16} /> Global Splits & ML
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'analysis' ? 'active' : ''}`}
-          onClick={() => setActiveTab('analysis')}
-        >
-          <BarChart3 size={16} /> Analysis & Results
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'plants' ? 'active' : ''}`}
-          onClick={() => setActiveTab('plants')}
-        >
-          <Factory size={16} /> Facilities
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          <Settings size={16} /> Data Utilities
-        </button>
+      <nav className="nav-tabs" aria-label="Sections">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            className={`nav-tab ${activeTab === id ? 'active' : ''}`}
+            aria-current={activeTab === id ? 'page' : undefined}
+            onClick={() => setActiveTab(id)}
+          >
+            <Icon size={16} aria-hidden="true" /> {label}
+          </button>
+        ))}
       </nav>
 
       <div className="header-controls">
         <div style={{ position: 'relative' }}>
-          <Search size={14} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
+          <Search size={14} aria-hidden="true" style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
           <input
-            type="text"
+            type="search"
+            aria-label="Search KPIs"
             placeholder="Quick search..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              paddingLeft: '30px',
-              paddingRight: '10px',
-              paddingTop: '6px',
-              paddingBottom: '6px',
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--text-primary)',
-              fontSize: '0.85rem',
-              width: '180px',
-            }}
+            className="select-control"
+            style={{ paddingLeft: '30px', width: '180px', cursor: 'text' }}
           />
         </div>
 
         <select
           className="select-control"
+          aria-label="Year"
           value={selectedYear}
           onChange={(e) => setSelectedYear(Number(e.target.value))}
         >
@@ -120,9 +95,12 @@ export const Header: React.FC<HeaderProps> = ({
 
         <select
           className="select-control"
+          aria-label="Facility"
           value={selectedPlantId ?? ''}
           onChange={(e) => setSelectedPlantId(Number(e.target.value))}
+          disabled={plants.length === 0}
         >
+          {plants.length === 0 && <option value="">No facilities yet</option>}
           {plants.map((p) => (
             <option key={p.id} value={p.id}>
               🏭 {p.name}
@@ -130,8 +108,8 @@ export const Header: React.FC<HeaderProps> = ({
           ))}
         </select>
 
-        <button className="btn btn-secondary" onClick={onRefresh} title="Reload Data">
-          <RefreshCw size={14} />
+        <button type="button" className="btn btn-secondary" onClick={onRefresh} aria-label="Reload data" title="Reload data">
+          <RefreshCw size={14} aria-hidden="true" />
         </button>
 
         <UserMenu user={currentUser} />

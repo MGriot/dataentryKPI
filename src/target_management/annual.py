@@ -1,368 +1,441 @@
-# your_project_root/target_management/annual.py
-import sqlite3
+# src/target_management/annual.py
+"""
+Annual target saving and the recalculation pipeline.
+
+A save (or a split/formula change) runs, inside ONE transaction spanning the targets,
+periodic and history databases:
+  1. write the entered annual values (+ audit rows),
+  2. recompute calculated (formula) KPIs that depend -- directly or transitively -- on what
+     changed, in dependency order,
+  3. repartition every affected KPI into day/week/month/quarter targets.
+If anything fails, nothing is committed.
+
+Formulas live on the KPI (KPI Explorer): `formula_string` like "[12] / [13]" (target N of a
+calculated KPI is computed from target N of its inputs) or a `formula_json` DAG whose input
+nodes may pin a specific target number. Calculated KPIs can't be entered manually.
+"""
 import json
-import traceback
-import numpy # For _placeholder_safe_evaluate_formula if it uses numpy functions directly
-from src.config import settings as app_config
-from pathlib import Path
-from src import data_retriever as db_retriever
-from src.data_retriever import get_annual_target_entry
-from src.services import history_service
+import logging
+from typing import Dict, Iterable, List, Optional, Set
 
+import numpy as np
 
-# Configuration imports
-from src.interfaces.common_ui.constants import (
-    REPARTITION_LOGIC_YEAR,
-    PROFILE_ANNUAL_PROGRESSIVE,
-)
-
-from src.target_management import repartition as repartition_module
+from src import data_retriever
+from src.config.constants import is_additive
+from src.core.formula import FormulaError, compile_formula, referenced_kpis
 from src.core.node_engine import KpiDAG
+from src.data_access import db
+from src.kpi_management import splits as splits_crud
+from src.services import history_service
+from src.target_management import repartition
+
+log = logging.getLogger(__name__)
+
+_CONFIG_COLUMNS = ("repartition_logic", "repartition_values", "distribution_profile", "profile_params", "global_split_id")
 
 
-# --- Formula Evaluation (Placeholder - Needs Secure Implementation) ---
-def _placeholder_safe_evaluate_formula(formula_str: str, context_vars: dict):
-    """
-    Evaluates a formula string. Supports [ID] syntax which is mapped to context_vars['kpi_ID'].
-    """
-    import re
+class TargetValidationError(ValueError):
+    """Bad input for a target save (unknown KPI/plant, manual value for a calculated KPI, ...)."""
+
+
+# --- Formula dependency graph ---
+
+def _dag_for(spec: dict) -> Optional[KpiDAG]:
+    raw = spec.get("formula_json")
+    if not raw:
+        return None
     try:
-        pattern = r'\[(\d+)\]'
-        
-        def replacer(match):
-            kpi_id = match.group(1)
-            var_name = f"kpi_{kpi_id}"
-            val = context_vars.get(var_name, 0.0)
-            return str(val)
-            
-        processed_formula = re.sub(pattern, replacer, formula_str)
-        
-        allowed_names = {"abs": abs, "min": min, "max": max, "round": round}
-        allowed_names.update({k: v for k, v in context_vars.items() if not k.startswith("kpi_")})
-        
-        return float(eval(processed_formula, {"__builtins__": None}, allowed_names))
-    except Exception as e:
-        print(f"ERROR: Formula evaluation failed: {e}")
-        return 0.0
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return KpiDAG.from_json(raw) if isinstance(parsed, dict) and parsed.get("nodes") else None
 
 
-# --- Annual Target Management ---
+def kpi_dependencies(spec: dict) -> Set[int]:
+    dag = _dag_for(spec)
+    if dag is not None:
+        return {int(d["kpi_id"]) for d in dag.find_all_kpi_dependencies() if d.get("kpi_id") is not None}
+    return referenced_kpis(spec.get("formula_string") or "")
+
+
+def formula_graph(specs: Dict[int, dict]) -> Dict[int, Set[int]]:
+    """{calculated kpi id: {ids it depends on}}"""
+    return {kid: kpi_dependencies(s) for kid, s in specs.items() if s.get("is_calculated")}
+
+
+def find_cycle(graph: Dict[int, Set[int]], start: Optional[int] = None) -> Optional[List[int]]:
+    """A dependency cycle (as a list of KPI ids) reachable in graph, or None."""
+    visiting, done = [], set()
+
+    def visit(node) -> Optional[List[int]]:
+        if node in visiting:
+            return visiting[visiting.index(node):] + [node]
+        if node in done:
+            return None
+        visiting.append(node)
+        for dep in graph.get(node, ()):
+            cycle = visit(dep)
+            if cycle:
+                return cycle
+        visiting.pop()
+        done.add(node)
+        return None
+
+    for node in ([start] if start is not None else list(graph)):
+        cycle = visit(node)
+        if cycle:
+            return cycle
+    return None
+
+
+def _dependents_closure(graph: Dict[int, Set[int]], seeds: Iterable[int]) -> Set[int]:
+    affected = set(seeds)
+    changed = True
+    while changed:
+        changed = False
+        for kid, deps in graph.items():
+            if kid not in affected and deps & affected:
+                affected.add(kid)
+                changed = True
+    return affected
+
+
+def _topo_order(graph: Dict[int, Set[int]], nodes: Set[int]) -> List[int]:
+    """Dependencies first. KPIs that are part of a cycle are skipped (and logged)."""
+    order, state = [], {}
+
+    def visit(node) -> bool:
+        if state.get(node) == "done":
+            return True
+        if state.get(node) == "visiting":
+            return False
+        state[node] = "visiting"
+        ok = all(visit(dep) for dep in graph.get(node, ()) if dep in nodes)
+        state[node] = "done" if ok else "cycle"
+        if ok:
+            order.append(node)
+        else:
+            log.warning("KPI %s is part of a formula cycle; skipped", node)
+        return ok
+
+    for node in sorted(nodes):
+        visit(node)
+    return order
+
+
+def validate_formula(kpi_id: int, formula_string: Optional[str], specs: Optional[Dict[int, dict]] = None):
+    """Raises FormulaError if formula_string is invalid, references unknown KPIs, or creates a cycle."""
+    if not (formula_string or "").strip():
+        return
+    compiled = compile_formula(formula_string)
+    specs = specs if specs is not None else {k["id"]: k for k in data_retriever.get_all_kpis_detailed()}
+    unknown = sorted(i for i in compiled.kpi_ids if i not in specs)
+    if unknown:
+        raise FormulaError(f"Formula references unknown KPI id(s): {unknown}")
+    if kpi_id in compiled.kpi_ids:
+        raise FormulaError("A KPI's formula can't reference itself")
+    graph = formula_graph(specs)
+    graph[kpi_id] = set(compiled.kpi_ids)
+    cycle = find_cycle(graph, kpi_id)
+    if cycle:
+        raise FormulaError(f"Formula would create a dependency cycle: {' -> '.join(f'[{c}]' for c in cycle)}")
+
+
+# --- Save ---
+
+def _parse_inputs(targets_data_map: dict, specs: Dict[int, dict]) -> Dict[int, dict]:
+    parsed = {}
+    for key, data in (targets_data_map or {}).items():
+        try:
+            kpi_id = int(key)
+        except (TypeError, ValueError):
+            raise TargetValidationError(f"Invalid KPI id '{key}'") from None
+        spec = specs.get(kpi_id)
+        if not spec:
+            raise TargetValidationError(f"KPI {kpi_id} not found (or deleted)")
+        data = data or {}
+
+        targets = list(data.get("targets") or [])
+        for tn in (1, 2):  # legacy flat fields: annual_target1 / annual_target2
+            if f"annual_target{tn}" in data and not any(t.get("target_number") == tn for t in targets):
+                targets.append({"target_number": tn, "target_value": data[f"annual_target{tn}"]})
+
+        values = {}
+        max_targets = max(int(spec.get("target_count") or 1), 1)
+        for t in targets:
+            if t.get("is_formula_based") or t.get("formula"):
+                raise TargetValidationError(
+                    "Per-target formulas are no longer supported; set the formula on the KPI in KPI Explorer."
+                )
+            try:
+                tn = int(t.get("target_number", 1))
+            except (TypeError, ValueError):
+                raise TargetValidationError("target_number must be an integer") from None
+            if not 1 <= tn <= max_targets:
+                raise TargetValidationError(f"KPI {kpi_id} has {max_targets} target(s); target_number {tn} is out of range")
+            value = t.get("target_value")
+            if value is None or value == "":
+                continue  # left blank -> keep whatever is stored
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                raise TargetValidationError(f"Target value for KPI {kpi_id} must be a number") from None
+            if not np.isfinite(value):
+                raise TargetValidationError(f"Target value for KPI {kpi_id} must be finite")
+            if spec.get("is_calculated"):
+                raise TargetValidationError(
+                    f"'{spec['indicator_name']}' is calculated from its formula; its targets can't be entered manually."
+                )
+            values[tn] = value
+
+        config = {}
+        for col in _CONFIG_COLUMNS:
+            if data.get(col) is not None:
+                config[col] = data[col]
+        if config:
+            values_obj = config.get("repartition_values")
+            params_obj = config.get("profile_params")
+            if isinstance(values_obj, str):
+                values_obj = data_retriever.parse_json_field(values_obj, {})
+            if isinstance(params_obj, str):
+                params_obj = data_retriever.parse_json_field(params_obj, {})
+            splits_crud._validate(config.get("repartition_logic"), config.get("distribution_profile"),
+                                  values_obj if "repartition_values" in config else None,
+                                  params_obj if "profile_params" in config else None)
+            if "repartition_values" in config:
+                config["repartition_values"] = json.dumps(values_obj)
+            if "profile_params" in config:
+                config["profile_params"] = json.dumps(params_obj)
+        parsed[kpi_id] = {"values": values, "config": config}
+    return parsed
+
+
+def _ensure_annual_row(conn, year: int, plant_id: int, kpi_id: int, config: Optional[dict] = None) -> int:
+    row = conn.execute(
+        "SELECT id FROM annual_targets WHERE year=? AND plant_id=? AND kpi_id=?", (year, plant_id, kpi_id)
+    ).fetchone()
+    config = config or {}
+    if row:
+        if config:
+            sets = ", ".join(f"{db.ident(c)} = ?" for c in config)
+            conn.execute(f"UPDATE annual_targets SET {sets} WHERE id = ?", (*config.values(), row["id"]))
+        return row["id"]
+    cols = ["year", "plant_id", "kpi_id", *config.keys()]
+    return conn.execute(
+        f"INSERT INTO annual_targets ({', '.join(db.ident(c) for c in cols)}) VALUES ({', '.join('?' * len(cols))})",
+        (year, plant_id, kpi_id, *config.values()),
+    ).lastrowid
+
+
+def _upsert_value(conn, annual_id: int, kpi_id: int, year: int, plant_id: int, tn: int, value: float,
+                  is_formula: bool, changed_by: str):
+    old = conn.execute(
+        "SELECT target_value FROM kpi_annual_target_values WHERE annual_target_id=? AND target_number=?", (annual_id, tn)
+    ).fetchone()
+    conn.execute(
+        """INSERT INTO kpi_annual_target_values
+           (annual_target_id, target_number, target_value, is_manual, is_formula_based, formula, formula_inputs)
+           VALUES (?, ?, ?, ?, ?, NULL, '[]')
+           ON CONFLICT(annual_target_id, target_number) DO UPDATE SET
+             target_value=excluded.target_value, is_manual=excluded.is_manual,
+             is_formula_based=excluded.is_formula_based, formula=NULL, formula_inputs='[]'""",
+        (annual_id, tn, value, 0 if is_formula else 1, 1 if is_formula else 0),
+    )
+    old_value = old["target_value"] if old else None
+    if old_value is None or abs(old_value - value) > 1e-9:
+        history_service.record_target_change(
+            kpi_id=kpi_id, plant_id=plant_id, target_number=tn,
+            period_start=f"{year}-01-01", period_end=f"{year}-12-31",
+            old_value=old_value, new_value=value,
+            changed_by=f"{changed_by} (formula)" if is_formula else changed_by,
+            conn=conn, schema=repartition.HISTORY_SCHEMA,
+        )
+
+
+def _existing_plant_ids() -> Set[int]:
+    return {p["id"] for p in data_retriever.get_all_plants()}
+
+
 def save_annual_targets(
     year: int,
-    plant_id: int | list[int],
+    plant_id,
     targets_data_map: dict,
     initiator_kpi_spec_id: int = None,
     changed_by: str = "system",
 ):
+    """Saves annual targets for one or more plants and recalculates everything that depends on them.
+
+    targets_data_map: {kpi_id: {"targets": [{"target_number": n, "target_value": v}, ...],
+                                optional "repartition_logic"/"repartition_values"/... legacy config}}
+    Blank (None) values leave the stored value untouched.
     """
-    Saves annual targets for one or more plants.
-    """
-    db_targets_path = app_config.get_database_path("db_kpi_targets.db")
+    if not targets_data_map:
+        return
+    try:
+        year = int(year)
+    except (TypeError, ValueError):
+        raise TargetValidationError("year must be an integer") from None
+    if not 1900 <= year <= 2200:
+        raise TargetValidationError("year is out of range")
+    plant_ids = [plant_id] if isinstance(plant_id, int) else list(dict.fromkeys(plant_id or []))
+    if not plant_ids:
+        raise TargetValidationError("No plant selected")
+    missing = set(plant_ids) - _existing_plant_ids()
+    if missing:
+        raise TargetValidationError(f"Plant(s) not found: {sorted(missing)}")
 
-    if not targets_data_map: return
+    specs = {k["id"]: k for k in data_retriever.get_all_kpis_detailed()}
+    parsed = _parse_inputs(targets_data_map, specs)
 
-    plant_ids = [plant_id] if isinstance(plant_id, int) else plant_id
+    with repartition.engine_connection() as conn:
+        for pid in plant_ids:
+            for kpi_id, item in parsed.items():
+                if not item["values"] and not item["config"]:
+                    continue
+                annual_id = _ensure_annual_row(conn, year, pid, kpi_id, item["config"])
+                for tn, value in item["values"].items():
+                    _upsert_value(conn, annual_id, kpi_id, year, pid, tn, value, False, changed_by)
+            _recalculate_in_tx(conn, year, pid, set(parsed), specs, changed_by)
 
-    for pid in plant_ids:
-        print(f"INFO: Saving annual targets for Year: {year}, Plant: {pid}...")
-        _save_single_plant_annual_targets(year, pid, targets_data_map, initiator_kpi_spec_id, changed_by)
 
-def _save_single_plant_annual_targets(year, plant_id, targets_data_map, initiator_kpi_spec_id, changed_by="system"):
-    db_targets_path = app_config.get_database_path("db_kpi_targets.db")
-    
-    kpis_needing_repartition_update = set()
-    # Map of target_number -> list of kpi_ids
-    kpis_with_formula = {} 
+# --- Recalculation ---
 
-    # Phase 1: Save definitions
-    with sqlite3.connect(db_targets_path) as conn:
-        cursor = conn.cursor()
-        for kpi_spec_id_str, data_dict_from_ui in targets_data_map.items():
-            # ... (existing Phase 1 logic for saving UI inputs) ...
-            try:
-                current_kpi_spec_id = int(kpi_spec_id_str)
-            except: continue
+def _annual_value(conn, year: int, plant_id: int, kpi_id: int, tn: int) -> Optional[float]:
+    row = conn.execute(
+        "SELECT v.target_value FROM kpi_annual_target_values v JOIN annual_targets t ON v.annual_target_id = t.id "
+        "WHERE t.year=? AND t.plant_id=? AND t.kpi_id=? AND v.target_number=?",
+        (year, plant_id, kpi_id, tn),
+    ).fetchone()
+    return None if row is None or row["target_value"] is None else float(row["target_value"])
 
-            record_row = get_annual_target_entry(year, plant_id, current_kpi_spec_id)
-            record_dict = record_row if record_row else None
 
-            # 1a. Update/Insert annual_targets (metadata)
-            if record_dict:
-                at_id = record_dict['id']
-                if "repartition_logic" in data_dict_from_ui:
-                    cursor.execute(
-                        "UPDATE annual_targets SET repartition_logic=?, repartition_values=?, distribution_profile=?, profile_params=?, global_split_id=? WHERE id=?",
-                        (data_dict_from_ui.get("repartition_logic"),
-                         data_dict_from_ui.get("repartition_values", "{}"),
-                         data_dict_from_ui.get("distribution_profile"),
-                         data_dict_from_ui.get("profile_params", "{}"),
-                         data_dict_from_ui.get("global_split_id"),
-                         at_id)
-                    )
+def _compute_formula_annual(conn, year: int, plant_id: int, spec: dict, changed_by: str):
+    kid = spec["id"]
+    dag = _dag_for(spec)
+    compiled = None
+    if dag is None:
+        try:
+            compiled = compile_formula(spec.get("formula_string"))
+        except FormulaError as e:
+            log.warning("KPI %s has an invalid formula (%s); skipped", kid, e)
+            return
+
+    for tn in range(1, max(int(spec.get("target_count") or 1), 1) + 1):
+        try:
+            if dag is not None:
+                def resolver(dep_id, dep_tn, _tn=tn):
+                    v = _annual_value(conn, year, plant_id, int(dep_id), int(dep_tn or _tn))
+                    if v is None:
+                        raise KeyError(dep_id)
+                    return v
+                value = dag.evaluate(resolver, default_target_num=tn)
             else:
-                cursor.execute(
-                    "INSERT INTO annual_targets (year, plant_id, kpi_id, repartition_logic, repartition_values, distribution_profile, profile_params, global_split_id) VALUES (?,?,?,?,?,?,?,?)",
-                    (year, plant_id, current_kpi_spec_id, 
-                     data_dict_from_ui.get("repartition_logic", REPARTITION_LOGIC_YEAR),
-                     data_dict_from_ui.get("repartition_values", "{}"),
-                     data_dict_from_ui.get("distribution_profile", PROFILE_ANNUAL_PROGRESSIVE),
-                     data_dict_from_ui.get("profile_params", "{}"),
-                     data_dict_from_ui.get("global_split_id"))
-                )
-                at_id = cursor.lastrowid
+                inputs = {dep: _annual_value(conn, year, plant_id, dep, tn) for dep in compiled.kpi_ids}
+                if any(v is None for v in inputs.values()):
+                    continue  # inputs not entered yet for this plant/year/target
+                value = compiled.evaluate(inputs)
+        except KeyError:
+            continue
+        except (FormulaError, ValueError) as e:
+            log.warning("Formula for KPI %s target %s could not be evaluated: %s", kid, tn, e)
+            continue
+        annual_id = _ensure_annual_row(conn, year, plant_id, kid)
+        _upsert_value(conn, annual_id, kid, year, plant_id, tn, value, True, changed_by)
 
-            # 1b. Save target values
-            targets_to_process = data_dict_from_ui.get('targets')
-            if not targets_to_process:
-                # Map legacy fields to target list
-                targets_to_process = []
-                for tn in [1, 2]:
-                    if f'annual_target{tn}' in data_dict_from_ui or f'target{tn}_is_formula_based' in data_dict_from_ui:
-                        targets_to_process.append({
-                            'target_number': tn,
-                            'target_value': data_dict_from_ui.get(f'annual_target{tn}'),
-                            'is_manual': data_dict_from_ui.get(f'is_target{tn}_manual', True),
-                            'is_formula_based': data_dict_from_ui.get(f'target{tn}_is_formula_based', False),
-                            'formula': data_dict_from_ui.get(f'target{tn}_formula'),
-                            'formula_inputs': data_dict_from_ui.get(f'target{tn}_formula_inputs', '[]')
-                        })
 
-            for t_data in targets_to_process:
-                tn = t_data['target_number']
-                t_val_raw = t_data.get('target_value', 0.0)
-                t_val = float(t_val_raw) if t_val_raw is not None else 0.0
-                is_man = 1 if t_data.get('is_manual', True) else 0
-                is_form = 1 if t_data.get('is_formula_based', False) else 0
-                form_str = t_data.get('formula')
-                form_in_raw = t_data.get('formula_inputs', '[]')
-                form_in = json.dumps(form_in_raw) if isinstance(form_in_raw, (list, dict)) else (form_in_raw or '[]')
+def _formula_daily_series(conn, year: int, plant_id: int, spec: dict, tn: int) -> Optional[np.ndarray]:
+    """Day-by-day formula over the inputs' daily targets (target N of each input), or None if unavailable."""
+    dag = _dag_for(spec)
+    if dag is not None:
+        deps = {(int(d["kpi_id"]), int(d.get("target_num") or tn)) for d in dag.find_all_kpi_dependencies()}
+    else:
+        try:
+            compiled = compile_formula(spec.get("formula_string"))
+        except FormulaError:
+            return None
+        deps = {(dep, tn) for dep in compiled.kpi_ids}
+    series = {}
+    for dep_id, dep_tn in deps:
+        s = repartition.read_daily_series(conn, year, plant_id, dep_id, dep_tn)
+        if s is None:
+            return None
+        series[(dep_id, dep_tn)] = s
+    n = len(next(iter(series.values()))) if series else len(repartition.days_of_year(year))
+    out = np.zeros(n)
+    for i in range(n):
+        try:
+            if dag is not None:
+                out[i] = dag.evaluate(lambda k, t, _i=i: series[(int(k), int(t or tn))][_i], default_target_num=tn)
+            else:
+                out[i] = compiled.evaluate({dep: series[(dep, tn)][i] for dep in compiled.kpi_ids})
+        except (FormulaError, ValueError, KeyError):
+            out[i] = 0.0
+    return out
 
-                old_tv = next((tv for tv in (record_dict.get('target_values') if record_dict else []) if tv['target_number'] == tn), None)
-                old_value = old_tv['target_value'] if old_tv else None
 
-                cursor.execute("""
-                    INSERT INTO kpi_annual_target_values
-                    (annual_target_id, target_number, target_value, is_manual, is_formula_based, formula, formula_inputs)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(annual_target_id, target_number) DO UPDATE SET
-                    target_value=excluded.target_value,
-                    is_manual=excluded.is_manual,
-                    is_formula_based=excluded.is_formula_based,
-                    formula=excluded.formula,
-                    formula_inputs=excluded.formula_inputs
-                """, (at_id, tn, t_val, is_man, is_form, form_str, form_in))
+def _repartition_kpi(conn, year: int, plant_id: int, spec: dict):
+    kid = spec["id"]
+    entry = data_retriever.get_annual_target_entry(year, plant_id, kid, conn=conn)
+    if not entry:
+        repartition.delete_periodic_targets(conn, year, plant_id, kid)
+        return
+    additive = is_additive(spec.get("calculation_type"))
+    for tv in entry["target_values"]:
+        tn, value = tv["target_number"], tv["target_value"]
+        if value is None:
+            repartition.delete_periodic_targets(conn, year, plant_id, kid, tn)
+            continue
+        if spec.get("is_calculated"):
+            series = _formula_daily_series(conn, year, plant_id, spec, tn)
+            if series is not None:
+                daily = repartition.reconcile(series, float(value), additive)
+                dates = repartition.days_of_year(year)
+                repartition.save_periodic_targets(conn, year, plant_id, kid, tn, dates, daily, spec["calculation_type"])
+                continue
+        logic, values, profile, params = repartition.resolve_distribution(
+            spec, entry, year, splits_crud.get_split_for_indicator_year
+        )
+        dates, daily = repartition.compute_daily_values(
+            year, float(value), spec["calculation_type"], logic, values, profile, params
+        )
+        repartition.save_periodic_targets(conn, year, plant_id, kid, tn, dates, daily, spec["calculation_type"])
 
-                if old_value != t_val:
-                    history_service.record_target_change(
-                        kpi_id=current_kpi_spec_id,
-                        plant_id=plant_id,
-                        target_number=tn,
-                        period_start=f"{year}-01-01",
-                        period_end=f"{year}-12-31",
-                        old_value=old_value,
-                        new_value=t_val,
-                        changed_by=changed_by,
-                    )
 
-                kpis_needing_repartition_update.add(current_kpi_spec_id)
-                if is_form:
-                    if tn not in kpis_with_formula: kpis_with_formula[tn] = []
-                    kpis_with_formula[tn].append(current_kpi_spec_id)
+def _recalculate_in_tx(conn, year: int, plant_id: int, seeds: Set[int], specs: Dict[int, dict], changed_by: str):
+    graph = formula_graph(specs)
+    affected = _dependents_closure(graph, seeds)
+    for kid in _topo_order(graph, affected):
+        spec = specs.get(kid)
+        if not spec:
+            continue
+        if spec.get("is_calculated"):
+            _compute_formula_annual(conn, year, plant_id, spec, changed_by)
+        _repartition_kpi(conn, year, plant_id, spec)
 
-        conn.commit()
 
-    # Phase 1.5: Identify all other calculated KPIs in the system
-    # This ensures that if we update KPI A, and KPI B = A * 2, KPI B also gets updated.
-    all_specs = db_retriever.get_all_kpis_detailed()
-    for spec in all_specs:
-        spec_id = spec['id']
-        # If this spec has a formula (JSON or String) or is marked as calculated
-        if spec.get('is_calculated'):
-            # Check for existing target entry to see which target numbers are active
-            target_entry = get_annual_target_entry(year, plant_id, spec_id)
-            if target_entry:
-                for tv in target_entry['target_values']:
-                    if tv['is_formula_based']:
-                        tn = tv['target_number']
-                        if tn not in kpis_with_formula: kpis_with_formula[tn] = []
-                        if spec_id not in kpis_with_formula[tn]:
-                            kpis_with_formula[tn].append(spec_id)
+def recalculate_kpis(kpi_ids: Iterable[int], changed_by: str = "system", years: Optional[Iterable[int]] = None):
+    """Recomputes formulas + periodic targets for these KPIs (and their dependents) everywhere they have targets.
 
-    # Phase 2: Calculate formula-based targets
-    print("  Phase 2: Calculating formula-based targets...")
-    MAX_ITERATIONS_FORMULA = len(targets_data_map) + 5
-    
-    for target_num_to_calculate in sorted(kpis_with_formula.keys()):
-        kpi_list_for_formula_calc = kpis_with_formula[target_num_to_calculate]
-        print(f"    Calculating formulas for Target {target_num_to_calculate}. KPIs: {kpi_list_for_formula_calc}")
-        
-        kpis_pending_formula = list(kpi_list_for_formula_calc)
-        calculated_this_pass_successfully = set()
+    Used after a split assignment, a split template edit, or a formula change.
+    """
+    kpi_ids = {int(k) for k in kpi_ids}
+    if not kpi_ids:
+        return
+    specs = {k["id"]: k for k in data_retriever.get_all_kpis_detailed()}
+    affected = _dependents_closure(formula_graph(specs), kpi_ids)
+    placeholders = ",".join("?" * len(affected))
+    with repartition.engine_connection() as conn:
+        pairs = conn.execute(
+            f"SELECT DISTINCT year, plant_id FROM annual_targets WHERE kpi_id IN ({placeholders})", tuple(affected)
+        ).fetchall()
+        wanted_years = set(years) if years is not None else None
+        for row in pairs:
+            if wanted_years is not None and row["year"] not in wanted_years:
+                continue
+            _recalculate_in_tx(conn, row["year"], row["plant_id"], kpi_ids, specs, changed_by)
 
-        for iteration in range(MAX_ITERATIONS_FORMULA):
-            if not kpis_pending_formula: break
-            made_progress_in_iteration = False
-            next_pending_list = []
 
-            for kpi_id_to_calc in kpis_pending_formula:
-                target_entry = get_annual_target_entry(year, plant_id, kpi_id_to_calc)
-                if not target_entry: continue
-                
-                t_val_rec = next((tv for tv in target_entry['target_values'] if tv['target_number'] == target_num_to_calculate), None)
-                if not t_val_rec: continue
-
-                kpi_details_row = db_retriever.get_kpi_detailed_by_id(kpi_id_to_calc)
-                kpi_details = dict(kpi_details_row) if kpi_details_row else {}
-                
-                formula_to_use = kpi_details.get("formula_json") or kpi_details.get("formula_string") or t_val_rec.get('formula')
-                formula_inputs_json_db = t_val_rec.get('formula_inputs', '[]') or '[]'
-
-                if not (t_val_rec['is_formula_based'] and formula_to_use): continue
-
-                is_node_dag = False
-                try:
-                    dag_data = json.loads(formula_to_use)
-                    if isinstance(dag_data, dict) and "nodes" in dag_data: is_node_dag = True
-                except: pass
-
-                try:
-                    if is_node_dag:
-                        dag = KpiDAG.from_json(formula_to_use)
-                        deps = dag.find_all_kpi_dependencies()
-                        formula_inputs_def_py = [
-                            {"kpi_id": d["kpi_id"], "target_num": d["target_num"], "variable_name": f"kpi_{d['kpi_id']}_t{d['target_num']}"}
-                            for d in deps
-                        ]
-                    else:
-                        formula_inputs_def_py = json.loads(formula_inputs_json_db)
-                except: continue
-
-                context_vars = {}
-                all_inputs_ready = True
-                for f_input in formula_inputs_def_py:
-                    input_kpi_id = f_input.get("kpi_id")
-                    input_target_num = f_input.get("target_num") or int(f_input.get("target_source", "annual_target1")[-1])
-                    var_name = f_input.get("variable_name")
-
-                    if not all([input_kpi_id, input_target_num, var_name]):
-                        all_inputs_ready = False; break
-
-                    if input_kpi_id in kpis_pending_formula and input_kpi_id not in calculated_this_pass_successfully:
-                        if input_target_num == target_num_to_calculate:
-                            all_inputs_ready = False; break
-
-                    input_entry = get_annual_target_entry(year, plant_id, input_kpi_id)
-                    if not input_entry:
-                        all_inputs_ready = False; break
-                    
-                    input_val_rec = next((v for v in input_entry['target_values'] if v['target_number'] == input_target_num), None)
-                    if input_val_rec is None or input_val_rec['target_value'] is None:
-                        all_inputs_ready = False; break
-                    
-                    context_vars[var_name] = float(input_val_rec['target_value'])
-
-                if not all_inputs_ready:
-                    next_pending_list.append(kpi_id_to_calc); continue
-
-                try:
-                    if is_node_dag:
-                        def kpi_resolver(k_id, t_n):
-                            res = get_annual_target_entry(year, plant_id, k_id)
-                            if not res: return 0.0
-                            val_rec = next((v for v in res['target_values'] if v['target_number'] == t_n), None)
-                            return float(val_rec['target_value']) if val_rec else 0.0
-                        calculated_value = dag.evaluate(kpi_resolver, default_target_num=target_num_to_calculate)
-                    else:
-                        calculated_value = _placeholder_safe_evaluate_formula(formula_to_use, context_vars)
-
-                    with sqlite3.connect(db_targets_path) as conn_upd:
-                        conn_upd.execute(
-                            "UPDATE kpi_annual_target_values SET target_value=?, is_manual=0 WHERE annual_target_id=? AND target_number=?",
-                            (calculated_value, target_entry['id'], target_num_to_calculate)
-                        )
-                        conn_upd.commit()
-                    
-                    calculated_this_pass_successfully.add(kpi_id_to_calc)
-                    kpis_needing_repartition_update.add(kpi_id_to_calc)
-                    made_progress_in_iteration = True
-                except Exception as e_eval:
-                    print(f"      ERROR: Formula failed for KPI {kpi_id_to_calc} T{target_num_to_calculate}: {e_eval}")
-                    next_pending_list.append(kpi_id_to_calc)
-
-            kpis_pending_formula = [k for k in next_pending_list if k not in calculated_this_pass_successfully]
-            if not made_progress_in_iteration and kpis_pending_formula: break
-
-    # Phase 3: (Removed) Master/Sub distribution
-
-    # Phase 4: Repartitions (Processed in dependency order)
-    print("  Phase 4: Calculating periodic repartitions...")
-    
-    # Identify all KPIs that might be affected by the ones we've already marked
-    # We need to expand kpis_needing_repartition_update to include anyone who depends on them
-    full_update_set = set(kpis_needing_repartition_update)
-    
-    # Simple propagation: if A changes, and B depends on A, B must change.
-    # We'll do this iteratively until no more are added.
-    all_calculated_specs = [s for s in all_specs if s.get('is_calculated')]
-    
-    for _ in range(5): # Limit propagation depth
-        added = False
-        for spec in all_calculated_specs:
-            sid = spec['id']
-            if sid in full_update_set: continue
-            
-            # Check dependencies
-            try:
-                formula = spec.get('formula_json') or spec.get('formula_string')
-                if not formula: continue
-                
-                deps = []
-                if spec.get('formula_json'):
-                    dag = KpiDAG.from_json(spec['formula_json'])
-                    deps = [d['kpi_id'] for d in dag.find_all_kpi_dependencies()]
-                else:
-                    deps = [int(mid) for mid in re.findall(r'\[(\d+)\]', formula)]
-                
-                if any(d in full_update_set for d in deps):
-                    full_update_set.add(sid)
-                    added = True
-            except: pass
-        if not added: break
-
-    # Now topological sort for repartitioning
-    sorted_kpis = []
-    visited_kpis = set()
-    
-    def visit_kpi_topo(kid):
-        if kid in visited_kpis: return
-        visited_kpis.add(kid)
-        
-        spec = next((s for s in all_specs if s['id'] == kid), None)
-        if spec and spec.get('is_calculated'):
-            try:
-                formula = spec.get('formula_json') or spec.get('formula_string')
-                deps = []
-                if spec.get('formula_json'):
-                    dag = KpiDAG.from_json(spec['formula_json'])
-                    deps = [d['kpi_id'] for d in dag.find_all_kpi_dependencies()]
-                else:
-                    deps = [int(mid) for mid in re.findall(r'\[(\d+)\]', formula)]
-                
-                for d in deps:
-                    if d in full_update_set:
-                        visit_kpi_topo(d)
-            except: pass
-        sorted_kpis.append(kid)
-
-    for kid in list(full_update_set):
-        visit_kpi_topo(kid)
-
-    for kid in sorted_kpis:
-        entry = get_annual_target_entry(year, plant_id, kid)
-        if entry:
-            for tv in entry['target_values']:
-                if tv['target_value'] is not None:
-                    print(f"    Repartitioning KPI {kid} Target {tv['target_number']}...")
-                    repartition_module.calculate_and_save_all_repartitions(year, plant_id, kid, tv['target_number'])
-
-    print(f"INFO: Finished save_annual_targets for Year: {year}, Plant: {plant_id}")
+def recalculate_indicators(indicator_ids: Iterable[int], changed_by: str = "system"):
+    indicator_ids = {int(i) for i in indicator_ids}
+    kpi_ids = [k["id"] for k in data_retriever.get_all_kpis_detailed() if k["indicator_id"] in indicator_ids]
+    recalculate_kpis(kpi_ids, changed_by)

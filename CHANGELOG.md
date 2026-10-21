@@ -2,6 +2,73 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.1.0] - 2026-10-21
+
+A security, correctness and operability release, from the [audit report](docs/audit.md). That file has the per-finding status and commits.
+
+### Security
+- **Formulas no longer use `eval`.** They are parsed with `ast` and walked through a strict whitelist, which closes a remote-code-execution hole. Formulas are validated when saved: syntax, known KPIs, no self-reference, no cycles.
+- **Roles.** The first account is the admin, and self-registration then closes (`ALLOW_REGISTRATION=true` reopens it for regular accounts). Only admins can create or edit other users, reset passwords, manage other people's API keys, or restore backups. The rules live in one module (`user_management/access.py`) shared by REST and MCP.
+- **Login.** Logins are rate-limited (429), unknown names cost the same as known ones, changing your password signs out your other sessions, and deactivating a user revokes their sessions and API keys.
+- **Hardening.**
+  - CORS is limited to `CORS_ORIGINS`.
+  - Uploads are size-capped (`MAX_UPLOAD_MB`).
+  - Clients no longer receive tracebacks or raw errors.
+  - Swagger UI has an **Authorize** button.
+  - Containers run as non-root, and the backend and MCP ports are published on loopback.
+  - nginx sends a CSP and other security headers.
+
+### MCP server
+- **Rebuilt on the official `mcp` SDK.** Real clients (Claude Desktop and Code) can now connect, over stdio or Streamable HTTP with per-user API keys.
+- **Full REST parity: 60 tools.** New: plants, visibility, actuals, history, KPI templates, bulk multi-plant saves with split settings, the ML predictor (`analyze_seasonality`), CSV export, backup and restore, users, password changes and API keys. A test fails if a REST route has no tool.
+- **Writes are attributed to the API key's owner**, and admin tools follow that user's role. Over stdio, writes go to `MCP_STDIO_USER`, and admin tools are allowed unless `MCP_STDIO_ADMIN=false`.
+- Tool errors now reach the model with their message; tools carry read-only and destructive annotations; migrations run on start; `python src/mcp_server.py` works from any directory.
+
+### Calculation engine
+- **Rewritten repartition.**
+  - Month, quarter and week weights per period, with the profile as the day shape inside each period.
+  - Year-agnostic week keys `W01`..`W53`, and correct ISO-week edges.
+  - Reconciliation by scaling, so no day goes negative.
+  - Separate rules for additive (Sum, Count) and level (Average, Last, Min, Max) types.
+  - The default is a true even split.
+- **Formula KPIs are actually computed.** Annual and daily values are calculated per target scenario, in dependency order, and can't be overwritten by hand.
+- **Recalculation on change.** Changing a split template, a split assignment, a formula or an aggregation type recalculates the stored targets. A split applies only to the years it covers.
+- **ML predictor.** Weights come back keyed like templates and as percentages summing to 100, with no artificial 0% period; it runs off the event loop.
+
+### Data
+- **One connection layer** (`data_access/db.py`). Connections are always closed, have a busy timeout and enforce foreign keys. Saves, repartitions and deletes that span several database files commit atomically.
+- **Migrations repair legacy databases** created by earlier versions: the calc-type CHECK, the foreign key to a dropped table, cross-file foreign keys, and untyped columns.
+- **Backup and restore.**
+  - Backups keep NULL as `\N`, and include units and history.
+  - Restore validates the ZIP, snapshots the databases first, and *replaces* the data in one transaction.
+- Soft-deleted KPIs are hidden everywhere, KPI templates work, and periodic results come back in chronological order.
+
+### Web app
+- **Target Entry.** Inputs reset when the year or plant has no data, blank boxes are never saved as 0, formula KPIs are read-only, and a confirmation appears before saving to all facilities.
+- **KPI Explorer.** No render loop, edits survive refetches, deletes ask for confirmation, and the tree works with the keyboard. The audit history says what changed, and names plants and target scenarios.
+- **First run.** A fresh install offers to create the first (admin) account. This regressed during the release.
+- **Sessions and errors.** Only a 401 signs you out; network errors show a retry screen. Failed saves raise a toast, and the cache is cleared on sign-out.
+- **Container.** The app calls `/api` on its own origin (Vite and nginx proxy it), so it works from any host.
+- **Accessibility and tooling.** Labelled inputs, ARIA names, visible focus, and better contrast. Strict TypeScript, react-hooks lint rules, vitest, and a smaller initial bundle (charts are lazy-loaded).
+
+### Packaging and operations
+- Fixed `requirements.txt` and `pyproject.toml` (the `mcp` dependency was missing; removed GUI dependencies were dropped) and pinned versions; regenerated `uv.lock`.
+- The backend image shrank from 1.24 GB to 513 MB and is built once for both backend and MCP.
+- Compose gained healthchecks, start ordering, and configurable ports (`FRONTEND_PORT`, `BACKEND_BIND_ADDRESS`, `MCP_BIND_ADDRESS`).
+- Containers no longer run as root. Existing volumes may need `chown -R 1000:1000` (see the README).
+- New scripts: `scripts/dev_backend.py` (throwaway dev database), `scripts/seed_demo.py` (demo data), `scripts/capture_screenshots.py` (doc screenshots).
+- `.dockerignore` patterns now match nested paths (`**/__pycache__`, `**/*.db`), so bytecode caches and stray `src/databases/` files no longer end up in the backend image.
+
+### Removed
+- The Tkinter and Streamlit GUIs. They bypassed login, wrote to SQLite directly, and Streamlit no longer started.
+
+### Docs
+- Rewrote the README and every guide.
+- New [user guide](docs/user_guide.md) with screenshots of every screen, a new [MCP guide](docs/mcp.md), and an architecture diagram.
+- Moved the audit report from the repository root to [docs/audit.md](docs/audit.md).
+- New [illustrated HTML guide](docs/guide/index.html): every screen with numbered callouts, plus the calculation engine, REST API, MCP, configuration, operations and an FAQ. `scripts/capture_screenshots.py` measures the callout positions from the live page while it takes the screenshots, and now also captures the split editor, KPI settings, the weekly seasonal chart and Swagger UI.
+- The README lists every feature and every configuration variable.
+
 ## [2.0.0] - 2026-07-25
 
 ### Added
