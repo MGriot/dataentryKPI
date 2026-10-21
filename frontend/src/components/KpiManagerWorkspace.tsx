@@ -3,6 +3,7 @@ import { Layers, Folder, Plus, Trash2, Code, Shield, Save, Loader2, CheckCircle2
 import type { GlobalSplit, KpiNode, KpiDetailedSpec, Plant, VisibilityEntry } from '../types';
 import { CALC_TYPE_OPTIONS, parseTargetLabels, targetLabel } from '../types';
 import { buildSpecUpdate, initialForm } from '../utils/forms';
+import { describeDefinitionChange } from '../utils/history';
 import type { SpecForm } from '../utils/forms';
 import {
   useCreateKpiNode,
@@ -125,6 +126,8 @@ const KpiInspector: React.FC<{ kpi: KpiDetailedSpec; kpis: KpiDetailedSpec[]; pl
   const [showHistory, setShowHistory] = useState(false);
   const { data: definitionHistory = [] } = useKpiDefinitionHistory(showHistory ? kpi.id : null);
   const { data: targetHistory = [] } = useKpiTargetHistory(showHistory ? kpi.id : null);
+  const savedLabels = parseTargetLabels(kpi.target_labels);
+  const plantName = (plantId: number) => plants.find((p) => p.id === plantId)?.name ?? `plant #${plantId}`;
 
   const { data: visibilityOverrides = NO_OVERRIDES } = useKpiVisibility(kpi.id);
   const updateVisibility = useUpdateKpiVisibility();
@@ -526,7 +529,7 @@ const KpiInspector: React.FC<{ kpi: KpiDetailedSpec; kpis: KpiDetailedSpec[]; pl
                   {targetHistory.map((h) => (
                     <li key={h.id}>
                       <span className="muted">{new Date(h.changed_at).toLocaleString()}</span> <strong>{h.changed_by}</strong>{' '}
-                      set Target {h.target_number} (plant #{h.plant_id}, {h.period_start.slice(0, 4)}) to <strong>{h.new_value ?? 'n/a'}</strong> (was {h.old_value ?? 'n/a'})
+                      set {targetLabel(h.target_number, savedLabels)} ({plantName(h.plant_id)}, {h.period_start.slice(0, 4)}) to <strong>{h.new_value ?? 'n/a'}</strong> (was {h.old_value ?? 'n/a'})
                     </li>
                   ))}
                 </ul>
@@ -540,7 +543,7 @@ const KpiInspector: React.FC<{ kpi: KpiDetailedSpec; kpis: KpiDetailedSpec[]; pl
                 <ul className="history-list">
                   {definitionHistory.map((h) => (
                     <li key={h.id}>
-                      <span className="muted">{new Date(h.changed_at).toLocaleString()}</span> <strong>{h.changed_by}</strong> {h.change_type}
+                      <span className="muted">{new Date(h.changed_at).toLocaleString()}</span> <strong>{h.changed_by}</strong> {describeDefinitionChange(h)}
                     </li>
                   ))}
                 </ul>
