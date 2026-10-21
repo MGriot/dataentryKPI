@@ -67,6 +67,7 @@ A security, correctness and operability release, from the [audit report](docs/au
 - New [user guide](docs/user_guide.md) with screenshots of every screen, a new [MCP guide](docs/mcp.md), and an architecture diagram.
 - Moved the audit report from the repository root to [docs/audit.md](docs/audit.md).
 - New [illustrated HTML guide](docs/guide/index.html): every screen with numbered callouts, plus the calculation engine, REST API, MCP, configuration, operations and an FAQ. `scripts/capture_screenshots.py` measures the callout positions from the live page while it takes the screenshots, and now also captures the split editor, KPI settings, the weekly seasonal chart and Swagger UI.
+- The README lists every feature and every configuration variable.
 
 ## [2.0.0] - 2026-07-25
 

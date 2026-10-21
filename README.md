@@ -18,26 +18,178 @@ All three share the same databases and the same rules (validation, roles, audit 
 
 ## Features
 
-- **KPI hierarchy.** Folders of KPIs. Each KPI has:
-  - a unit, a direction (higher, lower or range) and alert thresholds;
-  - a number of target scenarios with your own names (e.g. *Budget* / *Stretch*);
-  - an aggregation type: **Sum** and **Count** split the target across periods, while **Average**, **Last**, **Min** and **Max** treat it as a level.
-- **Formula KPIs.** `[1] / [2]` computes *Units per Hour* from *Units Produced* and *Hours Worked*. Formulas are recalculated automatically, in dependency order, whenever an input changes. They're evaluated by a whitelisted AST walker (no `eval`), and cycles are rejected when you save.
-- **Repartition.** Every saved annual target becomes day, week, month and quarter targets:
-  - Month, Quarter or ISO-week weights decide how much each period gets.
-  - A *day shape* spreads each period over its days: even, progressive, weekday-biased, sinusoidal, or with event spikes and dips.
-  - The result is reconciled exactly to the annual figure.
-- **Global split templates.** Reusable seasonal curves, assigned to KPIs, optionally limited to specific years. Editing a template recalculates every KPI that uses it.
-- **ML seasonality predictor.** Upload historical data (CSV or Excel) with optional driver columns, such as temperature or promotions. OLS, Ridge and Random Forest are raced, and the winner's seasonal weights, with a 5–95% band, can be published as a template.
-- **Facilities.** Per-plant visibility of KPIs, chart colours, and "apply to all facilities" saves.
-- **Analysis.** Multi-plant charts and an annual summary table, with a periodic-target CSV export.
-- **Accounts and audit trail.**
-  - The first account becomes the administrator, and self-registration then closes.
-  - Admins manage users, password resets and restores; everyone else manages only their own account.
-  - Every target value and definition change records who made it and when.
-- **Data utilities.** Human-readable CSV exports and a full ZIP backup. Restore *replaces* the data in one transaction, after snapshotting the current databases.
+The web app covers everyday work. The REST API and the MCP server expose all of it, plus a few features marked *API/MCP only*.
 
-See the **[user guide](docs/user_guide.md)** for a tour of every screen.
+[Web app](#web-app) · [Calculation engine](#calculation-engine) · [Accounts, security and audit](#accounts-security-and-audit) · [Data and storage](#data-and-storage) · [REST API](#rest-api) · [MCP server](#mcp-server-ai-agents) · [Deployment and tooling](#deployment-and-tooling)
+
+### Web app
+
+- **One header for every screen:**
+  - tabs for the six workspaces;
+  - a quick search that filters the KPI cards;
+  - **year** and **facility** selectors, which Target Entry and Analysis follow;
+  - a reload button;
+  - your account, with an **Admin** badge for administrators.
+- **Target Entry.** One card per KPI enabled for the selected facility:
+  - Each card shows the unit, the number of target scenarios and the split template in use.
+  - Under each box, the previous two years' values are shown for reference.
+  - Scenarios carry their own names, e.g. *Budget* and *Stretch*.
+  - **Save** stores the annual values. It then recalculates the day, week, month and quarter targets, and every formula KPI that depends on this one.
+  - Blank boxes are left unchanged; they are never saved as 0.
+  - Switching to a year or facility with no data clears the boxes.
+  - **Apply saves to all visible facilities** writes the same values everywhere, after a confirmation.
+  - Formula KPIs are read-only and marked *Formula derived*.
+- **KPI Explorer.**
+  - **Folder tree.** Add top-level folders, sub-folders and KPIs. The tree can be driven entirely from the keyboard.
+  - **Definition fields:**
+    - description;
+    - unit of measure, with a *New unit* shortcut;
+    - aggregation type;
+    - directional goal (higher, lower or range);
+    - number of targets (1–10) and their scenario names;
+    - target granularity;
+    - owner;
+    - default visibility;
+    - performance alert thresholds;
+    - actuals time filter (a rolling window of *N* days).
+  - **Split template.** Assign one per KPI; saving it recalculates the KPI's stored targets.
+  - **Formula editor.** A toolbar inserts KPI references `[id]`, operators, and `abs`, `min`, `max` and `round`. Formulas are validated when saved: syntax, known KPIs, no self-reference, no cycles. A cycle error names the loop, e.g. `[2] -> [4] -> [2]`.
+  - **Facility enablement.** Turn a KPI off for specific facilities.
+  - **Audit history.** Who changed which target value, for which facility and scenario, and which definition fields changed (old → new).
+  - **Delete.** Deleting is soft: the KPI disappears everywhere, but its targets and history are kept. A confirmation comes first.
+- **Global Splits & ML.**
+  - Create, edit and delete split templates. Weights are set per **month**, **quarter** or **ISO week**, and a running total shows their sum.
+  - Choose a day shape inside each period, and limit the template to specific years or let it cover all years.
+  - Five presets are included: Uniform, Annual Progressive, Weekday Bias, Sinusoidal, Event Based (shutdowns).
+  - The ML seasonality predictor is built in. See below.
+- **Analysis & Results.**
+  - Charts of any KPI's targets per day, week, month, quarter or year, for one facility or all of them side by side.
+  - An annual summary table for this year and last year.
+  - Export of the chart's periodic targets to CSV.
+- **Facilities.** Add, edit and delete facilities.
+  - Each facility has a chart colour and can be hidden; hidden facilities are skipped by *apply to all*.
+  - A facility that has data can only be deleted after a second confirmation, which deletes its data too.
+- **Data Utilities.**
+  - CSV exports and a full ZIP backup, plus restore (admins only).
+  - Change your own password.
+  - User administration (admins only).
+  - MCP API keys.
+- **Usability.**
+  - A toast appears when a save fails, and a retry screen when the backend can't be reached. Only a real 401 signs you out.
+  - Labelled inputs, ARIA names, visible focus and WCAG-friendly contrast.
+  - Charts are lazy-loaded, which keeps the first load small.
+
+### Calculation engine
+
+- **Aggregation types.** **Sum** and **Count** treat the annual target as a total that the periods add up to. **Average**, **Last**, **Min** and **Max** treat it as a level. Weeks, months and quarters are aggregated from the daily series accordingly.
+- **Repartition.** Every saved annual target becomes a daily series for its year, which is then rolled up into ISO weeks (`2026-W05`), months and quarters:
+  1. A **day shape** gives every day a weight: even, progressive ramp, weekday-biased, sinusoidal, or event-based.
+  2. **Period weights** (month, quarter or week) decide how much of the year each period gets. A weight of 0 really means 0.
+  3. **Events** (`start_date`, `end_date`, `multiplier`, `addition`) model shutdowns, spikes and dips.
+  4. **Reconciliation by scaling** makes the sum (Sum and Count) or the mean (level types) match the annual figure exactly, without pushing any day negative.
+  - Leap years, ISO weeks that belong to the neighbouring year, and all-zero weights are handled, and tests cover them.
+- **Split templates.**
+  - Templates are reusable and can be limited to specific years.
+  - Week keys `W01`..`W53` don't depend on the year.
+  - Every change recalculates the affected KPIs: assigning, editing, relinking or deleting a template.
+  - A curve preview turns a shape into starting weights.
+- **Formula KPIs.**
+  - `[1] / [2]` computes *Units per Hour* from *Units Produced* and *Hours Worked*.
+  - **Safe evaluation.** A whitelisted AST walker evaluates formulas, never `eval`. Size and exponents are bounded, and division by zero gives 0.
+  - **Per scenario.** Target *N* is computed from target *N* of its inputs.
+  - **Daily values.** The daily series is computed day by day from the inputs' daily series, so a ratio follows its inputs' seasonality.
+  - **Dependency order.** A save recomputes every dependent formula, in topological order, in the same transaction.
+  - A visual formula DAG (`formula_json`) is also supported.
+- **ML seasonality predictor.**
+  1. Upload a CSV or Excel file of history (size-capped). Name the date column, one or more target columns, and optional **driver** columns (temperature, promotions, a market index…).
+  2. Targets are averaged per month, quarter or ISO week across years and normalised to a share of the mean. Drivers are min-max scaled.
+  3. **OLS**, **Ridge** and a **Random Forest** are raced. The best R² wins, after a complexity penalty for small datasets.
+  4. 100 Monte Carlo runs give a **5–95% band**.
+  5. The weights come back as percentages summing to 100, keyed like template weights, so **Publish as template** uses them as they are.
+  - The predictor runs in a worker thread, so it never blocks the API.
+- **Actuals and performance status** *(API/MCP only)*:
+  - Record measured values per KPI, plant and day.
+  - The status of the latest actual against its target is `on_track`, `warning` or `out_of_range`. It follows the KPI's direction and threshold margins, which are relative to |target|.
+  - It includes a least-squares **trend** and an optional rolling window.
+- **KPI definition templates** *(API/MCP only)*. Reusable sets of KPI definitions. Applying one to a folder creates its KPIs there, and later edits to the template propagate.
+- **Units of measure registry**, shared by every KPI.
+
+### Accounts, security and audit
+
+- **Accounts.** The **first account becomes the administrator**, and self-registration then closes. `ALLOW_REGISTRATION=true` reopens it for regular accounts.
+- **Roles.**
+  - Admins create and edit users, reset passwords, grant or remove admin rights, manage anyone's API keys, and restore backups.
+  - Everyone else manages only their own profile, password and keys.
+  - The last active admin can't be removed.
+  - One module (`user_management/access.py`) enforces these rules for both REST and MCP.
+- **Sign-in.**
+  - Passwords are hashed with PBKDF2-HMAC-SHA256, and sessions last 30 days.
+  - Logins are rate-limited (HTTP 429), and unknown names take as long to reject as known ones.
+  - Changing your password signs out your other sessions. Deactivating a user revokes their sessions and API keys.
+- **Audit trail.**
+  - Every KPI definition change is recorded with the user, the time, and the old and new values.
+  - So is every annual target value that actually changes, with the plant and scenario.
+  - Re-saving identical values isn't recorded.
+  - The user always comes from the session or API key, never from the request.
+- **Hardening.**
+  - CORS allowlist (`CORS_ORIGINS`) and upload size caps (`MAX_UPLOAD_MB`).
+  - Clients never see tracebacks.
+  - nginx sends a CSP and other security headers.
+  - Containers run as a non-root user, with the API and MCP ports published on loopback only.
+
+### Data and storage
+
+- **SQLite, split across several files** (KPIs, targets, days, weeks, months, quarters, plants, users, templates, history, actuals). One connection layer closes every connection, sets a busy timeout and enforces foreign keys. Writes that span several files commit **atomically**.
+- **Automatic migrations** upgrade and repair databases created by earlier versions, every time the backend or the MCP server starts.
+- **CSV exports.** Seven human-readable tables (plants, hierarchy, definitions, visibility, annual targets, periodic targets, lean BI rows), for people and BI tools.
+- **Backup.** A full ZIP of every KPI table, 1:1, with NULLs preserved. User accounts, sessions and keys are excluded.
+- **Restore** *(admins only)*:
+  1. The ZIP is validated.
+  2. The current databases are snapshotted to `databases/backups/pre-restore-<timestamp>/`.
+  3. All KPI data is **replaced** in one transaction.
+- **Configurable locations.** `KPI_DB_DIR`, `KPI_EXPORT_DIR`, or `user_config/settings.json`.
+
+### REST API
+
+- **67 routes** for:
+  - auth;
+  - KPIs and folders;
+  - units;
+  - visibility;
+  - plants;
+  - split templates;
+  - annual and periodic targets;
+  - actuals;
+  - the ML analysis;
+  - KPI templates;
+  - exports, backup and restore;
+  - users and API keys.
+- **Swagger UI** at `/docs`, with an **Authorize** button. The OpenAPI schema is at `/openapi.json`.
+- Bearer session tokens, and `/health` for container healthchecks.
+
+### MCP server (AI agents)
+
+- **60 tools** covering everything the REST API does. They're built on the official `mcp` SDK, and a parity test fails if a REST route has no tool.
+- **Transports:**
+  - **stdio** for local clients such as Claude Desktop and Claude Code;
+  - **Streamable HTTP** for shared use. Every request needs a per-user API key.
+- Writes are attributed to the API key's owner (`changed_by`), and admin tools follow that user's role.
+- Tools carry read-only and destructive annotations. Errors reach the model as readable messages.
+
+### Deployment and tooling
+
+- **Compose stack** (Podman or Docker):
+  - three services: the nginx frontend, the backend and the MCP server;
+  - healthchecks and start ordering, with the backend running the migrations;
+  - one shared data volume;
+  - one 513 MB backend image, shared by the backend and the MCP server.
+- **Dev scripts:**
+  - `dev_backend.py` runs the API on a throwaway database;
+  - `seed_demo.py` loads demo data;
+  - `capture_screenshots.py` regenerates the doc screenshots and the guide's annotations.
+- **Tests:** 147 pytest tests and 15 vitest tests, strict TypeScript, and oxlint with the react-hooks rules and no warnings allowed.
+
+See the **[illustrated guide](docs/guide/index.html)** (open it in a browser) or the **[user guide](docs/user_guide.md)** for a tour of every screen.
 
 ## Quick start
 
@@ -135,16 +287,22 @@ The key's owner is recorded as `changed_by` on every write, and their role decid
 | Variable | Default | Purpose |
 |---|---|---|
 | `KPI_DB_DIR` | `./databases` | Where the SQLite files live |
+| `KPI_EXPORT_DIR` | `./csv_exports` | Where CSV exports are written |
+| `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Bind address for `python src/api.py` (`dev_backend.py` reads `API_PORT`) |
 | `CORS_ORIGINS` | localhost:3000/5173 | Origins allowed to call the REST API directly |
 | `ALLOW_REGISTRATION` | `false` | Let anyone register (non-admin) accounts after the first one |
 | `MAX_UPLOAD_MB` | `20` | Size cap for ML datasets and backup restores (REST and MCP) |
 | `LOG_LEVEL` | `INFO` | Backend log level |
+| `MCP_TRANSPORT` | `stdio` | `http` does the same as `--http` |
 | `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8001` | HTTP transport bind address |
 | `MCP_PUBLIC_URL` | `http://localhost:8001` | URL clients use (advertised in auth metadata) |
 | `MCP_ALLOWED_HOSTS` | `localhost:*,127.0.0.1:*` | Host headers accepted when binding to a non-loopback address |
 | `MCP_STDIO_USER` | `mcp_agent` | Who stdio writes are attributed to |
 | `MCP_STDIO_ADMIN` | `true` | Whether the local stdio operator may use admin tools |
 | `FRONTEND_PORT`, `BACKEND_BIND_ADDRESS`, `MCP_BIND_ADDRESS` | `3000`, `127.0.0.1`, `127.0.0.1` | Compose port publishing |
+| `VITE_API_URL` | *(empty)* | Frontend **build-time** API base. Leave it empty to use the same-origin `/api` proxy. If you set it, add that origin to `CORS_ORIGINS`. |
+
+Outside containers, `user_config/settings.json` (`database_base_dir`, `csv_export_base_dir`) can also set the two data directories. Environment variables take precedence over it.
 
 ## Tests
 
@@ -186,11 +344,12 @@ src/
   import_manager.py       validated, transactional restore
 scripts/                  dev_backend.py, seed_demo.py, capture_screenshots.py
 tests/                    pytest suite
-docs/                     guides, reference, screenshots
+docs/                     guides, reference, screenshots, HTML guide (guide/), audit report
 ```
 
 ## Documentation
 
+- **[Illustrated guide (HTML)](docs/guide/index.html)**: the complete manual, with annotated screenshots. Open it in a browser; GitHub shows the HTML source.
 - **[User guide](docs/user_guide.md)**: every screen, with screenshots.
 - **[MCP server](docs/mcp.md)**: transports, authentication, roles, and all 60 tools.
 - **[REST API reference](docs/api_reference.md)**: every route, auth and roles.
