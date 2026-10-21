@@ -777,12 +777,12 @@ npm --prefix frontend run dev</code></pre></div></li>
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"kpi_id": 3, "plant_id": 1, "measurement_date": "2026-10-20", "actual_value": 83.2}'
 
-curl "http://127.0.0.1:8000/kpis/3/status?plant_id=1&amp;target_value=85" \
+curl "http://127.0.0.1:8000/kpis/3/status?plant_id=1" \
   -H "Authorization: Bearer $TOKEN"</code></pre></div>
     <p class="code-label">Response:</p>
     <div class="code"><pre><code>{"kpi_id": 3, "plant_id": 1, "status": "warning", "diff_pct": -2.12, "actual_count": 1,
- "latest_actual": 83.2, "target": 85.0, "trend_slope": 0.0, "trend_direction": "stable"}</code></pre></div>
-    <div class="note warn"><strong>Pass <code>target_value</code></strong><p>The status endpoint doesn't look up the KPI's stored target. If <code>target_value</code> is left out, it compares against a baseline of 100.</p></div>
+ "latest_actual": 83.2, "target": 85.0, "target_source": "daily", "trend_slope": 0.0, "trend_direction": "stable"}</code></pre></div>
+    <div class="note"><strong>Which target is used</strong><p>The stored daily target for the date of the latest actual, for that plant. For a level KPI (Average, Last, Min, Max) that's the level for the day, and for an additive KPI (Sum, Count) it's the day's share. If a level KPI has no daily rows, its annual target is used; an additive KPI doesn't fall back, because an annual total can't be compared with one day. Choose a scenario with <code>target_number</code> (default 1). <code>target_value</code> overrides the lookup. If no target is stored, the call fails with 404 (MCP: a tool error); it doesn't fall back to a default value. <code>target_source</code> says which target was used: <code>daily</code>, <code>annual</code> or <code>explicit</code>.</p></div>
   </section>
 
   <!-- ============================================================ REST API -->
@@ -962,7 +962,7 @@ curl "http://127.0.0.1:8000/kpis/1/periodic-targets?plant_id=1&amp;year=2027&amp
     <details><summary>Port 3000 doesn't work on Windows</summary><div><p>Hyper-V may have reserved it. Run <code>netsh interface ipv4 show excludedportrange protocol=tcp</code>, and if 3000 is in a range, set <code>FRONTEND_PORT=8080</code> in <code>.env</code>.</p></div></details>
     <details><summary>The containers fail with “permission denied” on the database after an upgrade</summary><div><p>The volume was created by root under 2.0. Run the one-time <code>chown</code> from <a href="#upgrade-2-0">Upgrading from 2.0 containers</a>.</p></div></details>
     <details><summary>The MCP client can't connect over HTTP</summary><div><p>Every request needs <code>Authorization: Bearer &lt;api key&gt;</code>. Check that the key isn't revoked and that its owner is active. If the server isn't on loopback, add the host name you connect with to <code>MCP_ALLOWED_HOSTS</code>.</p></div></details>
-    <details><summary>The performance status compares against 100</summary><div><p>Pass the target explicitly: <code>GET /kpis/{id}/status?plant_id=1&amp;target_value=85</code> (MCP: <code>get_performance_status</code> with <code>target_value</code>). Without it, the baseline is 100.</p></div></details>
+    <details><summary>The performance status returns 404 “No target … stored”</summary><div><p>The status compares the latest actual with the stored target for that day, plant and scenario, and there is none. This happens when the year of the latest actual has no annual target, or the target belongs to another plant or <code>target_number</code>. Save the annual target in Target Entry, or pass one explicitly: <code>GET /kpis/{id}/status?plant_id=1&amp;target_value=85</code> (MCP: <code>get_performance_status</code> with <code>target_value</code>).</p></div></details>
     <details><summary>The ML predictor rejects my file</summary><div><p>Check the column names (they're case-sensitive) and that the date column parses. Also check the limits: <code>MAX_UPLOAD_MB</code>, 1M rows and 200 columns.</p></div></details>
   </section>
 

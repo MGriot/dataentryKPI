@@ -49,7 +49,7 @@ This page maps the routes to what they do and who may call them. AI agents shoul
 | `PUT /kpis/{id}` | `{data_updates: {...}}`. Only the fields in `kpi_crud.UPDATABLE_SPEC_FIELDS`. A `formula_string` is validated (syntax, known KPIs, no cycles). Formula, aggregation-type and target-count changes recalculate stored targets. |
 | `DELETE /kpis/{id}` | Soft delete: hidden everywhere, data kept |
 | `POST /kpis/nodes` | Create a folder `{name, parent_id?}` |
-| `GET /kpis/{id}/status` | `?plant_id=&target_value=`. Latest actual against target, and the trend. |
+| `GET /kpis/{id}/status` | `?plant_id=&target_number=&target_value=`. Latest actual against the stored target for that day and scenario (`target_number`, default 1), and the trend. `target_value` overrides it; 404 if there is no stored target. |
 | `GET /kpis/{id}/history` | Definition audit trail |
 | `GET /kpis/{id}/target-history` | Target value audit trail, `?plant_id=` |
 | `GET` / `PUT /kpis/{id}/visibility` | Per-plant enable/disable overrides `[{plant_id, is_enabled}]` |

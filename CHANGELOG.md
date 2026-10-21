@@ -33,6 +33,7 @@ A security, correctness and operability release, from the [audit report](docs/au
   - The default is a true even split.
 - **Formula KPIs are actually computed.** Annual and daily values are calculated per target scenario, in dependency order, and can't be overwritten by hand.
 - **Recalculation on change.** Changing a split template, a split assignment, a formula or an aggregation type recalculates the stored targets. A split applies only to the years it covers.
+- **Performance status uses the stored target.** `GET /kpis/{id}/status` and MCP `get_performance_status` used to compare against 100 unless `target_value` was passed. They now use the stored daily target for the latest actual's date and scenario (new `target_number`, default 1). Level KPIs fall back to the annual target; additive KPIs don't. With no stored target the call fails (404 / tool error). `target_value` still overrides.
 - **ML predictor.** Weights come back keyed like templates and as percentages summing to 100, with no artificial 0% period; it runs off the event loop.
 
 ### Data

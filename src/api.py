@@ -483,9 +483,16 @@ def soft_delete_kpi(kpi_id: int, current_user: dict = Depends(get_current_user))
 
 
 @app.get("/kpis/{kpi_id}/status", tags=["kpis"])
-def get_kpi_status(kpi_id: int, plant_id: int, target_value: Optional[float] = None):
+def get_kpi_status(kpi_id: int, plant_id: int, target_value: Optional[float] = None,
+                   target_number: int = Query(1, ge=1, le=10)):
+    """Latest actual vs target. Without target_value, uses the stored target (scenario target_number)
+    for the latest actual's day -- 404 if there is none."""
     _kpi_or_404(kpi_id)
-    return data_retriever.get_kpi_performance_status(kpi_id=kpi_id, plant_id=plant_id, target_value=target_value)
+    try:
+        return data_retriever.get_kpi_performance_status(
+            kpi_id=kpi_id, plant_id=plant_id, target_value=target_value, target_number=target_number)
+    except LookupError as e:
+        _bad(e, 404)
 
 
 @app.get("/kpis/{kpi_id}/history", tags=["kpis"])

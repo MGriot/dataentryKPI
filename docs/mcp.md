@@ -111,7 +111,7 @@ async with Client(streamable_http_client("http://127.0.0.1:8001/mcp", http_clien
 |---|---|
 | `record_actual` | Record (or overwrite) a measured value for a KPI, plant and day |
 | `list_actuals` | Measured values, optionally between two dates |
-| `get_performance_status` | Latest actual against target: `on_track`, `warning` or `out_of_range`, with the trend |
+| `get_performance_status` | Latest actual against target: `on_track`, `warning` or `out_of_range`, with the trend. The target is the stored one for that day and scenario (`target_number`, default 1) unless `target_value` is passed, and the tool fails if none is stored. |
 
 ### Split templates
 | Tool | What it does |

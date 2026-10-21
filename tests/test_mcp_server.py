@@ -230,6 +230,36 @@ def test_plants_visibility_actuals_and_history():
     assert "force" in _error_text(refused).lower() or "referenced" in _error_text(refused).lower()
 
 
+def test_performance_status_uses_the_stored_target():
+    plant = plants_crud.add_plant("Main")
+
+    async def run(client):
+        node = _data(await client.call_tool("add_kpi_node", {"name": "Ops"}))["node_id"]
+        kpi = _data(await client.call_tool("create_kpi_indicator", {"node_id": node, "name": "OEE", "calculation_type": "Average"}))["kpi_id"]
+        _data(await client.call_tool("record_actual", {"kpi_id": kpi, "plant_id": plant, "measurement_date": "2026-03-10", "actual_value": 83.2}))
+        no_target = await client.call_tool("get_performance_status", {"kpi_id": kpi, "plant_id": plant})
+        _data(await client.call_tool("update_target_value", {"kpi_id": kpi, "plant_id": plant, "year": 2026, "value": 85}))
+        stored = _data(await client.call_tool("get_performance_status", {"kpi_id": kpi, "plant_id": plant}))
+        explicit = _data(await client.call_tool("get_performance_status", {"kpi_id": kpi, "plant_id": plant, "target_value": 80}))
+        other_scenario = await client.call_tool("get_performance_status", {"kpi_id": kpi, "plant_id": plant, "target_number": 2})
+        return no_target, stored, explicit, other_scenario
+
+    no_target, stored, explicit, other_scenario = _run(run)
+    assert "No target 1" in _error_text(no_target) and "target_value" in _error_text(no_target)
+    assert stored["target"] == pytest.approx(85) and stored["target_source"] == "daily"
+    assert stored["status"] == "warning" and stored["diff_pct"] == pytest.approx(-2.12)
+    assert explicit["target"] == 80 and explicit["target_source"] == "explicit" and explicit["status"] == "on_track"
+    assert "No target 2" in _error_text(other_scenario)
+
+
+def test_performance_status_parameters_match_rest():
+    from src import api
+
+    rest = {p["name"] for p in api.app.openapi()["paths"]["/kpis/{kpi_id}/status"]["get"]["parameters"]}
+    assert rest == set(_list_tools()["get_performance_status"].input_schema["properties"])
+    assert rest == {"kpi_id", "plant_id", "target_value", "target_number"}
+
+
 def test_bulk_save_with_split_settings_and_target_queries():
     p1, p2 = plants_crud.add_plant("A"), plants_crud.add_plant("B")
     weights = {m: (20 if m == "January" else 80 / 11) for m in (

@@ -310,13 +310,15 @@ def get_actual_measurements(kpi_id: int, plant_id: int, start_date: str = None, 
     return actuals_service.get_actual_measurements(kpi_id, plant_id, start_date, end_date)
 
 
-def get_kpi_performance_status(kpi_id: int, plant_id: int, target_value: float = None) -> dict:
+def get_kpi_performance_status(kpi_id: int, plant_id: int, target_value: float = None, target_number: int = 1) -> dict:
+    """Latest actual vs target_value, or (if None) the stored target `target_number` for that day.
+
+    Raises LookupError when no target is passed and none is stored.
+    """
     from src.services import actuals_service
     kpi_spec = get_kpi_detailed_by_id(kpi_id)
     if not kpi_spec:
         return {"error": f"KPI Spec with ID {kpi_id} not found"}
-    if target_value is None:
-        target_value = 100.0  # Fallback baseline
     return actuals_service.get_performance_status_for_kpi(
         kpi_id=kpi_id,
         plant_id=plant_id,
@@ -325,6 +327,8 @@ def get_kpi_performance_status(kpi_id: int, plant_id: int, target_value: float =
         threshold_json=kpi_spec.get("threshold_json"),
         time_filter_type=kpi_spec.get("time_filter_type") or "None",
         time_filter_value=kpi_spec.get("time_filter_value"),
+        calc_type=kpi_spec.get("calculation_type"),
+        target_number=target_number,
     )
 
 

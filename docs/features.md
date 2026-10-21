@@ -91,6 +91,7 @@ Measured values (`actual_measurements`, one per KPI, plant and day) are compared
 | Lower is better | actual ≤ target | within `warning_margin` above the target | further above |
 | Range | inside [`min_target`, `max_target`] | within `error_margin` × span outside the range | further out |
 
+- **The target** is the stored daily target for the latest actual's date (plant and scenario `target_number`, default 1). That matches a daily actual for both kinds of KPI: for a level type it's the day's level, and for an additive type it's the day's share. If a level KPI (Average, Last, Min, Max) has no daily rows, its annual target, which is a level too, is used. Additive KPIs (Sum, Count) don't fall back, because an annual total can't be compared with one day. With no stored target the call fails (REST 404, MCP tool error), and an explicit `target_value` overrides the lookup. `target_source` in the response is `daily`, `annual` or `explicit`.
 - Margins come from the KPI's `threshold_json` (defaults: warning 0.05, error 0.15) and are relative to |target|, so negative targets work too.
 - The **trend** is the least-squares slope of the actuals series.
 - With `time_filter_type = Rolling`, only the last *N* days are considered.

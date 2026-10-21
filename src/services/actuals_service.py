@@ -2,8 +2,9 @@
 """Actual measurements and performance status (actual vs target, trend)."""
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from src.config.constants import is_additive
 from src.data_access import db
 
 
@@ -114,21 +115,65 @@ def evaluate_performance_status(
     return {"actual": actual, "target": target, "direction": direction, "status": status, "diff_pct": round(diff_pct, 2)}
 
 
+def get_stored_target(
+    kpi_id: int, plant_id: int, on_date: str, target_number: int = 1, calc_type: Optional[str] = None,
+) -> Tuple[float, str]:
+    """The stored target an actual measured on `on_date` (YYYY-MM-DD) is compared against: (value, source).
+
+    The day's repartitioned target comes first ("daily"): for a level KPI it is the level for that
+    day, for an additive KPI that day's share -- either way it matches one day's actual. Level KPIs
+    (Average, Last, Min, Max) fall back to the annual target ("annual"), which is itself a level.
+    Additive KPIs (Sum, Count) don't: an annual total isn't comparable with one day's actual.
+    Raises LookupError if there is no usable target.
+    """
+    year = int(on_date[:4])
+    with db.connect(db.DAYS) as conn:
+        row = conn.execute(
+            "SELECT target_value FROM daily_targets "
+            "WHERE year=? AND plant_id=? AND kpi_id=? AND target_number=? AND date_value=?",
+            (year, plant_id, kpi_id, target_number, on_date),
+        ).fetchone()
+    if row and row[0] is not None:
+        return float(row[0]), "daily"
+    if not is_additive(calc_type):
+        with db.connect(db.TARGETS) as conn:
+            row = conn.execute(
+                "SELECT v.target_value FROM kpi_annual_target_values v "
+                "JOIN annual_targets t ON v.annual_target_id = t.id "
+                "WHERE t.year=? AND t.plant_id=? AND t.kpi_id=? AND v.target_number=?",
+                (year, plant_id, kpi_id, target_number),
+            ).fetchone()
+        if row and row[0] is not None:
+            return float(row[0]), "annual"
+    raise LookupError(
+        f"No target {target_number} stored for KPI {kpi_id} at plant {plant_id} for {on_date}. "
+        f"Save a {year} annual target for it, or pass target_value."
+    )
+
+
 def get_performance_status_for_kpi(
     kpi_id: int,
     plant_id: int,
-    target_value: float,
+    target_value: Optional[float] = None,
     direction: str = "Higher is Better",
     threshold_json: Optional[str] = None,
     time_filter_type: str = "None",
     time_filter_value: Optional[str] = None,
+    calc_type: Optional[str] = None,
+    target_number: int = 1,
 ) -> Dict[str, Any]:
-    """Latest actual vs target_value (within the KPI's time filter), plus trend."""
+    """Latest actual (within the KPI's time filter) vs a target, plus trend.
+
+    An explicit target_value wins; otherwise the stored target for the latest actual's day is used
+    (see get_stored_target), and LookupError is raised if there is none.
+    """
+    target_source = "explicit" if target_value is not None else None
     all_measurements = get_actual_measurements(kpi_id, plant_id)
     if not all_measurements:
         return {
             "kpi_id": kpi_id, "plant_id": plant_id, "status": "no_data", "actual_count": 0,
-            "latest_actual": None, "target": target_value, "trend_slope": 0.0, "trend_direction": "stable",
+            "latest_actual": None, "target": target_value, "target_source": target_source,
+            "trend_slope": 0.0, "trend_direction": "stable",
         }
 
     filtered = all_measurements
@@ -142,6 +187,10 @@ def get_performance_status_for_kpi(
     values = [m["actual_value"] for m in filtered]
     latest_actual = values[-1] if values else None
     if latest_actual is not None:
+        if target_value is None:
+            target_value, target_source = get_stored_target(
+                kpi_id, plant_id, filtered[-1]["measurement_date"], target_number, calc_type
+            )
         eval_res = evaluate_performance_status(latest_actual, target_value, direction, threshold_json)
         status, diff_pct = eval_res["status"], eval_res["diff_pct"]
     else:
@@ -159,5 +208,5 @@ def get_performance_status_for_kpi(
     return {
         "kpi_id": kpi_id, "plant_id": plant_id, "status": status, "diff_pct": diff_pct,
         "actual_count": len(filtered), "latest_actual": latest_actual, "target": target_value,
-        "trend_slope": round(slope, 4), "trend_direction": trend_dir,
+        "target_source": target_source, "trend_slope": round(slope, 4), "trend_direction": trend_dir,
     }

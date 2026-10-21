@@ -439,10 +439,13 @@ def build_server(http: bool = False, port: int = 8001) -> MCPServer:
         return actuals_service.get_actual_measurements(kpi_id, plant_id, start_date, end_date)
 
     @tool(read_only=True)
-    def get_performance_status(kpi_id: int, plant_id: int, target_value: Optional[float] = None) -> Dict[str, Any]:
-        """Latest actual vs target (on_track / warning / out_of_range) with trend."""
+    def get_performance_status(kpi_id: int, plant_id: int, target_value: Optional[float] = None,
+                               target_number: Annotated[int, Field(ge=1, le=10)] = 1) -> Dict[str, Any]:
+        """Latest actual vs target (on_track / warning / out_of_range) with trend. Without target_value,
+        compares against the stored target (scenario target_number) for the latest actual's day."""
         _kpi(kpi_id)
-        return data_retriever.get_kpi_performance_status(kpi_id=kpi_id, plant_id=plant_id, target_value=target_value)
+        return data_retriever.get_kpi_performance_status(
+            kpi_id=kpi_id, plant_id=plant_id, target_value=target_value, target_number=target_number)
 
     # --- Global split templates ---
 
