@@ -357,7 +357,10 @@ export const GlobalSplitsWorkspace: React.FC<GlobalSplitsWorkspaceProps> = ({ se
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="period" stroke="var(--text-muted)" />
                 <YAxis stroke="var(--text-muted)" />
-                <Tooltip contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }} />
+                <Tooltip
+                  contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}
+                  formatter={(value) => (typeof value === 'number' ? value.toFixed(3) : value)}
+                />
                 <Legend />
                 <Line type="monotone" dataKey="Actual_Target" name="Historical (share of mean)" stroke="var(--text-secondary)" strokeDasharray="4 4" />
                 <Line type="monotone" dataKey="Predicted_Fit" name="Model fit" stroke="var(--accent-primary)" strokeWidth={2} />
