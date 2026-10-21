@@ -238,7 +238,8 @@ def update_kpi_spec_extended(kpi_id: int, data_updates: Dict[str, Any], changed_
         sets = ", ".join(f"{db.ident(k)} = ?" for k in updates)
         conn.execute(f"UPDATE kpis SET {sets} WHERE id = ?", (*updates.values(), kpi_id))
         new_state = dict(conn.execute("SELECT * FROM kpis WHERE id = ?", (kpi_id,)).fetchone())
-        history_service.record_definition_change(kpi_id, "UPDATE", old_state, new_state, changed_by, conn=conn, schema="hist")
+        if new_state != old_state:  # re-saving identical values isn't a change worth auditing
+            history_service.record_definition_change(kpi_id, "UPDATE", old_state, new_state, changed_by, conn=conn, schema="hist")
 
     if any(old_state.get(f) != new_state.get(f) for f in _CALC_FIELDS | {"is_calculated"}):
         annual.recalculate_kpis([kpi_id], changed_by=changed_by)
