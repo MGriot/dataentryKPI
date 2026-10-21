@@ -236,12 +236,12 @@ def build_server(http: bool = False, port: int = 8001) -> MCPServer:
         threshold_json: Optional[Dict[str, Any]] = None,
         target_granularity: str = "Monthly",
         target_count: Annotated[int, Field(ge=1, le=10)] = 1,
-        time_filter_type: Literal["None", "rolling"] = "None",
+        time_filter_type: Literal["None", "Rolling"] = "None",
         time_filter_value: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a KPI (indicator + spec) in a folder. Sum/Count split additively; Average/Last/Min/Max are levels.
 
-        threshold_json e.g. {"warning_margin": 0.05, "error_margin": 0.15}; time_filter "rolling" + "30" =
+        threshold_json e.g. {"warning_margin": 0.05, "error_margin": 0.15}; time_filter "Rolling" + "30" =
         status over the last 30 days of actuals. To make it a formula KPI, set formula_string with update_kpi_spec.
         """
         return kpi_crud.create_kpi_indicator(
