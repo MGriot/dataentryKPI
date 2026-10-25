@@ -66,6 +66,7 @@ A security, correctness and operability release, from the [audit report](docs/au
 - Rewrote the README and every guide.
 - New [user guide](docs/user_guide.md) with screenshots of every screen, a new [MCP guide](docs/mcp.md), and an architecture diagram.
 - Moved the audit report from the repository root to [docs/audit.md](docs/audit.md).
+- Moved the TODO list to [docs/todo.md](docs/todo.md) and stopped tracking the editor-specific `.vscode/` folder.
 - New [illustrated HTML guide](docs/guide/index.html): every screen with numbered callouts, plus the calculation engine, REST API, MCP, configuration, operations and an FAQ. `scripts/capture_screenshots.py` measures the callout positions from the live page while it takes the screenshots, and now also captures the split editor, KPI settings, the weekly seasonal chart and Swagger UI.
 - The README lists every feature and every configuration variable.
 

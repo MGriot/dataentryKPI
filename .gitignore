@@ -38,4 +38,5 @@ src/csv_exports/
 
 # Local tool state
 .omniscan/
+.vscode/
 .claude/settings.local.json
